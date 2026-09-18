@@ -87,6 +87,24 @@ jobs:
           rm -rf build-android-arm64
           meson setup build-android-arm64 --cross-file "$CROSS" -Dbuildtype=release -Dstrip=true -Ddxvk_native_wsi=sdl2
           ninja -C build-android-arm64 -j"$(nproc)"
+
+          # Meson's strip handling does not reliably shrink these Android shared objects.
+          # Strip debug/symbol baggage explicitly with the matching NDK tool so the
+          # launcher's renderer-slot size guard is not hit.
+          STRIP="$TC/bin/llvm-strip"
+          D3D11="$(find build-android-arm64 -type f -name 'libdxvk_d3d11.so' -print -quit)"
+          DXGI="$(find build-android-arm64 -type f -name 'libdxvk_dxgi.so' -print -quit)"
+          test -n "$D3D11" && test -n "$DXGI"
+          echo "=== before explicit strip ==="
+          ls -l "$D3D11" "$DXGI"
+          "$STRIP" --strip-unneeded "$D3D11"
+          "$STRIP" --strip-unneeded "$DXGI"
+          echo "=== after explicit strip ==="
+          ls -l "$D3D11" "$DXGI"
+          # Known R17 old31 payload sizes are ~8.2 MiB / ~5.4 MiB. Keep a little
+          # headroom and fail CI instead of producing an APK the launcher rejects.
+          test "$(stat -c %s "$D3D11")" -lt 8200000
+          test "$(stat -c %s "$DXGI")" -lt 5400000
           
           # Fail the build if the Linux SDL2 loader name survived compilation.
           if grep -RIl --binary-files=text 'libSDL2-2.0.so.0' build-android-arm64 | grep -q .; then
