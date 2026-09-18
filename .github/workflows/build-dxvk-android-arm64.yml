@@ -178,6 +178,22 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # GPU synchronization audit guard. Keep relaxed barriers enabled, but
+          # never promote this profile to ignoreGraphicsBarriers: the latter can
+          # remove required graphics hazards and trade benchmark FPS for corruption.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_options.cpp")
+          s = p.read_text()
+          required = [
+            '("d3d11.relaxedBarriers", true)',
+            '("d3d11.ignoreGraphicsBarriers", false)',
+          ]
+          for needle in required:
+            if needle not in s:
+              raise SystemExit(f"Unsafe A840 barrier profile: missing {needle}")
+          PY
+
           # A840 descriptor lifetime pass. Recycle oversized/under-used descriptor
           # pools sooner so stale Vulkan descriptor allocations do not linger for
           # many frames. This changes lifetime only; descriptor contents/bindings
