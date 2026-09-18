@@ -178,6 +178,59 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # GTA V OM hot-path: skip the expensive full RTV/UAV overlap validation
+          # when OMSetRenderTargets is called with exactly the framebuffer that is
+          # already bound. No state, hazard or synchronization is changed in that case.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_context.cpp")
+          s = p.read_text()
+          old = '''  void D3D11CommonContext<ContextType>::SetRenderTargetsAndUnorderedAccessViews(
+          UINT                              NumRTVs,
+          ID3D11RenderTargetView* const*    ppRenderTargetViews,
+          ID3D11DepthStencilView*           pDepthStencilView,
+          UINT                              UAVStartSlot,
+          UINT                              NumUAVs,
+          ID3D11UnorderedAccessView* const* ppUnorderedAccessViews,
+    const UINT*                             pUAVInitialCounts) {
+    if (TestRtvUavHazards(NumRTVs, ppRenderTargetViews, NumUAVs, ppUnorderedAccessViews))
+      return;
+'''
+          new = '''  void D3D11CommonContext<ContextType>::SetRenderTargetsAndUnorderedAccessViews(
+          UINT                              NumRTVs,
+          ID3D11RenderTargetView* const*    ppRenderTargetViews,
+          ID3D11DepthStencilView*           pDepthStencilView,
+          UINT                              UAVStartSlot,
+          UINT                              NumUAVs,
+          ID3D11UnorderedAccessView* const* ppUnorderedAccessViews,
+    const UINT*                             pUAVInitialCounts) {
+    // Fast path for redundant OMSetRenderTargets calls. This is deliberately
+    // limited to the no-UAV form so UAV initial counters and hazard semantics
+    // can never be skipped.
+    if (likely(NumUAVs == 0 && NumRTVs != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL)) {
+      bool unchanged = NumRTVs == m_state.om.maxRtv
+                    && m_state.om.dsv.ptr() == static_cast<D3D11DepthStencilView*>(pDepthStencilView);
+
+      for (uint32_t i = 0; unchanged && i < m_state.om.rtvs.size(); i++) {
+        auto rtv = i < NumRTVs
+          ? static_cast<D3D11RenderTargetView*>(ppRenderTargetViews[i])
+          : nullptr;
+        unchanged = m_state.om.rtvs[i].ptr() == rtv;
+      }
+
+      if (unchanged)
+        return;
+    }
+
+    if (TestRtvUavHazards(NumRTVs, ppRenderTargetViews, NumUAVs, ppUnorderedAccessViews))
+      return;
+'''
+          if old not in s:
+            raise SystemExit("Expected DXVK 2.3.1 OM target function pattern missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n -A25 "Fast path for redundant OMSetRenderTargets" dxvk/src/d3d11/d3d11_context.cpp
+
           # GPU synchronization audit guard. Keep relaxed barriers enabled, but
           # never promote this profile to ignoreGraphicsBarriers: the latter can
           # remove required graphics hazards and trade benchmark FPS for corruption.
