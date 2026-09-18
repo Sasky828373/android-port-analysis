@@ -37,7 +37,7 @@ jobs:
               ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           0)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
-              ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
+              ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", false)'),
               ('("d3d11.ignoreGraphicsBarriers", false)', '("d3d11.ignoreGraphicsBarriers", false)'),
               ('("d3d11.enableContextLock", false)', '("d3d11.enableContextLock", false)'),
               ('("d3d11.exposeDriverCommandLists", true)', '("d3d11.exposeDriverCommandLists", true)'),
@@ -165,6 +165,18 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           grep -nE 'm_maxSets|24576u|49152u' dxvk/src/dxvk/dxvk_descriptor.cpp
+
+          # GPU state hot-path audit. DXVK 2.3.1 already suppresses redundant
+          # shader binds by comparing the currently bound object first. Preserve
+          # that fast path instead of globally weakening Vulkan hazard barriers.
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("dxvk/src/d3d11/d3d11_context.cpp").read_text()
+          guards = ["if (m_state.vs != shader)", "if (m_state.ps != shader)", "if (m_state.cs != shader)"]
+          for guard in guards:
+            if guard not in s:
+              raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
+          PY
 
           # A840 descriptor lifetime pass. Recycle oversized/under-used descriptor
           # pools sooner so stale Vulkan descriptor allocations do not linger for
