@@ -166,6 +166,26 @@ jobs:
           PY
           grep -nE 'm_maxSets|24576u|49152u' dxvk/src/dxvk/dxvk_descriptor.cpp
 
+          # A840 descriptor lifetime pass. Recycle oversized/under-used descriptor
+          # pools sooner so stale Vulkan descriptor allocations do not linger for
+          # many frames. This changes lifetime only; descriptor contents/bindings
+          # and synchronization stay untouched.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/dxvk/dxvk_descriptor.cpp")
+          s = p.read_text()
+          edits = [
+            ("return m_descriptorPools.size() >= 8;", "return m_descriptorPools.size() >= 6;"),
+            ("if (m_lowUsageFrames < 16) {", "if (m_lowUsageFrames < 8) {"),
+          ]
+          for old, new in edits:
+            if old not in s:
+              raise SystemExit(f"Expected DXVK 2.3.1 descriptor lifetime pattern missing: {old}")
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          grep -nE 'm_descriptorPools.size\(\) >=|m_lowUsageFrames <' dxvk/src/dxvk/dxvk_descriptor.cpp
+
           # Consolidated A840 buffer-renaming pass. Cap a single multi-slice
           # backing allocation at 128 KiB instead of 256 KiB. This keeps the
           # existing slice recycling algorithm intact but lowers peak backing
