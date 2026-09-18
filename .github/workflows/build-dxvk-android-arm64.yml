@@ -78,8 +78,8 @@ jobs:
           EOF
           
           export PKG_CONFIG_PATH="$SDL2_PREFIX/lib/pkgconfig"
-          export CFLAGS="-I$SDL2_PREFIX/include/SDL2"
-          export CXXFLAGS="-I$SDL2_PREFIX/include/SDL2"
+          export CFLAGS="-I$SDL2_PREFIX/include -I$SDL2_PREFIX/include/SDL2"
+          export CXXFLAGS="-I$SDL2_PREFIX/include -I$SDL2_PREFIX/include/SDL2"
           export PKG_CONFIG_LIBDIR="$SDL2_PREFIX/lib/pkgconfig"
           export LIBRARY_PATH="$SDL2_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
           export LDFLAGS="-L$SDL2_PREFIX/lib"
