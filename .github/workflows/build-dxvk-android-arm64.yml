@@ -178,6 +178,27 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # GTA V streaming/upload guard. Keep dynamic resources on the direct
+          # mapped fast path and prevent later profile edits from forcing dynamic
+          # images through a bounded staging-buffer policy.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_context.cpp")
+          s = p.read_text()
+          required = [
+            "GetMapMode() == D3D11_COMMON_BUFFER_MAP_MODE_DIRECT",
+            "context->UpdateMappedBuffer(bufferResource, 0, bufferSize, pSrcData, 0);",
+          ]
+          for needle in required:
+            if needle not in s:
+              raise SystemExit(f"Direct mapped upload fast path missing: {needle}")
+          o = Path("dxvk/src/d3d11/d3d11_options.cpp").read_text()
+          if '("d3d11.maxDynamicImageBufferSize", -1)' not in o:
+            raise SystemExit("Dynamic image upload path is unexpectedly capped")
+          if '("d3d11.cachedDynamicResources", std::string())' not in o:
+            raise SystemExit("Dynamic resources are unexpectedly host-cached")
+          PY
+
           # DXVK 2.3.1 already avoids spilling a render pass when the same
           # framebuffer is rebound. Lock that optimization in so future local edits
           # cannot accidentally regress the A840 GPU path.
