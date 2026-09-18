@@ -18,6 +18,16 @@ jobs:
         run: python3 -m pip install --user meson
       - name: Clone DXVK
         run: git clone --recursive https://github.com/doitsujin/dxvk.git dxvk
+      - name: Patch DXVK SDL2 loader for Android
+        run: |
+          grep -RIl 'libSDL2-2.0.so.0' dxvk/src dxvk/include | while read -r f; do
+            sed -i 's/libSDL2-2\.0\.so\.0/libSDL2.so/g' "$f"
+          done
+          if grep -RIn 'libSDL2-2.0.so.0' dxvk/src dxvk/include; then
+            echo "ERROR: Linux SDL2 soname remains in DXVK source"
+            exit 1
+          fi
+
       - name: Build SDL2 Android arm64
         run: |
           git clone --depth 1 --branch release-2.32.x https://github.com/libsdl-org/SDL.git SDL2
@@ -71,10 +81,11 @@ jobs:
           meson setup build-android-arm64 --cross-file "$CROSS" -Dbuildtype=release -Dstrip=true -Dnative_sdl2=enabled -Dnative_sdl3=disabled -Dnative_glfw=disabled
           ninja -C build-android-arm64 -j"$(nproc)"
           
-          # Normalize SDL2 DT_NEEDED for the GTA APK's Android SDL name.
-          for so in $(find build-android-arm64 -type f -name 'libdxvk_*.so*'); do
-            "$TC/bin/llvm-objcopy" --replace-needed libSDL2-2.0.so.0=libSDL2.so "$so" 2>/dev/null || true
-          done
+          # Fail the build if the Linux SDL2 loader name survived compilation.
+          if grep -RIl --binary-files=text 'libSDL2-2.0.so.0' build-android-arm64 | grep -q .; then
+            echo "ERROR: finished DXVK still references libSDL2-2.0.so.0"
+            exit 1
+          fi
           
           echo "=== candidate outputs ==="
           find build-android-arm64 -type f \( -name 'libdxvk_d3d11.so*' -o -name 'libdxvk_dxgi.so*' \) -print
