@@ -103,6 +103,21 @@ jobs:
           PY
           grep -nE 'chunkSize.*8 << 20|maxEmptyChunks|StagingBufferSize' dxvk/src/dxvk/dxvk_memory.cpp dxvk/src/d3d11/d3d11_context.h
 
+          # D3D11 transient CPU-data pass: halve the per-context update-data arena.
+          # Large updates still allocate exactly their requested size; this only
+          # reduces the retained 1 MiB scratch arena used for smaller updates.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_context.cpp")
+          s = p.read_text()
+          old = "constexpr size_t UpdateBufferSize = 1 * 1024 * 1024;"
+          new = "constexpr size_t UpdateBufferSize = 512 * 1024;"
+          if old not in s:
+              raise SystemExit("Expected DXVK 2.3.1 UpdateBufferSize pattern missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n "UpdateBufferSize" dxvk/src/d3d11/d3d11_context.cpp
+
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
