@@ -81,6 +81,8 @@ jobs:
           export CFLAGS="-I$SDL2_PREFIX/include/SDL2"
           export CXXFLAGS="-I$SDL2_PREFIX/include/SDL2"
           export PKG_CONFIG_LIBDIR="$SDL2_PREFIX/lib/pkgconfig"
+          export LIBRARY_PATH="$SDL2_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export LDFLAGS="-L$SDL2_PREFIX/lib"
           cd "$DXVK_DIR"
           rm -rf build-android-arm64
           meson setup build-android-arm64 --cross-file "$CROSS" -Dbuildtype=release -Dstrip=true -Ddxvk_native_wsi=sdl2
