@@ -31,11 +31,9 @@ jobs:
             "dxvk/src/dxvk/dxvk_options.cpp": [
               ('("dxvk.enableDebugUtils",       false)', '("dxvk.enableDebugUtils",       false)'),
               ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
-              ('("dxvk.enableMemoryDefrag",     Tristate::Auto)', '("dxvk.enableMemoryDefrag",     Tristate::Auto)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::Auto)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
               ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)'),
-              ('("dxvk.enableDescriptorUpdateTemplates", false)', '("dxvk.enableDescriptorUpdateTemplates", true)'),
               ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           128)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
@@ -43,7 +41,6 @@ jobs:
               ('("d3d11.ignoreGraphicsBarriers", false)', '("d3d11.ignoreGraphicsBarriers", false)'),
               ('("d3d11.enableContextLock", false)', '("d3d11.enableContextLock", false)'),
               ('("d3d11.exposeDriverCommandLists", true)', '("d3d11.exposeDriverCommandLists", true)'),
-              ('("d3d11.reproducibleCommandStream", false)', '("d3d11.reproducibleCommandStream", false)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
               ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 512)'),
@@ -90,7 +87,7 @@ jobs:
             ],
             Path("dxvk/src/d3d11/d3d11_context.h"): [
               ("constexpr static VkDeviceSize StagingBufferSize = 4ull << 20;",
-               "constexpr static VkDeviceSize StagingBufferSize = 2ull << 20;"),
+               "constexpr static VkDeviceSize StagingBufferSize = 4ull << 20;"),
             ],
           }
           for p, pairs in edits.items():
@@ -103,7 +100,7 @@ jobs:
           PY
           grep -nE 'chunkSize.*8 << 20|maxEmptyChunks|StagingBufferSize' dxvk/src/dxvk/dxvk_memory.cpp dxvk/src/d3d11/d3d11_context.h
 
-          # D3D11 transient CPU-data pass: halve the per-context update-data arena.
+          # D3D11 transient CPU-data pass: keep the stock per-context update-data arena to avoid allocation churn.
           # Large updates still allocate exactly their requested size; this only
           # reduces the retained 1 MiB scratch arena used for smaller updates.
           python3 - <<'PY'
@@ -111,7 +108,7 @@ jobs:
           p = Path("dxvk/src/d3d11/d3d11_context.cpp")
           s = p.read_text()
           old = "constexpr size_t UpdateBufferSize = 1 * 1024 * 1024;"
-          new = "constexpr size_t UpdateBufferSize = 512 * 1024;"
+          new = "constexpr size_t UpdateBufferSize = 1 * 1024 * 1024;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 UpdateBufferSize pattern missing")
           p.write_text(s.replace(old, new, 1))
@@ -127,7 +124,7 @@ jobs:
           p = Path("dxvk/src/d3d11/d3d11_context_imm.cpp")
           s = p.read_text()
           old = "constexpr static uint32_t MaxPendingSubmits  = 6;"
-          new = "constexpr static uint32_t MaxPendingSubmits  = 4;"
+          new = "constexpr static uint32_t MaxPendingSubmits  = 6;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 MaxPendingSubmits pattern missing")
           p.write_text(s.replace(old, new, 1))
