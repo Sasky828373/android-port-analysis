@@ -83,7 +83,7 @@ jobs:
               ("chunkSize = std::min<VkDeviceSize>(chunkSize, 16 << 20);",
                "chunkSize = std::min<VkDeviceSize>(chunkSize, 16 << 20);"),
               ("uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 2 : 4;",
-               "uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 1 : 1;"),
+               "uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 1 : 2;"),
             ],
             Path("dxvk/src/d3d11/d3d11_context.h"): [
               ("constexpr static VkDeviceSize StagingBufferSize = 4ull << 20;",
@@ -175,12 +175,23 @@ jobs:
           p = Path("dxvk/src/dxvk/dxvk_buffer.cpp")
           s = p.read_text()
           old = "constexpr VkDeviceSize MaxBufferSize = 256 << 10;"
-          new = "constexpr VkDeviceSize MaxBufferSize = 192 << 10;"
+          new = "constexpr VkDeviceSize MaxBufferSize = 256 << 10;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 MaxBufferSize pattern missing")
           p.write_text(s.replace(old, new, 1))
           PY
           grep -n "MaxBufferSize" dxvk/src/dxvk/dxvk_buffer.cpp
+
+          # GPU-bound A840 guard: dynamic vertex/index/constant resources must stay
+          # on the normal GPU-friendly path. Host-cached dynamic resources can reduce
+          # GPU-bound performance, so fail CI if a non-empty default is introduced.
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("dxvk/src/d3d11/d3d11_options.cpp").read_text()
+          needle = 'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())'
+          if needle not in s:
+              raise SystemExit("GPU locality guard failed: cachedDynamicResources default changed")
+          PY
 
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
