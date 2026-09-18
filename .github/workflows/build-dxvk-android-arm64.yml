@@ -166,6 +166,97 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # GTA V descriptor hot path. DXVK 2.3.1 dirties descriptor sets
+          # unconditionally in several low-level bind helpers. D3D11 usually
+          # filters duplicates already, but range-only paths and repeated state
+          # replay can still reach these helpers. Only dirty descriptors when the
+          # effective Vulkan resource/range really changes.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/dxvk/dxvk_context.h")
+          s = p.read_text()
+          old = '''    void bindUniformBuffer(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            DxvkBufferSlice&&     buffer) {
+      bool needsUpdate = !m_rc[slot].bufferSlice.matchesBuffer(buffer);
+
+      if (likely(needsUpdate))
+        m_rcTracked.clr(slot);
+
+      m_rc[slot].bufferSlice = std::move(buffer);
+
+      m_descriptorState.dirtyBuffers(stages);
+    }'''
+          new = '''    void bindUniformBuffer(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            DxvkBufferSlice&&     buffer) {
+      bool needsUpdate = !m_rc[slot].bufferSlice.matchesBuffer(buffer)
+                      || m_rc[slot].bufferSlice.offset() != buffer.offset()
+                      || m_rc[slot].bufferSlice.length() != buffer.length();
+
+      if (unlikely(!needsUpdate))
+        return;
+
+      m_rcTracked.clr(slot);
+      m_rc[slot].bufferSlice = std::move(buffer);
+      m_descriptorState.dirtyBuffers(stages);
+    }'''
+          old_range = '''    void bindUniformBufferRange(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            VkDeviceSize          offset,
+            VkDeviceSize          length) {
+      m_rc[slot].bufferSlice.setRange(offset, length);
+
+      m_descriptorState.dirtyBuffers(stages);
+    }'''
+          new_range = '''    void bindUniformBufferRange(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            VkDeviceSize          offset,
+            VkDeviceSize          length) {
+      if (likely(m_rc[slot].bufferSlice.offset() == offset
+              && m_rc[slot].bufferSlice.length() == length))
+        return;
+
+      m_rc[slot].bufferSlice.setRange(offset, length);
+      m_descriptorState.dirtyBuffers(stages);
+    }'''
+          old_sampler = '''    void bindResourceSampler(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            Rc<DxvkSampler>&&     sampler) {
+      m_rc[slot].sampler = std::move(sampler);
+      m_rcTracked.clr(slot);
+
+      m_descriptorState.dirtyViews(stages);
+    }'''
+          new_sampler = '''    void bindResourceSampler(
+            VkShaderStageFlags    stages,
+            uint32_t              slot,
+            Rc<DxvkSampler>&&     sampler) {
+      if (likely(m_rc[slot].sampler == sampler))
+        return;
+
+      m_rc[slot].sampler = std::move(sampler);
+      m_rcTracked.clr(slot);
+      m_descriptorState.dirtyViews(stages);
+    }'''
+          for old_text,new_text,name in [
+            (old,new,"uniform buffer"),
+            (old_range,new_range,"uniform buffer range"),
+            (old_sampler,new_sampler,"sampler")]:
+            if old_text not in s:
+              raise SystemExit(f"Expected DXVK 2.3.1 {name} bind pattern missing")
+            s=s.replace(old_text,new_text,1)
+          p.write_text(s)
+          PY
+          grep -n -A20 "void bindUniformBuffer(" dxvk/src/dxvk/dxvk_context.h
+          grep -n -A14 "void bindUniformBufferRange(" dxvk/src/dxvk/dxvk_context.h
+          grep -n -A14 "void bindResourceSampler(" dxvk/src/dxvk/dxvk_context.h
+
           # GTA V blend-state hot path. DXVK 2.3.1 emits a command-stream
           # update every time OMSetBlendState receives a non-null BlendFactor,
           # even when all four values are identical. Suppress only the truly
