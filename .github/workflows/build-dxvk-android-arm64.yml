@@ -46,7 +46,7 @@ jobs:
               ('("d3d11.reproducibleCommandStream", false)', '("d3d11.reproducibleCommandStream", false)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
-              ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 1024)'),
+              ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 512)'),
               ('("d3d11.maxDynamicImageBufferSize", -1)', '("d3d11.maxDynamicImageBufferSize", 256)'),
               ('config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())',
                'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string("c"))'),
@@ -117,6 +117,22 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           grep -n "UpdateBufferSize" dxvk/src/d3d11/d3d11_context.cpp
+
+          # Submission-pressure pass for mobile: keep the existing synchronization
+          # model, but reduce the number of command lists allowed to pile up.
+          # This targets transient command/resource lifetime and peak RAM rather
+          # than skipping work or barriers.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_context_imm.cpp")
+          s = p.read_text()
+          old = "constexpr static uint32_t MaxPendingSubmits  = 6;"
+          new = "constexpr static uint32_t MaxPendingSubmits  = 4;"
+          if old not in s:
+              raise SystemExit("Expected DXVK 2.3.1 MaxPendingSubmits pattern missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -nE 'MinFlushIntervalUs|IncFlushIntervalUs|MaxPendingSubmits' dxvk/src/d3d11/d3d11_context_imm.cpp
 
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
