@@ -77,6 +77,32 @@ jobs:
           PY
           grep -n "MaxBlockSize" dxvk/src/dxvk/dxvk_cs.h
 
+          # Mobile/UMA allocator pass for Adreno: reduce idle reservation.
+          # Keep allocation logic and hazards intact; only right-size retained pools.
+          python3 - <<'PY'
+          from pathlib import Path
+          edits = {
+            Path("dxvk/src/dxvk/dxvk_memory.cpp"): [
+              ("chunkSize = std::min<VkDeviceSize>(chunkSize, 16 << 20);",
+               "chunkSize = std::min<VkDeviceSize>(chunkSize, 8 << 20);"),
+              ("uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 2 : 4;",
+               "uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 1 : 2;"),
+            ],
+            Path("dxvk/src/d3d11/d3d11_context.h"): [
+              ("constexpr static VkDeviceSize StagingBufferSize = 4ull << 20;",
+               "constexpr static VkDeviceSize StagingBufferSize = 2ull << 20;"),
+            ],
+          }
+          for p, pairs in edits.items():
+            s = p.read_text()
+            for old, new in pairs:
+              if old not in s:
+                raise SystemExit(f"Expected DXVK 2.3.1 allocator pattern missing in {p}: {old}")
+              s = s.replace(old, new, 1)
+            p.write_text(s)
+          PY
+          grep -nE 'chunkSize.*8 << 20|maxEmptyChunks|StagingBufferSize' dxvk/src/dxvk/dxvk_memory.cpp dxvk/src/d3d11/d3d11_context.h
+
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
