@@ -24,6 +24,9 @@ jobs:
           cmake -S SDL2 -B SDL2-build -G Ninja -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/sdl2-prefix" -DSDL_SHARED=ON -DSDL_STATIC=OFF
           cmake --build SDL2-build
           cmake --install SDL2-build
+          # Android APK ships SDL as libSDL2.so; avoid Linux-style SONAME dependency.
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d "$GITHUB_WORKSPACE/sdl2-prefix/lib/libSDL2.so" | grep SONAME || true
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy --set-soname=libSDL2.so "$GITHUB_WORKSPACE/sdl2-prefix/lib/libSDL2.so" || true
       - name: Build DXVK Native
         env:
           DXVK_DIR: ${{ github.workspace }}/dxvk
@@ -67,6 +70,11 @@ jobs:
           rm -rf build-android-arm64
           meson setup build-android-arm64 --cross-file "$CROSS" -Dbuildtype=release -Dstrip=true -Dnative_sdl2=enabled -Dnative_sdl3=disabled -Dnative_glfw=disabled
           ninja -C build-android-arm64 -j"$(nproc)"
+          
+          # Normalize SDL2 DT_NEEDED for the GTA APK's Android SDL name.
+          for so in $(find build-android-arm64 -type f -name 'libdxvk_*.so*'); do
+            "$TC/bin/llvm-objcopy" --replace-needed libSDL2-2.0.so.0=libSDL2.so "$so" 2>/dev/null || true
+          done
           
           echo "=== candidate outputs ==="
           find build-android-arm64 -type f \( -name 'libdxvk_d3d11.so*' -o -name 'libdxvk_dxgi.so*' \) -print
