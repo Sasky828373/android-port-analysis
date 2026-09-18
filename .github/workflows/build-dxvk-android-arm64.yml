@@ -23,6 +23,34 @@ jobs:
           git checkout v2.3.1
           git submodule update --init --recursive
           git rev-parse HEAD
+      - name: Apply GTA V A840 runtime defaults
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          patches = {
+            "dxvk/src/dxvk/dxvk_options.cpp": [
+              ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
+              ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::True)'),
+            ],
+            "dxvk/src/d3d11/d3d11_options.cpp": [
+              ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
+              ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
+              ('config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())',
+               'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string("vi"))'),
+            ],
+          }
+          for name, edits in patches.items():
+            p = Path(name)
+            s = p.read_text()
+            for old, new in edits:
+              if old not in s:
+                raise SystemExit(f"Expected source pattern missing in {name}: {old}")
+              s = s.replace(old, new, 1)
+            p.write_text(s)
+          PY
+          echo "=== A840/GTA V defaults ==="
+          grep -nE 'numCompilerThreads|useRawSsbo|relaxedBarriers|maxFrameLatency|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+
       - name: Patch DXVK SDL2 loader for Android
         run: |
           grep -RIl 'libSDL2-2.0.so.0' dxvk/src dxvk/include | while read -r f; do
