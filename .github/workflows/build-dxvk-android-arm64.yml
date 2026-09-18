@@ -153,6 +153,22 @@ jobs:
           PY
           grep -nE 'minPendingSubmissions|minChunkCount|maxChunkCount' dxvk/src/util/util_flush.cpp
 
+          # Descriptor-memory pass for Android ARM64. DXVK 2.3.1 defaults to
+          # 49,152 sets per primary Vulkan descriptor pool on 64-bit hosts.
+          # GTA V does not need such a desktop-sized reserve per pool; halve it
+          # to reduce driver-side descriptor memory without changing bindings.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/dxvk/dxvk_descriptor.cpp")
+          s = p.read_text()
+          old = "? (env::is32BitHostPlatform() ? 24576u : 49152u)"
+          new = "? (env::is32BitHostPlatform() ? 24576u : 24576u)"
+          if old not in s:
+              raise SystemExit("Expected DXVK 2.3.1 primary descriptor-pool sizing pattern missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -nE 'm_maxSets|24576u|49152u' dxvk/src/dxvk/dxvk_descriptor.cpp
+
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
