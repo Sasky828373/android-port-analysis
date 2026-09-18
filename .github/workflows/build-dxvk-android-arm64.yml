@@ -37,7 +37,7 @@ jobs:
               ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           0)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
-              ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
+              ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", false)'),
               ('("d3d11.ignoreGraphicsBarriers", false)', '("d3d11.ignoreGraphicsBarriers", false)'),
               ('("d3d11.enableContextLock", false)', '("d3d11.enableContextLock", false)'),
               ('("d3d11.exposeDriverCommandLists", true)', '("d3d11.exposeDriverCommandLists", true)'),
@@ -184,6 +184,11 @@ jobs:
 
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+
+          # Hot-path release policy: keep synchronization correct. Newer DXVK
+          # improves CPU overhead through lazy binding and allocator redesign,
+          # not by globally dropping D3D11 hazards. Do not force relaxed barriers.
+          grep -nE 'relaxedBarriers|ignoreGraphicsBarriers' dxvk/src/d3d11/d3d11_options.cpp
 
       - name: Patch DXVK SDL2 loader for Android
         run: |
