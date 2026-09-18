@@ -40,6 +40,7 @@ jobs:
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
               ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
+              ('("d3d11.relaxedGraphicsBarriers", false)', '("d3d11.relaxedGraphicsBarriers", true)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
               ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 2048)'),
@@ -58,7 +59,7 @@ jobs:
             p.write_text(s)
           PY
           echo "=== A840/GTA V defaults ==="
-          grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+          grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|relaxedGraphicsBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
       - name: Patch DXVK SDL2 loader for Android
         run: |
