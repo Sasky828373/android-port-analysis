@@ -30,10 +30,11 @@ jobs:
           patches = {
             "dxvk/src/dxvk/dxvk_options.cpp": [
               ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
+              ('("dxvk.enableMemoryDefrag",     Tristate::Auto)', '("dxvk.enableMemoryDefrag",     Tristate::True)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::True)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
               ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::True)'),
-              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           32)'),
+              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           16)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
               ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
@@ -55,7 +56,7 @@ jobs:
             p.write_text(s)
           PY
           echo "=== A840/GTA V defaults ==="
-          grep -nE 'numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|maxChunkSize|relaxedBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+          grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|maxChunkSize|relaxedBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
       - name: Patch DXVK SDL2 loader for Android
         run: |
