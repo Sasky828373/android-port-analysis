@@ -32,16 +32,17 @@ jobs:
               ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::True)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
+              ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::True)'),
               ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           32)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
               ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
-              ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 1024)'),
+              ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 2048)'),
               ('("d3d11.maxDynamicImageBufferSize", -1)', '("d3d11.maxDynamicImageBufferSize", 256)'),
               ('config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())',
-               'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string("vi"))'),
+               'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string("cvi"))'),
             ],
           }
           for name, edits in patches.items():
@@ -54,7 +55,7 @@ jobs:
             p.write_text(s)
           PY
           echo "=== A840/GTA V defaults ==="
-          grep -nE 'numCompilerThreads|useRawSsbo|trackPipelineLifetime|maxChunkSize|relaxedBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+          grep -nE 'numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|maxChunkSize|relaxedBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
       - name: Patch DXVK SDL2 loader for Android
         run: |
