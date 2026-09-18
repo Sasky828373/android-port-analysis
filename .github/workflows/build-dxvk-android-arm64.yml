@@ -134,6 +134,25 @@ jobs:
           PY
           grep -nE 'MinFlushIntervalUs|IncFlushIntervalUs|MaxPendingSubmits' dxvk/src/d3d11/d3d11_context_imm.cpp
 
+          # Submission batching pass. With 48 KiB CS chunks, batch weak-hint
+          # submissions a little more aggressively to reduce Vulkan queue-submit
+          # overhead, while preserving synchronization and strong-hint behavior.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/util/util_flush.cpp")
+          s = p.read_text()
+          edits = [
+            ("constexpr uint32_t minChunkCount =  3u;", "constexpr uint32_t minChunkCount =  4u;"),
+            ("constexpr uint32_t maxChunkCount = 20u;", "constexpr uint32_t maxChunkCount = 24u;"),
+          ]
+          for old, new in edits:
+            if old not in s:
+              raise SystemExit(f"Expected DXVK 2.3.1 flush pattern missing: {old}")
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          grep -nE 'minPendingSubmissions|minChunkCount|maxChunkCount' dxvk/src/util/util_flush.cpp
+
           echo "=== A840/GTA V defaults ==="
           grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|ignoreGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
