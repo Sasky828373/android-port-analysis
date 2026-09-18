@@ -30,11 +30,11 @@ jobs:
           patches = {
             "dxvk/src/dxvk/dxvk_options.cpp": [
               ('("dxvk.enableDebugUtils",       false)', '("dxvk.enableDebugUtils",       false)'),
-              ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     3)'),
+              ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::Auto)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
               ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)'),
-              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           128)'),
+              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           0)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
               ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
@@ -59,7 +59,7 @@ jobs:
             p.write_text(s)
           PY
           # GTA V / ARM64 command-stream throughput pass.
-          # DXVK 2.3.1 uses 16 KiB CS chunks by default. 64 KiB chunks reduce
+          # DXVK 2.3.1 uses 16 KiB CS chunks by default. 32 KiB chunks reduce
           # chunk rollover, pool traffic and producer/consumer wakeups without
           # removing any Vulkan synchronization or draw commands.
           python3 - <<'PY'
@@ -67,7 +67,7 @@ jobs:
           p = Path("dxvk/src/dxvk/dxvk_cs.h")
           s = p.read_text()
           old = "constexpr static size_t MaxBlockSize = 16384;"
-          new = "constexpr static size_t MaxBlockSize = 65536;"
+          new = "constexpr static size_t MaxBlockSize = 32768;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 CS chunk size pattern missing")
           p.write_text(s.replace(old, new, 1))
@@ -131,7 +131,7 @@ jobs:
           PY
           grep -nE 'MinFlushIntervalUs|IncFlushIntervalUs|MaxPendingSubmits' dxvk/src/d3d11/d3d11_context_imm.cpp
 
-          # Submission batching pass. With 64 KiB CS chunks, batch weak-hint
+          # Submission batching pass. With 32 KiB CS chunks, batch weak-hint
           # submissions a little more aggressively to reduce Vulkan queue-submit
           # overhead, while preserving synchronization and strong-hint behavior.
           python3 - <<'PY'
@@ -140,7 +140,7 @@ jobs:
           s = p.read_text()
           edits = [
             ("constexpr uint32_t minChunkCount =  3u;", "constexpr uint32_t minChunkCount =  3u;"),
-            ("constexpr uint32_t maxChunkCount = 20u;", "constexpr uint32_t maxChunkCount = 18u;"),
+            ("constexpr uint32_t maxChunkCount = 20u;", "constexpr uint32_t maxChunkCount = 20u;"),
           ]
           for old, new in edits:
             if old not in s:
@@ -159,7 +159,7 @@ jobs:
           p = Path("dxvk/src/dxvk/dxvk_descriptor.cpp")
           s = p.read_text()
           old = "? (env::is32BitHostPlatform() ? 24576u : 49152u)"
-          new = "? (env::is32BitHostPlatform() ? 24576u : 32768u)"
+          new = "? (env::is32BitHostPlatform() ? 24576u : 49152u)"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 primary descriptor-pool sizing pattern missing")
           p.write_text(s.replace(old, new, 1))
