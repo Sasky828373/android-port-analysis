@@ -43,7 +43,7 @@ jobs:
               ('("d3d11.exposeDriverCommandLists", true)', '("d3d11.exposeDriverCommandLists", true)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
-              ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 1024)'),
+              ('("d3d11.maxImplicitDiscardSize", 512)', '("d3d11.maxImplicitDiscardSize", 512)'),
               ('("d3d11.maxDynamicImageBufferSize", -1)', '("d3d11.maxDynamicImageBufferSize", -1)'),
               ('config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())',
                'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())'),
@@ -83,7 +83,7 @@ jobs:
               ("chunkSize = std::min<VkDeviceSize>(chunkSize, 16 << 20);",
                "chunkSize = std::min<VkDeviceSize>(chunkSize, 16 << 20);"),
               ("uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 2 : 4;",
-               "uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 1 : 2;"),
+               "uint32_t maxEmptyChunks = env::is32BitHostPlatform() ? 1 : 1;"),
             ],
             Path("dxvk/src/d3d11/d3d11_context.h"): [
               ("constexpr static VkDeviceSize StagingBufferSize = 4ull << 20;",
@@ -175,7 +175,7 @@ jobs:
           p = Path("dxvk/src/dxvk/dxvk_buffer.cpp")
           s = p.read_text()
           old = "constexpr VkDeviceSize MaxBufferSize = 256 << 10;"
-          new = "constexpr VkDeviceSize MaxBufferSize = 256 << 10;"
+          new = "constexpr VkDeviceSize MaxBufferSize = 192 << 10;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 MaxBufferSize pattern missing")
           p.write_text(s.replace(old, new, 1))
