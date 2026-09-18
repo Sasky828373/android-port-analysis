@@ -30,17 +30,20 @@ jobs:
           patches = {
             "dxvk/src/dxvk/dxvk_options.cpp": [
               ('("dxvk.enableDebugUtils",       false)', '("dxvk.enableDebugUtils",       false)'),
-              ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     3)'),
+              ('("dxvk.numCompilerThreads",     0)', '("dxvk.numCompilerThreads",     4)'),
               ('("dxvk.enableMemoryDefrag",     Tristate::Auto)', '("dxvk.enableMemoryDefrag",     Tristate::True)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::True)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
               ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::True)'),
               ('("dxvk.enableDescriptorUpdateTemplates", false)', '("dxvk.enableDescriptorUpdateTemplates", true)'),
-              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           16)'),
+              ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           0)'),
             ],
             "dxvk/src/d3d11/d3d11_options.cpp": [
               ('("d3d11.relaxedBarriers", false)', '("d3d11.relaxedBarriers", true)'),
               ('("d3d11.relaxedGraphicsBarriers", false)', '("d3d11.relaxedGraphicsBarriers", true)'),
+              ('("d3d11.enableContextLock", false)', '("d3d11.enableContextLock", false)'),
+              ('("d3d11.exposeDriverCommandLists", true)', '("d3d11.exposeDriverCommandLists", true)'),
+              ('("d3d11.reproducibleCommandStream", false)', '("d3d11.reproducibleCommandStream", false)'),
               ('("d3d11.dcSingleUseMode", true)', '("d3d11.dcSingleUseMode", true)'),
               ('("dxgi.maxFrameLatency", 0)', '("dxgi.maxFrameLatency", 1)'),
               ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 2048)'),
@@ -59,7 +62,7 @@ jobs:
             p.write_text(s)
           PY
           echo "=== A840/GTA V defaults ==="
-          grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|relaxedGraphicsBarriers|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
+          grep -nE 'enableMemoryDefrag|numCompilerThreads|useRawSsbo|trackPipelineLifetime|enableGraphicsPipelineLibrary|enableDescriptorUpdateTemplates|maxChunkSize|relaxedBarriers|relaxedGraphicsBarriers|enableContextLock|exposeDriverCommandLists|reproducibleCommandStream|maxFrameLatency|maxImplicitDiscardSize|maxDynamicImageBufferSize|cachedDynamicResources'             dxvk/src/dxvk/dxvk_options.cpp dxvk/src/d3d11/d3d11_options.cpp
 
       - name: Patch DXVK SDL2 loader for Android
         run: |
