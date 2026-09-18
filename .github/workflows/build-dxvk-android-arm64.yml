@@ -178,6 +178,21 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # DXVK 2.3.1 already avoids spilling a render pass when the same
+          # framebuffer is rebound. Lock that optimization in so future local edits
+          # cannot accidentally regress the A840 GPU path.
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("dxvk/src/dxvk/dxvk_context.h").read_text()
+          required = [
+            "if (!m_state.om.framebufferInfo.hasTargets(m_state.om.renderTargets))",
+            "m_flags.clr(DxvkContextFlag::GpDirtyFramebuffer);",
+          ]
+          for needle in required:
+            if needle not in s:
+              raise SystemExit(f"Framebuffer reuse optimization missing: {needle}")
+          PY
+
           # GTA V OM hot-path: skip the expensive full RTV/UAV overlap validation
           # when OMSetRenderTargets is called with exactly the framebuffer that is
           # already bound. No state, hazard or synchronization is changed in that case.
