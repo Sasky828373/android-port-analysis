@@ -34,7 +34,7 @@ jobs:
               ('("dxvk.enableMemoryDefrag",     Tristate::Auto)', '("dxvk.enableMemoryDefrag",     Tristate::Auto)'),
               ('("dxvk.useRawSsbo",             Tristate::Auto)', '("dxvk.useRawSsbo",             Tristate::True)'),
               ('("dxvk.trackPipelineLifetime",  Tristate::Auto)', '("dxvk.trackPipelineLifetime",  Tristate::False)'),
-              ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::True)'),
+              ('("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)', '("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto)'),
               ('("dxvk.enableDescriptorUpdateTemplates", false)', '("dxvk.enableDescriptorUpdateTemplates", true)'),
               ('("dxvk.maxChunkSize",           0)', '("dxvk.maxChunkSize",           128)'),
             ],
@@ -49,7 +49,7 @@ jobs:
               ('("d3d11.maxImplicitDiscardSize", 256)', '("d3d11.maxImplicitDiscardSize", 512)'),
               ('("d3d11.maxDynamicImageBufferSize", -1)', '("d3d11.maxDynamicImageBufferSize", 256)'),
               ('config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())',
-               'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string("c"))'),
+               'config.getOption<std::string>("d3d11.cachedDynamicResources", std::string())'),
             ],
           }
           for name, edits in patches.items():
