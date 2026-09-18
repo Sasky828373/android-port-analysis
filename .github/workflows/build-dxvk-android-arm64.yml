@@ -166,6 +166,37 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # GTA V blend-state hot path. DXVK 2.3.1 emits a command-stream
+          # update every time OMSetBlendState receives a non-null BlendFactor,
+          # even when all four values are identical. Suppress only the truly
+          # redundant update; D3D11 state semantics and pipeline state are unchanged.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/d3d11/d3d11_context.cpp")
+          s = p.read_text()
+          old = '''    if (BlendFactor != nullptr) {
+      for (uint32_t i = 0; i < 4; i++)
+        m_state.om.blendFactor[i] = BlendFactor[i];
+
+      ApplyBlendFactor();
+    }'''
+          new = '''    if (BlendFactor != nullptr) {
+      bool blendFactorChanged = false;
+
+      for (uint32_t i = 0; i < 4; i++) {
+        blendFactorChanged |= m_state.om.blendFactor[i] != BlendFactor[i];
+        m_state.om.blendFactor[i] = BlendFactor[i];
+      }
+
+      if (likely(blendFactorChanged))
+        ApplyBlendFactor();
+    }'''
+          if old not in s:
+            raise SystemExit("Expected DXVK 2.3.1 OMSetBlendState pattern missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n -A20 "blendFactorChanged" dxvk/src/d3d11/d3d11_context.cpp
+
           # A840 vertex/index binding fast path. Avoid marking Vulkan binding state
           # dirty when D3D11 submits the exact same buffer slice and stride/type.
           # Resource tracking is unchanged; only redundant vkCmdBind* work is skipped.
