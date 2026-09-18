@@ -116,11 +116,11 @@ jobs:
           EOF
           
           export PKG_CONFIG_PATH="$SDL2_PREFIX/lib/pkgconfig"
-          export CFLAGS="-I$SDL2_PREFIX/include -I$SDL2_PREFIX/include/SDL2 -O3 -DNDEBUG -march=armv8.2-a -fomit-frame-pointer -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -flto=thin -fno-semantic-interposition"
+          export CFLAGS="-I$SDL2_PREFIX/include -I$SDL2_PREFIX/include/SDL2 -O3 -DNDEBUG -march=armv8.2-a -mtune=cortex-x2 -fomit-frame-pointer -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -flto=thin -fno-semantic-interposition"
           export CXXFLAGS="-I$SDL2_PREFIX/include -I$SDL2_PREFIX/include/SDL2 -O3 -DNDEBUG -march=armv8.2-a -ffunction-sections -fdata-sections -flto=thin -fno-semantic-interposition -fvisibility-inlines-hidden"
           export PKG_CONFIG_LIBDIR="$SDL2_PREFIX/lib/pkgconfig"
           export LIBRARY_PATH="$SDL2_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          export LDFLAGS="-L$SDL2_PREFIX/lib -Wl,--gc-sections -Wl,--icf=all -Wl,-O2 -Wl,--as-needed -flto=thin"
+          export LDFLAGS="-L$SDL2_PREFIX/lib -Wl,--gc-sections -Wl,--icf=all -Wl,-O2 -Wl,--as-needed -Wl,--pack-dyn-relocs=android+relr -flto=thin"
           cd "$DXVK_DIR"
           rm -rf build-android-arm64
           meson setup build-android-arm64 --cross-file "$CROSS" -Dbuildtype=release -Dstrip=true -Ddxvk_native_wsi=sdl2
