@@ -62,7 +62,7 @@ jobs:
             p.write_text(s)
           PY
           # GTA V / ARM64 command-stream throughput pass.
-          # DXVK 2.3.1 uses 16 KiB CS chunks by default. Larger chunks reduce
+          # DXVK 2.3.1 uses 16 KiB CS chunks by default. 48 KiB chunks reduce
           # chunk rollover, pool traffic and producer/consumer wakeups without
           # removing any Vulkan synchronization or draw commands.
           python3 - <<'PY'
@@ -70,7 +70,7 @@ jobs:
           p = Path("dxvk/src/dxvk/dxvk_cs.h")
           s = p.read_text()
           old = "constexpr static size_t MaxBlockSize = 16384;"
-          new = "constexpr static size_t MaxBlockSize = 32768;"
+          new = "constexpr static size_t MaxBlockSize = 49152;"
           if old not in s:
               raise SystemExit("Expected DXVK 2.3.1 CS chunk size pattern missing")
           p.write_text(s.replace(old, new, 1))
