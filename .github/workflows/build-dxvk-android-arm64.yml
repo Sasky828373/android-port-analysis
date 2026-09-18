@@ -178,6 +178,73 @@ jobs:
               raise SystemExit(f"Missing D3D11 redundant-bind guard: {guard}")
           PY
 
+          # A840 vertex/index binding fast path. Avoid marking Vulkan binding state
+          # dirty when D3D11 submits the exact same buffer slice and stride/type.
+          # Resource tracking is unchanged; only redundant vkCmdBind* work is skipped.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("dxvk/src/dxvk/dxvk_context.h")
+          s = p.read_text()
+          old_v = '''    void bindVertexBuffer(
+            uint32_t              binding,
+            DxvkBufferSlice&&     buffer,
+            uint32_t              stride) {
+      if (!m_state.vi.vertexBuffers[binding].matchesBuffer(buffer))
+        m_vbTracked.clr(binding);
+
+      m_state.vi.vertexBuffers[binding] = std::move(buffer);
+      m_state.vi.vertexStrides[binding] = stride;
+      m_flags.set(DxvkContextFlag::GpDirtyVertexBuffers);
+    }'''
+          new_v = '''    void bindVertexBuffer(
+            uint32_t              binding,
+            DxvkBufferSlice&&     buffer,
+            uint32_t              stride) {
+      if (likely(m_state.vi.vertexBuffers[binding].matchesBuffer(buffer)
+              && m_state.vi.vertexStrides[binding] == stride))
+        return;
+
+      if (!m_state.vi.vertexBuffers[binding].matchesBuffer(buffer))
+        m_vbTracked.clr(binding);
+
+      m_state.vi.vertexBuffers[binding] = std::move(buffer);
+      m_state.vi.vertexStrides[binding] = stride;
+      m_flags.set(DxvkContextFlag::GpDirtyVertexBuffers);
+    }'''
+          old_i = '''    void bindIndexBuffer(
+            DxvkBufferSlice&&     buffer,
+            VkIndexType           indexType) {
+      if (!m_state.vi.indexBuffer.matchesBuffer(buffer))
+        m_vbTracked.clr(MaxNumVertexBindings);
+
+      m_state.vi.indexBuffer = std::move(buffer);
+      m_state.vi.indexType   = indexType;
+
+      m_flags.set(DxvkContextFlag::GpDirtyIndexBuffer);
+    }'''
+          new_i = '''    void bindIndexBuffer(
+            DxvkBufferSlice&&     buffer,
+            VkIndexType           indexType) {
+      if (likely(m_state.vi.indexBuffer.matchesBuffer(buffer)
+              && m_state.vi.indexType == indexType))
+        return;
+
+      if (!m_state.vi.indexBuffer.matchesBuffer(buffer))
+        m_vbTracked.clr(MaxNumVertexBindings);
+
+      m_state.vi.indexBuffer = std::move(buffer);
+      m_state.vi.indexType   = indexType;
+
+      m_flags.set(DxvkContextFlag::GpDirtyIndexBuffer);
+    }'''
+          if old_v not in s or old_i not in s:
+            raise SystemExit("Expected DXVK 2.3.1 vertex/index bind patterns missing")
+          s=s.replace(old_v,new_v,1).replace(old_i,new_i,1)
+          p.write_text(s)
+          PY
+          grep -n -A14 "void bindVertexBuffer(" dxvk/src/dxvk/dxvk_context.h
+          grep -n -A14 "void bindIndexBuffer(" dxvk/src/dxvk/dxvk_context.h
+
           # GTA V streaming/upload guard. Keep dynamic resources on the direct
           # mapped fast path and prevent later profile edits from forcing dynamic
           # images through a bounded staging-buffer policy.
