@@ -10,27 +10,6 @@
 namespace dxvk::vk {
 
   static std::pair<HMODULE, PFN_vkGetInstanceProcAddr> loadVulkanLibrary() {
-#ifdef __ANDROID__
-    {
-      HMODULE library = LoadLibraryA("libvulkan.so");
-
-      if (library) {
-        auto proc = GetProcAddress(library, "vkGetInstanceProcAddr");
-
-        if (proc) {
-          Logger::info("Vulkan: Using Android loader");
-          return std::make_pair(
-            library,
-            reinterpret_cast<PFN_vkGetInstanceProcAddr>(proc));
-        }
-
-        FreeLibrary(library);
-      }
-
-      Logger::warn("Vulkan: Requested Android loader unavailable");
-    }
-#endif
-
     static const std::array<const char*, 2> dllNames = {{
 #ifdef _WIN32
       "winevulkan.dll",

@@ -1,0 +1,7 @@
+build/
+build-android/
+build-*/
+*.o
+*.a
+*.so
+*.zip

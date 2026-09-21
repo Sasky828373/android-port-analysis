@@ -16,7 +16,7 @@ namespace dxvk::wsi {
 #elif defined(__APPLE__)
         "libSDL2-2.0.0.dylib"
 #else
-        "libSDL2.so"
+        "libSDL2-2.0.so.0"
 #endif
       );
     if (libsdl == nullptr)
