@@ -1,0 +1,128 @@
+[
+  {
+    "id": "bundled",
+    "name": "Bundled renderer (September 11 base)",
+    "experimental": false,
+    "files": {}
+  },
+  {
+    "id": "old31",
+    "name": "DXVK 3.1+ PerformanceCool (No Internal Limiter)",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 5378456,
+        "sha256": "0f1d98422020c9c88e1ea4c85f1ccc94d8b4799f07ced411126a2981db78f17d"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 8253200,
+        "sha256": "6221babd152650613f05fa5c630aa10fef58f9805ab57fbfc12feb3a498f6918"
+      }
+    }
+  },
+  {
+    "id": "compat271",
+    "name": "DXVK 2.7.1+ Compatibility",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 3450640,
+        "sha256": "b364dce5078719d343a8594774faa13cc092fe95169f8f895c7c6d764a79f5ec"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 5848824,
+        "sha256": "50305a5b8bcbca3ea464c9ed27633197c3df3dd38fed89462595da3000264e1c"
+      }
+    }
+  },
+  {
+    "id": "gpl271",
+    "name": "DXVK 2.7.1 GPLAsync",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 3543448,
+        "sha256": "cc682ca473159ce22a6643e78c7521b2d89ea5cd506db48d7410c2f2cdbecde4"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 6007072,
+        "sha256": "c2d4494248c4e03b32422f131613e84fe401cb36950863286ff7adc128b5bdf4"
+      }
+    }
+  },
+  {
+    "id": "legacy1103",
+    "name": "DXVK 1.10.3 Native",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 2258248,
+        "sha256": "cb94eb24fe99479833801de1745f1624956d94866e85b64de5ca077f6d1d2731"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 3811368,
+        "sha256": "655a85e73d669a591e38b83f3fda410a8a0be6628f5be48d0936ea0ce7aadf5b"
+      }
+    }
+  },
+  {
+    "id": "dxvk231",
+    "name": "DXVK 2.3.1 Native",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 2139192,
+        "sha256": "17786648680af67b4d190736a1d3e31b57aaca625d9295ac1624fc196ad9b433"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 3550400,
+        "sha256": "8f5a0eb97bb31c6a0ce56b3c2cb6cb1f94fa52c9cb566199263e869e1d4c2609"
+      }
+    }
+  },
+  {
+    "id": "dxvk24",
+    "name": "DXVK 2.4 Native",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 2433624,
+        "sha256": "2a87e64f700a86b1687a3d2a47f09b88d9605fd6354ab2c35275565a35e3a8f9"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 3862040,
+        "sha256": "c4b411a6d9e28459606fdf1a621d2d852c0c4ac8808a72457d503f367b324f86"
+      }
+    }
+  },
+  {
+    "id": "vegas",
+    "name": "VEGAS 2.4.1 Native",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 2582440,
+        "sha256": "0d75748a1f8cb965abf8c4752e441f3bb5dbbcc0710b7e2e8f97855759e50115"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 4028008,
+        "sha256": "c847554a5a00f2839cb7bdc441cd2ebeb231e152da5ded8a55c1838fdfa37119"
+      }
+    }
+  },
+  {
+    "id": "gplbinsem",
+    "name": "DXVK 2.7.1 GPLAsync + BinSem",
+    "experimental": true,
+    "files": {
+      "libdxvk_dxgi.so": {
+        "bytes": 2606112,
+        "sha256": "7c52ee08e462e2af5fd9b5d43c78508298f9dd7bd71861a6c4e629d40fedc536"
+      },
+      "libdxvk_d3d11.so": {
+        "bytes": 4187600,
+        "sha256": "33063aee67a544b671955a14f51631629dc86d5c672b60d34189efee1d454db1"
+      }
+    }
+  }
+]

@@ -1,0 +1,27 @@
+XHYN A840 PERF FORCED
+
+Important:
+Previous builds contained a performance config asset, but the launcher itself
+states that custom DXVK options require its editor switch to be enabled.
+
+This build therefore applies the full profile through the documented
+DXVK_CONFIG environment variable before DXVK initializes.
+
+Forced:
+- Async ON
+- GPL Async cache ON
+- GPL OFF
+- state cache ON
+- max-frame-latency pacing
+- frame latency 2
+- 120 FPS efficiency target
+- compiler threads 4
+- descriptor update templates OFF for 64-bit
+- pipeline lifetime tracking OFF
+- CPU/GPU overlap ON
+- latency sleep OFF
+- tiler mode ON for Adreno
+- debug / forced synchronization overhead OFF
+
+Not changed:
+resolution, textures, shadows, LOD, tessellation, AF, MSAA, post-processing.

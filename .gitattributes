@@ -1,2 +1,4 @@
 *.so filter=lfs diff=lfs merge=lfs -text
 *.apk filter=lfs diff=lfs merge=lfs -text
+*.dex filter=lfs diff=lfs merge=lfs -text
+*.arsc filter=lfs diff=lfs merge=lfs -text
