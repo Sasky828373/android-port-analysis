@@ -5,3 +5,12 @@ build-*/
 *.a
 *.so
 *.zip
+
+# Android local builds
+build/
+build-android/
+build-*/
+*.o
+*.a
+*.so
+*.zip
