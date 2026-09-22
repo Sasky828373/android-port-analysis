@@ -175,6 +175,27 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inge
  if(!words||wordCount<5)return false;
  return gtav_native_renderer_ingest_shader(rageShader,stage,words,size_t(wordCount)*sizeof(uint32_t));
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_buffer(uint64_t rageBuffer,VkBuffer buffer,uint32_t kind){
+ if(!rageBuffer||!buffer||(kind!=NR_VERTEX_BUFFER&&kind!=NR_INDEX_BUFFER&&kind!=NR_CBUFFER))return false;
+ gtav_native_renderer_register_resource(rageBuffer,(uint64_t)(uintptr_t)buffer,kind,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_image_view(uint64_t rageResource,VkImageView view,uint32_t kind){
+ if(!rageResource||!view||(kind!=NR_SRV&&kind!=NR_RTV&&kind!=NR_DSV&&kind!=NR_UAV))return false;
+ gtav_native_renderer_register_resource(rageResource,(uint64_t)(uintptr_t)view,kind,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_sampler(uint64_t rageSampler,VkSampler sampler){
+ if(!rageSampler||!sampler)return false;
+ gtav_native_renderer_register_resource(rageSampler,(uint64_t)(uintptr_t)sampler,NR_SAMPLER,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_write_uniform_descriptor(VkDescriptorSet set,uint32_t binding,VkBuffer buffer,VkDeviceSize offset,VkDeviceSize range){
+ VkDescriptorBufferInfo bi{buffer,offset,range};VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;w.pBufferInfo=&bi;vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_write_sampled_descriptor(VkDescriptorSet set,uint32_t binding,VkImageView view,VkSampler sampler,VkImageLayout layout){
+ VkDescriptorImageInfo ii{sampler,view,layout};VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;w.pImageInfo=&ii;vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_write_storage_image_descriptor(VkDescriptorSet set,uint32_t binding,VkImageView view,VkImageLayout layout){
+ VkDescriptorImageInfo ii{VK_NULL_HANDLE,view,layout};VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;w.pImageInfo=&ii;vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_on_shader_created(uint64_t rageShader,uint32_t stage,const void* bytecode,size_t bytes){
  if(!rageShader||!bytecode||!bytes)return false;
  if(gtav_native_renderer_has_native_shader(rageShader,stage))return true;
