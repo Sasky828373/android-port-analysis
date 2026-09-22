@@ -942,6 +942,11 @@ jobs:
           mkdir -p patchstage/assets patchstage/lib/arm64-v8a out
           cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'META-INF/*' || true
+
+          # Reset launcher-side graphics recovery state. This state is stored outside the
+          # visible settings UI and can survive renderer/package changes.
+          mkdir -p patchstage/assets
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini > /tmp/original-default-android.ini 2>/dev/null || true
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
