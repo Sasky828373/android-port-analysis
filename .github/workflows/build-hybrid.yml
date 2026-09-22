@@ -1019,15 +1019,3 @@ jobs:
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
           compression-level: 0
-
-
-          # DXVK-free final package; remove DXVK from both native libs and every asset path.
-          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
-            'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
-            'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
-            'assets/*dxvk*' 'assets/dxvk/*' 'assets/dxvk/**' || true
-          (
-            cd patchstage
-            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk               lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
-            zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini
-          )
