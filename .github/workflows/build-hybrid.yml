@@ -915,9 +915,24 @@ jobs:
           from pathlib import Path
           p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
           b=bytearray(p.read_bytes())
-          off=0x622efc8
+          # libgtav.so uses virtual addresses equal to file offsets only in some mappings.
+          # Resolve the IsRequested VA through ELF LOAD segments before patching.
+          import subprocess
+          va=0x622efc8
+          segs=[]
+          for line in subprocess.check_output(['readelf','-W','-l',str(p)],text=True).splitlines():
+            q=line.split()
+            if q and q[0]=='LOAD':
+              segs.append((int(q[2],16),int(q[5],16),int(q[1],16)))
+          for lo,filesz,p_offset in segs:
+            if lo <= va < lo+filesz:
+              off=p_offset+(va-lo)
+              break
+          else:
+            raise SystemExit(f'VA 0x{va:x} not mapped')
           expected=bytes.fromhex("fd7bbea9f30b00f9fd030091")
-          assert b[off:off+len(expected)] == expected, (off,b[off:off+len(expected)].hex())
+          got=bytes(b[off:off+len(expected)])
+          assert got == expected, (hex(va),hex(off),got.hex())
           # IsRequested(): mov w0,#1 ; ret ; nop
           b[off:off+12]=bytes.fromhex("20008052c0035fd61f2003d5")
           p.write_bytes(b)
