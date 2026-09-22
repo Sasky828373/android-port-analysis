@@ -200,6 +200,56 @@ jobs:
             echo "The disassembly and string offsets are the inputs for mapping indirect BLR calls to Presenter/submit/wait code."
           } > hybrid-report/gold-dispatch-note.txt
 
+      - name: Resolve GOLD Vulkan string Xrefs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          targets=[
+            b"vkQueuePresentKHR",b"vkQueueSubmit",b"vkQueueSubmit2",
+            b"vkWaitForFences",b"vkWaitSemaphores",b"vkAcquireNextImageKHR",
+            b"vkUpdateDescriptorSets",b"vkUpdateDescriptorSetWithTemplate",
+            b"Presenter: Failed to wait for WSI fence: ",b"Failed to wait for semaphore: "
+          ]
+          data=lib.read_bytes()
+          ph=subprocess.check_output(["readelf","-lW",str(lib)],text=True)
+          seg=[]
+          for line in ph.splitlines():
+            m=re.match(r"\s*LOAD\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)",line)
+            if m: seg.append(tuple(int(x,16) for x in m.groups()))
+          def f2v(off):
+            for fo,va,fs in seg:
+              if fo <= off < fo+fs: return va+(off-fo)
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace")
+          lines=dis.splitlines()
+          ins=[]
+          for i,line in enumerate(lines):
+            m=re.match(r"\s*([0-9a-fA-F]+):\s+[0-9a-fA-F]+\s+([^\s]+)\s*(.*)",line)
+            if m: ins.append((i,int(m.group(1),16),m.group(2),m.group(3)))
+          out=[]
+          for s in targets:
+            off=data.find(s)
+            if off<0: continue
+            va=f2v(off)
+            out.append(f"=== {s.decode(errors='replace')} file=0x{off:x} va={('0x%x'%va) if va is not None else 'N/A'} ===")
+            if va is None: continue
+            # objdump resolves many ADR/ADRP targets in comments/operands; capture direct references.
+            hits=[]
+            hx=f"{va:x}"
+            for idx,(li,addr,mn,op) in enumerate(ins):
+              if hx in op.lower():
+                hits.append(idx)
+            for h in hits[:24]:
+              li=ins[h][0]
+              out.extend(lines[max(0,li-10):min(len(lines),li+15)])
+              out.append("---")
+            if not hits: out.append("no direct resolved xref; likely address built through ADRP+ADD/GOT/dispatch table")
+          Path("hybrid-report/gold-vulkan-xrefs.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
