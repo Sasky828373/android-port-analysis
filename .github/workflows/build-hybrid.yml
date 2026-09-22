@@ -964,7 +964,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           smalis=list(Path("/tmp/xhyn-launcher").glob("smali*/**/*.smali"))
-          needles=("Invalid graphics recovery value","Invalid graphics recovery file")
+          needles = ("Invalid graphics recovery value", "Invalid graphics recovery file")
           hits=[]
           for p in smalis:
               s=p.read_text(errors="ignore")
