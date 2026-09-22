@@ -1,0 +1,2502 @@
+===== vkCreateBuffer slot=0x160 =====
+  165670:	d10243ff 	sub	sp, sp, #0x90
+  165674:	a9057bfd 	stp	x29, x30, [sp, #80]
+  165678:	f90033f7 	str	x23, [sp, #96]
+  16567c:	a90757f6 	stp	x22, x21, [sp, #112]
+  165680:	a9084ff4 	stp	x20, x19, [sp, #128]
+  165684:	910143fd 	add	x29, sp, #0x50
+  165688:	aa0103f4 	mov	x20, x1
+  16568c:	52890816 	mov	w22, #0x4840                	// #18496
+  165690:	52960f55 	mov	w21, #0xb07a                	// #45178
+  165694:	b0fff7e1 	adrp	x1, 62000 <D3D11CoreCreateDevice@@Base-0x193220>
+  165698:	9130f021 	add	x1, x1, #0xc3c
+  16569c:	52825682 	mov	w2, #0x12b4                	// #4788
+  1656a0:	aa0003f3 	mov	x19, x0
+  1656a4:	72a77416 	movk	w22, #0x3ba0, lsl #16
+  1656a8:	72a77375 	movk	w21, #0x3b9b, lsl #16
+  1656ac:	52825697 	mov	w23, #0x12b4                	// #4788
+  1656b0:	940795d4 	bl	34ae00 <memcpy@plt>
+  1656b4:	d0001001 	adrp	x1, 367000 <getpid@plt+0x1bd70>
+  1656b8:	911bc021 	add	x1, x1, #0x6f0
+  1656bc:	8b170260 	add	x0, x19, x23
+  1656c0:	52825682 	mov	w2, #0x12b4                	// #4788
+  1656c4:	940795cf 	bl	34ae00 <memcpy@plt>
+  1656c8:	6f00e400 	movi	v0.2d, #0x0
+  1656cc:	f9400288 	ldr	x8, [x20]
+  1656d0:	910083f7 	add	x23, sp, #0x20
+  1656d4:	f90023ff 	str	xzr, [sp, #64]
+  1656d8:	910003e2 	mov	x2, sp
+  1656dc:	52801021 	mov	w1, #0x81                  	// #129
+  1656e0:	f9405108 	ldr	x8, [x8, #160]
+  1656e4:	a900fff7 	stp	x23, xzr, [sp, #8]
+  1656e8:	b9001bff 	str	wzr, [sp, #24]
+  1656ec:	ad0103e0 	stp	q0, q0, [sp, #32]
+  1656f0:	a9408109 	ldp	x9, x0, [x8, #8]
+  1656f4:	b90023f6 	str	w22, [sp, #32]
+  1656f8:	b90003f5 	str	w21, [sp]
+  1656fc:	f9403128 	ldr	x8, [x9, #96]
+  165700:	d63f0100 	blr	x8
+  165704:	b94033e8 	ldr	w8, [sp, #48]
+  165708:	2a2803e9 	mvn	w9, w8
+  16570c:	52804028 	mov	w8, #0x201                 	// #513
+  165710:	ea08013f 	tst	x9, x8
+  165714:	54000420 	b.eq	165798 <D3D11CoreCreateDevice@@Base-0x8fa88>  // b.none
+  165718:	f9401fe9 	ldr	x9, [sp, #56]
+  16571c:	8a080128 	and	x8, x9, x8
+  165720:	f108051f 	cmp	x8, #0x201
+  165724:	540003a0 	b.eq	165798 <D3D11CoreCreateDevice@@Base-0x8fa88>  // b.none
+  165728:	52800a00 	mov	w0, #0x50                  	// #80
+  16572c:	97ffe7f6 	bl	15f704 <D3D11CoreCreateDevice@@Base-0x95b1c>
+  165730:	90fff7c8 	adrp	x8, 5d000 <D3D11CoreCreateDevice@@Base-0x198220>
+  165734:	f9001be0 	str	x0, [sp, #48]
+  165738:	3dc2ed00 	ldr	q0, [x8, #2992]
+  16573c:	52800a88 	mov	w8, #0x54                  	// #84
+  165740:	79008008 	strh	w8, [x0, #64]
+  165744:	d0fff7a8 	adrp	x8, 5b000 <D3D11CoreCreateDevice@@Base-0x19a220>
+  165748:	913b0508 	add	x8, x8, #0xec1
+  16574c:	ad400901 	ldp	q1, q2, [x8]
+  165750:	3d800be0 	str	q0, [sp, #32]
+  165754:	ad000801 	stp	q1, q2, [x0]
+  165758:	ad410500 	ldp	q0, q1, [x8, #32]
+  16575c:	ad010400 	stp	q0, q1, [x0, #32]
+  165760:	f0000fc0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  165764:	910083e2 	add	x2, sp, #0x20
+---
+  165740:	79008008 	strh	w8, [x0, #64]
+  165744:	d0fff7a8 	adrp	x8, 5b000 <D3D11CoreCreateDevice@@Base-0x19a220>
+  165748:	913b0508 	add	x8, x8, #0xec1
+  16574c:	ad400901 	ldp	q1, q2, [x8]
+  165750:	3d800be0 	str	q0, [sp, #32]
+  165754:	ad000801 	stp	q1, q2, [x0]
+  165758:	ad410500 	ldp	q0, q1, [x8, #32]
+  16575c:	ad010400 	stp	q0, q1, [x0, #32]
+  165760:	f0000fc0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  165764:	910083e2 	add	x2, sp, #0x20
+  165768:	52800041 	mov	w1, #0x2                   	// #2
+  16576c:	f9453800 	ldr	x0, [x0, #2672]
+  165770:	940739ca 	bl	333e98 <D3D11On12CreateDevice@@Base+0x13dcb4>
+  165774:	394083e8 	ldrb	w8, [sp, #32]
+  165778:	36000068 	tbz	w8, #0, 165784 <D3D11CoreCreateDevice@@Base-0x8fa9c>
+  16577c:	f9401be0 	ldr	x0, [sp, #48]
+  165780:	97ffe80d 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  165784:	52801048 	mov	w8, #0x82                  	// #130
+  165788:	b9063668 	str	w8, [x19, #1588]
+  16578c:	b9067e68 	str	w8, [x19, #1660]
+  165790:	b906a268 	str	w8, [x19, #1696]
+  165794:	b9065a68 	str	w8, [x19, #1624]
+  165798:	6f00e400 	movi	v0.2d, #0x0
+  16579c:	f9400288 	ldr	x8, [x20]
+  1657a0:	f90023ff 	str	xzr, [sp, #64]
+  1657a4:	a900fff7 	stp	x23, xzr, [sp, #8]
+  1657a8:	529ebe21 	mov	w1, #0xf5f1                	// #62961
+  1657ac:	910003e2 	mov	x2, sp
+  1657b0:	f9405108 	ldr	x8, [x8, #160]
+  1657b4:	b9001bff 	str	wzr, [sp, #24]
+  1657b8:	72a77421 	movk	w1, #0x3ba1, lsl #16
+  1657bc:	b90003f5 	str	w21, [sp]
+  1657c0:	ad0103e0 	stp	q0, q0, [sp, #32]
+  1657c4:	a9408109 	ldp	x9, x0, [x8, #8]
+  1657c8:	b90023f6 	str	w22, [sp, #32]
+  1657cc:	f9403128 	ldr	x8, [x9, #96]
+  1657d0:	d63f0100 	blr	x8
+  1657d4:	b94033e8 	ldr	w8, [sp, #48]
+  1657d8:	2a2803e9 	mvn	w9, w8
+  1657dc:	52801068 	mov	w8, #0x83                  	// #131
+  1657e0:	ea08013f 	tst	x9, x8
+  1657e4:	54000480 	b.eq	165874 <D3D11CoreCreateDevice@@Base-0x8f9ac>  // b.none
+  1657e8:	f9401fe9 	ldr	x9, [sp, #56]
+  1657ec:	8a080128 	and	x8, x9, x8
+  1657f0:	f1020d1f 	cmp	x8, #0x83
+  1657f4:	54000400 	b.eq	165874 <D3D11CoreCreateDevice@@Base-0x8f9ac>  // b.none
+  1657f8:	52800800 	mov	w0, #0x40                  	// #64
+  1657fc:	97ffe7c2 	bl	15f704 <D3D11CoreCreateDevice@@Base-0x95b1c>
+  165800:	b0fff748 	adrp	x8, 4e000 <D3D11CoreCreateDevice@@Base-0x1a7220>
+  165804:	911ed108 	add	x8, x8, #0x7b4
+  165808:	b0fff7c9 	adrp	x9, 5e000 <D3D11CoreCreateDevice@@Base-0x197220>
+  16580c:	ad400500 	ldp	q0, q1, [x8]
+  165810:	3dc18922 	ldr	q2, [x9, #1568]
+  165814:	f9001be0 	str	x0, [sp, #48]
+  165818:	3d800be2 	str	q2, [sp, #32]
+  16581c:	ad000400 	stp	q0, q1, [x0]
+  165820:	3dc00900 	ldr	q0, [x8, #32]
+  165824:	5289aa48 	mov	w8, #0x4d52                	// #19794
+  165828:	79006008 	strh	w8, [x0, #48]
+  16582c:	3d800800 	str	q0, [x0, #32]
+  165830:	3900c81f 	strb	wzr, [x0, #50]
+  165834:	f0000fc0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+---
+  1e0b4c:	b9403bf4 	ldr	w20, [sp, #56]
+  1e0b50:	528800a0 	mov	w0, #0x4005                	// #16389
+  1e0b54:	72b00000 	movk	w0, #0x8000, lsl #16
+  1e0b58:	34000056 	cbz	w22, 1e0b60 <D3D11CoreCreateDevice@@Base-0x146c0>
+  1e0b5c:	34003c34 	cbz	w20, 1e12e0 <D3D11CoreCreateDevice@@Base-0x13f40>
+  1e0b60:	52960f75 	mov	w21, #0xb07b                	// #45179
+  1e0b64:	71024a9f 	cmp	w20, #0x92
+  1e0b68:	f90013f3 	str	x19, [sp, #32]
+  1e0b6c:	72a77375 	movk	w21, #0x3b9b, lsl #16
+  1e0b70:	54003c8c 	b.gt	1e1300 <D3D11CoreCreateDevice@@Base-0x13f20>
+  1e0b74:	7102769f 	cmp	w20, #0x9d
+  1e0b78:	54003cc2 	b.cs	1e1310 <D3D11CoreCreateDevice@@Base-0x13f10>  // b.hs, b.nlast
+  1e0b7c:	52800a08 	mov	w8, #0x50                  	// #80
+  1e0b80:	90000c49 	adrp	x9, 368000 <getpid@plt+0x1cd70>
+  1e0b84:	91362129 	add	x9, x9, #0xd88
+  1e0b88:	d503201f 	nop
+  1e0b8c:	9ba82688 	umaddl	x8, w20, w8, x9
+  1e0b90:	f9001be8 	str	x8, [sp, #48]
+  1e0b94:	340002f4 	cbz	w20, 1e0bf0 <D3D11CoreCreateDevice@@Base-0x14630>
+  1e0b98:	6f00e400 	movi	v0.2d, #0x0
+  1e0b9c:	910143e8 	add	x8, sp, #0x50
+  1e0ba0:	f9003bff 	str	xzr, [sp, #112]
+  1e0ba4:	a93affa8 	stp	x8, xzr, [x29, #-88]
+  1e0ba8:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0bac:	52890809 	mov	w9, #0x4840                	// #18496
+  1e0bb0:	b81b83bf 	stur	wzr, [x29, #-72]
+  1e0bb4:	72a77409 	movk	w9, #0x3ba0, lsl #16
+  1e0bb8:	d10183a2 	sub	x2, x29, #0x60
+  1e0bbc:	f9405108 	ldr	x8, [x8, #160]
+  1e0bc0:	2a1403e1 	mov	w1, w20
+  1e0bc4:	ad0283e0 	stp	q0, q0, [sp, #80]
+  1e0bc8:	a940810a 	ldp	x10, x0, [x8, #8]
+  1e0bcc:	b90053e9 	str	w9, [sp, #80]
+  1e0bd0:	510006a9 	sub	w9, w21, #0x1
+  1e0bd4:	b81a03a9 	stur	w9, [x29, #-96]
+  1e0bd8:	f9403148 	ldr	x8, [x10, #96]
+  1e0bdc:	d63f0100 	blr	x8
+  1e0be0:	a94623e9 	ldp	x9, x8, [sp, #96]
+  1e0be4:	f9403bf9 	ldr	x25, [sp, #112]
+  1e0be8:	aa08013c 	orr	x28, x9, x8
+  1e0bec:	14000003 	b	1e0bf8 <D3D11CoreCreateDevice@@Base-0x14628>
+  1e0bf0:	aa1f03f9 	mov	x25, xzr
+  1e0bf4:	aa1f03fc 	mov	x28, xzr
+  1e0bf8:	f9401be8 	ldr	x8, [sp, #48]
+  1e0bfc:	f90017f9 	str	x25, [sp, #40]
+  1e0c00:	39404108 	ldrb	w8, [x8, #16]
+  1e0c04:	36200628 	tbz	w8, #4, 1e0cc8 <D3D11CoreCreateDevice@@Base-0x14558>
+  1e0c08:	2a1603e8 	mov	w8, w22
+  1e0c0c:	52825b89 	mov	w9, #0x12dc                	// #4828
+  1e0c10:	5280048a 	mov	w10, #0x24                  	// #36
+  1e0c14:	8b0902e9 	add	x9, x23, x9
+  1e0c18:	9baa2508 	umaddl	x8, w8, w10, x9
+  1e0c1c:	710216df 	cmp	w22, #0x85
+  1e0c20:	52960f6b 	mov	w11, #0xb07b                	// #45179
+  1e0c24:	a90163f4 	stp	x20, x24, [sp, #16]
+  1e0c28:	72a7736b 	movk	w11, #0x3b9b, lsl #16
+  1e0c2c:	9a893108 	csel	x8, x8, x9, cc	// cc = lo, ul, last
+  1e0c30:	ad400500 	ldp	q0, q1, [x8]
+  1e0c34:	b9402108 	ldr	w8, [x8, #32]
+  1e0c38:	b81c03a8 	stur	w8, [x29, #-64]
+  1e0c3c:	ad3d07a0 	stp	q0, q1, [x29, #-96]
+  1e0c40:	b85a03b9 	ldur	w25, [x29, #-96]
+---
+  1e0c08:	2a1603e8 	mov	w8, w22
+  1e0c0c:	52825b89 	mov	w9, #0x12dc                	// #4828
+  1e0c10:	5280048a 	mov	w10, #0x24                  	// #36
+  1e0c14:	8b0902e9 	add	x9, x23, x9
+  1e0c18:	9baa2508 	umaddl	x8, w8, w10, x9
+  1e0c1c:	710216df 	cmp	w22, #0x85
+  1e0c20:	52960f6b 	mov	w11, #0xb07b                	// #45179
+  1e0c24:	a90163f4 	stp	x20, x24, [sp, #16]
+  1e0c28:	72a7736b 	movk	w11, #0x3b9b, lsl #16
+  1e0c2c:	9a893108 	csel	x8, x8, x9, cc	// cc = lo, ul, last
+  1e0c30:	ad400500 	ldp	q0, q1, [x8]
+  1e0c34:	b9402108 	ldr	w8, [x8, #32]
+  1e0c38:	b81c03a8 	stur	w8, [x29, #-64]
+  1e0c3c:	ad3d07a0 	stp	q0, q1, [x29, #-96]
+  1e0c40:	b85a03b9 	ldur	w25, [x29, #-96]
+  1e0c44:	340003b9 	cbz	w25, 1e0cb8 <D3D11CoreCreateDevice@@Base-0x14568>
+  1e0c48:	d10183a8 	sub	x8, x29, #0x60
+  1e0c4c:	52890815 	mov	w21, #0x4840                	// #18496
+  1e0c50:	51000573 	sub	w19, w11, #0x1
+  1e0c54:	72a77415 	movk	w21, #0x3ba0, lsl #16
+  1e0c58:	b27e011b 	orr	x27, x8, #0x4
+  1e0c5c:	910143f4 	add	x20, sp, #0x50
+  1e0c60:	52823078 	mov	w24, #0x1183                	// #4483
+  1e0c64:	6f00e400 	movi	v0.2d, #0x0
+  1e0c68:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0c6c:	f9003bff 	str	xzr, [sp, #112]
+  1e0c70:	a908fff4 	stp	x20, xzr, [sp, #136]
+  1e0c74:	b8404761 	ldr	w1, [x27], #4
+  1e0c78:	f9405108 	ldr	x8, [x8, #160]
+  1e0c7c:	b9009bff 	str	wzr, [sp, #152]
+  1e0c80:	910203e2 	add	x2, sp, #0x80
+  1e0c84:	b90083f3 	str	w19, [sp, #128]
+  1e0c88:	ad0283e0 	stp	q0, q0, [sp, #80]
+  1e0c8c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0c90:	b90053f5 	str	w21, [sp, #80]
+  1e0c94:	f9403128 	ldr	x8, [x9, #96]
+  1e0c98:	d63f0100 	blr	x8
+  1e0c9c:	b9406be8 	ldr	w8, [sp, #104]
+  1e0ca0:	b94063e9 	ldr	w9, [sp, #96]
+  1e0ca4:	f1000739 	subs	x25, x25, #0x1
+  1e0ca8:	2a080128 	orr	w8, w9, w8
+  1e0cac:	8a180108 	and	x8, x8, x24
+  1e0cb0:	aa1c011c 	orr	x28, x8, x28
+  1e0cb4:	54fffd81 	b.ne	1e0c64 <D3D11CoreCreateDevice@@Base-0x145bc>  // b.any
+  1e0cb8:	a94163f4 	ldp	x20, x24, [sp, #16]
+  1e0cbc:	52960f75 	mov	w21, #0xb07b                	// #45179
+  1e0cc0:	f94017f9 	ldr	x25, [sp, #40]
+  1e0cc4:	72a77375 	movk	w21, #0x3b9b, lsl #16
+  1e0cc8:	d3430f28 	ubfx	x8, x25, #3, #1
+  1e0ccc:	d3457f29 	ubfx	x9, x25, #5, #27
+  1e0cd0:	710002df 	cmp	w22, #0x0
+  1e0cd4:	121f7ad3 	and	w19, w22, #0xfffffffe
+  1e0cd8:	1a9f1508 	csinc	w8, w8, wzr, ne	// ne = any
+  1e0cdc:	121f0129 	and	w9, w9, #0x2
+  1e0ce0:	7100aadf 	cmp	w22, #0x2a
+  1e0ce4:	2a080128 	orr	w8, w9, w8
+  1e0ce8:	52800729 	mov	w9, #0x39                  	// #57
+  1e0cec:	7a4912c4 	ccmp	w22, w9, #0x4, ne	// ne = any
+  1e0cf0:	321e0109 	orr	w9, w8, #0x4
+  1e0cf4:	1a880128 	csel	w8, w9, w8, eq	// eq = none
+  1e0cf8:	71004adf 	cmp	w22, #0x12
+  1e0cfc:	5100a6c9 	sub	w9, w22, #0x29
+---
+  1e0cfc:	5100a6c9 	sub	w9, w22, #0x29
+  1e0d00:	7a501a64 	ccmp	w19, #0x10, #0x4, ne	// ne = any
+  1e0d04:	b9000fe9 	str	w9, [sp, #12]
+  1e0d08:	321d010a 	orr	w10, w8, #0x8
+  1e0d0c:	7a461a64 	ccmp	w19, #0x6, #0x4, ne	// ne = any
+  1e0d10:	7a481ac4 	ccmp	w22, #0x8, #0x4, ne	// ne = any
+  1e0d14:	7a421a64 	ccmp	w19, #0x2, #0x4, ne	// ne = any
+  1e0d18:	7a441ac4 	ccmp	w22, #0x4, #0x4, ne	// ne = any
+  1e0d1c:	7a431920 	ccmp	w9, #0x3, #0x0, ne	// ne = any
+  1e0d20:	1a9f27e9 	cset	w9, cc	// cc = lo, ul, last
+  1e0d24:	7200013f 	tst	w9, #0x1
+  1e0d28:	1a88115b 	csel	w27, w10, w8, ne	// ne = any
+  1e0d2c:	f240079f 	tst	x28, #0x3
+  1e0d30:	54000640 	b.eq	1e0df8 <D3D11CoreCreateDevice@@Base-0x14428>  // b.none
+  1e0d34:	910143e8 	add	x8, sp, #0x50
+  1e0d38:	aa1a03e1 	mov	x1, x26
+  1e0d3c:	52800042 	mov	w2, #0x2                   	// #2
+  1e0d40:	b9001bf3 	str	w19, [sp, #24]
+  1e0d44:	97fe12da 	bl	1658ac <D3D11CoreCreateDevice@@Base-0x8f974>
+  1e0d48:	6f00e401 	movi	v1.2d, #0x0
+  1e0d4c:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0d50:	b94053e9 	ldr	w9, [sp, #80]
+  1e0d54:	fd440500 	ldr	d0, [x8, #2056]
+  1e0d58:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0d5c:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0d60:	b90013e9 	str	w9, [sp, #16]
+  1e0d64:	110006b3 	add	w19, w21, #0x1
+  1e0d68:	d10183a1 	sub	x1, x29, #0x60
+  1e0d6c:	f9405108 	ldr	x8, [x8, #160]
+  1e0d70:	910143e2 	add	x2, sp, #0x50
+  1e0d74:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0d78:	b81b03b4 	stur	w20, [x29, #-80]
+  1e0d7c:	fc1b83a0 	stur	d0, [x29, #-72]
+  1e0d80:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0d84:	3d8017e1 	str	q1, [sp, #80]
+  1e0d88:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0d8c:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0d90:	b90053f5 	str	w21, [sp, #80]
+  1e0d94:	f9403d28 	ldr	x8, [x9, #120]
+  1e0d98:	d63f0100 	blr	x8
+  1e0d9c:	34000320 	cbz	w0, 1e0e00 <D3D11CoreCreateDevice@@Base-0x14420>
+  1e0da0:	6f00e401 	movi	v1.2d, #0x0
+  1e0da4:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0da8:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0dac:	fd442500 	ldr	d0, [x8, #2120]
+  1e0db0:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0db4:	d10183a1 	sub	x1, x29, #0x60
+  1e0db8:	910143e2 	add	x2, sp, #0x50
+  1e0dbc:	f9405108 	ldr	x8, [x8, #160]
+  1e0dc0:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0dc4:	b81b03b4 	stur	w20, [x29, #-80]
+  1e0dc8:	fc1b83a0 	stur	d0, [x29, #-72]
+  1e0dcc:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0dd0:	3d8017e1 	str	q1, [sp, #80]
+  1e0dd4:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0dd8:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0ddc:	b90053f5 	str	w21, [sp, #80]
+  1e0de0:	f9403d28 	ldr	x8, [x9, #120]
+  1e0de4:	d63f0100 	blr	x8
+  1e0de8:	321c0368 	orr	w8, w27, #0x10
+  1e0dec:	7100001f 	cmp	w0, #0x0
+  1e0df0:	1a9b011a 	csel	w26, w8, w27, eq	// eq = none
+---
+  1e0d4c:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0d50:	b94053e9 	ldr	w9, [sp, #80]
+  1e0d54:	fd440500 	ldr	d0, [x8, #2056]
+  1e0d58:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0d5c:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0d60:	b90013e9 	str	w9, [sp, #16]
+  1e0d64:	110006b3 	add	w19, w21, #0x1
+  1e0d68:	d10183a1 	sub	x1, x29, #0x60
+  1e0d6c:	f9405108 	ldr	x8, [x8, #160]
+  1e0d70:	910143e2 	add	x2, sp, #0x50
+  1e0d74:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0d78:	b81b03b4 	stur	w20, [x29, #-80]
+  1e0d7c:	fc1b83a0 	stur	d0, [x29, #-72]
+  1e0d80:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0d84:	3d8017e1 	str	q1, [sp, #80]
+  1e0d88:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0d8c:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0d90:	b90053f5 	str	w21, [sp, #80]
+  1e0d94:	f9403d28 	ldr	x8, [x9, #120]
+  1e0d98:	d63f0100 	blr	x8
+  1e0d9c:	34000320 	cbz	w0, 1e0e00 <D3D11CoreCreateDevice@@Base-0x14420>
+  1e0da0:	6f00e401 	movi	v1.2d, #0x0
+  1e0da4:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0da8:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0dac:	fd442500 	ldr	d0, [x8, #2120]
+  1e0db0:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0db4:	d10183a1 	sub	x1, x29, #0x60
+  1e0db8:	910143e2 	add	x2, sp, #0x50
+  1e0dbc:	f9405108 	ldr	x8, [x8, #160]
+  1e0dc0:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0dc4:	b81b03b4 	stur	w20, [x29, #-80]
+  1e0dc8:	fc1b83a0 	stur	d0, [x29, #-72]
+  1e0dcc:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0dd0:	3d8017e1 	str	q1, [sp, #80]
+  1e0dd4:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0dd8:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0ddc:	b90053f5 	str	w21, [sp, #80]
+  1e0de0:	f9403d28 	ldr	x8, [x9, #120]
+  1e0de4:	d63f0100 	blr	x8
+  1e0de8:	321c0368 	orr	w8, w27, #0x10
+  1e0dec:	7100001f 	cmp	w0, #0x0
+  1e0df0:	1a9b011a 	csel	w26, w8, w27, eq	// eq = none
+  1e0df4:	14000004 	b	1e0e04 <D3D11CoreCreateDevice@@Base-0x1441c>
+  1e0df8:	2a1f03fa 	mov	w26, wzr
+  1e0dfc:	14000109 	b	1e1220 <D3D11CoreCreateDevice@@Base-0x14000>
+  1e0e00:	321c037a 	orr	w26, w27, #0x10
+  1e0e04:	6f00e400 	movi	v0.2d, #0x0
+  1e0e08:	52800028 	mov	w8, #0x1                   	// #1
+  1e0e0c:	52800093 	mov	w19, #0x4                   	// #4
+  1e0e10:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0e14:	aa1403fb 	mov	x27, x20
+  1e0e18:	d10183a1 	sub	x1, x29, #0x60
+  1e0e1c:	910143e2 	add	x2, sp, #0x50
+  1e0e20:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0e24:	293623b4 	stp	w20, w8, [x29, #-80]
+  1e0e28:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0e2c:	110006b4 	add	w20, w21, #0x1
+  1e0e30:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e34:	f9405108 	ldr	x8, [x8, #160]
+  1e0e38:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0e3c:	3d8017e0 	str	q0, [sp, #80]
+  1e0e40:	a9408109 	ldp	x9, x0, [x8, #8]
+---
+  1e0dc4:	b81b03b4 	stur	w20, [x29, #-80]
+  1e0dc8:	fc1b83a0 	stur	d0, [x29, #-72]
+  1e0dcc:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0dd0:	3d8017e1 	str	q1, [sp, #80]
+  1e0dd4:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0dd8:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0ddc:	b90053f5 	str	w21, [sp, #80]
+  1e0de0:	f9403d28 	ldr	x8, [x9, #120]
+  1e0de4:	d63f0100 	blr	x8
+  1e0de8:	321c0368 	orr	w8, w27, #0x10
+  1e0dec:	7100001f 	cmp	w0, #0x0
+  1e0df0:	1a9b011a 	csel	w26, w8, w27, eq	// eq = none
+  1e0df4:	14000004 	b	1e0e04 <D3D11CoreCreateDevice@@Base-0x1441c>
+  1e0df8:	2a1f03fa 	mov	w26, wzr
+  1e0dfc:	14000109 	b	1e1220 <D3D11CoreCreateDevice@@Base-0x14000>
+  1e0e00:	321c037a 	orr	w26, w27, #0x10
+  1e0e04:	6f00e400 	movi	v0.2d, #0x0
+  1e0e08:	52800028 	mov	w8, #0x1                   	// #1
+  1e0e0c:	52800093 	mov	w19, #0x4                   	// #4
+  1e0e10:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0e14:	aa1403fb 	mov	x27, x20
+  1e0e18:	d10183a1 	sub	x1, x29, #0x60
+  1e0e1c:	910143e2 	add	x2, sp, #0x50
+  1e0e20:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0e24:	293623b4 	stp	w20, w8, [x29, #-80]
+  1e0e28:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0e2c:	110006b4 	add	w20, w21, #0x1
+  1e0e30:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e34:	f9405108 	ldr	x8, [x8, #160]
+  1e0e38:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0e3c:	3d8017e0 	str	q0, [sp, #80]
+  1e0e40:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0e44:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0e48:	b90053f5 	str	w21, [sp, #80]
+  1e0e4c:	f9403d28 	ldr	x8, [x9, #120]
+  1e0e50:	d63f0100 	blr	x8
+  1e0e54:	340002e0 	cbz	w0, 1e0eb0 <D3D11CoreCreateDevice@@Base-0x14370>
+  1e0e58:	0f000420 	movi	v0.2s, #0x1
+  1e0e5c:	6f00e401 	movi	v1.2d, #0x0
+  1e0e60:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0e64:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0e68:	d10183a1 	sub	x1, x29, #0x60
+  1e0e6c:	910143e2 	add	x2, sp, #0x50
+  1e0e70:	f9405108 	ldr	x8, [x8, #160]
+  1e0e74:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0e78:	b81b03bb 	stur	w27, [x29, #-80]
+  1e0e7c:	fc1b43a0 	stur	d0, [x29, #-76]
+  1e0e80:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e84:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0e88:	3d8017e1 	str	q1, [sp, #80]
+  1e0e8c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0e90:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0e94:	b90053f5 	str	w21, [sp, #80]
+  1e0e98:	f9403d28 	ldr	x8, [x9, #120]
+  1e0e9c:	d63f0100 	blr	x8
+  1e0ea0:	321b0348 	orr	w8, w26, #0x20
+  1e0ea4:	7100001f 	cmp	w0, #0x0
+  1e0ea8:	1a9a011a 	csel	w26, w8, w26, eq	// eq = none
+  1e0eac:	14000002 	b	1e0eb4 <D3D11CoreCreateDevice@@Base-0x1436c>
+  1e0eb0:	321b035a 	orr	w26, w26, #0x20
+  1e0eb4:	6f00e400 	movi	v0.2d, #0x0
+  1e0eb8:	52800048 	mov	w8, #0x2                   	// #2
+---
+  1e0e00:	321c037a 	orr	w26, w27, #0x10
+  1e0e04:	6f00e400 	movi	v0.2d, #0x0
+  1e0e08:	52800028 	mov	w8, #0x1                   	// #1
+  1e0e0c:	52800093 	mov	w19, #0x4                   	// #4
+  1e0e10:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0e14:	aa1403fb 	mov	x27, x20
+  1e0e18:	d10183a1 	sub	x1, x29, #0x60
+  1e0e1c:	910143e2 	add	x2, sp, #0x50
+  1e0e20:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0e24:	293623b4 	stp	w20, w8, [x29, #-80]
+  1e0e28:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0e2c:	110006b4 	add	w20, w21, #0x1
+  1e0e30:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e34:	f9405108 	ldr	x8, [x8, #160]
+  1e0e38:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0e3c:	3d8017e0 	str	q0, [sp, #80]
+  1e0e40:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0e44:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0e48:	b90053f5 	str	w21, [sp, #80]
+  1e0e4c:	f9403d28 	ldr	x8, [x9, #120]
+  1e0e50:	d63f0100 	blr	x8
+  1e0e54:	340002e0 	cbz	w0, 1e0eb0 <D3D11CoreCreateDevice@@Base-0x14370>
+  1e0e58:	0f000420 	movi	v0.2s, #0x1
+  1e0e5c:	6f00e401 	movi	v1.2d, #0x0
+  1e0e60:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0e64:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0e68:	d10183a1 	sub	x1, x29, #0x60
+  1e0e6c:	910143e2 	add	x2, sp, #0x50
+  1e0e70:	f9405108 	ldr	x8, [x8, #160]
+  1e0e74:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0e78:	b81b03bb 	stur	w27, [x29, #-80]
+  1e0e7c:	fc1b43a0 	stur	d0, [x29, #-76]
+  1e0e80:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e84:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0e88:	3d8017e1 	str	q1, [sp, #80]
+  1e0e8c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0e90:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0e94:	b90053f5 	str	w21, [sp, #80]
+  1e0e98:	f9403d28 	ldr	x8, [x9, #120]
+  1e0e9c:	d63f0100 	blr	x8
+  1e0ea0:	321b0348 	orr	w8, w26, #0x20
+  1e0ea4:	7100001f 	cmp	w0, #0x0
+  1e0ea8:	1a9a011a 	csel	w26, w8, w26, eq	// eq = none
+  1e0eac:	14000002 	b	1e0eb4 <D3D11CoreCreateDevice@@Base-0x1436c>
+  1e0eb0:	321b035a 	orr	w26, w26, #0x20
+  1e0eb4:	6f00e400 	movi	v0.2d, #0x0
+  1e0eb8:	52800048 	mov	w8, #0x2                   	// #2
+  1e0ebc:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0ec0:	110006b4 	add	w20, w21, #0x1
+  1e0ec4:	d10183a1 	sub	x1, x29, #0x60
+  1e0ec8:	910143e2 	add	x2, sp, #0x50
+  1e0ecc:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0ed0:	293623bb 	stp	w27, w8, [x29, #-80]
+  1e0ed4:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0ed8:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0edc:	f9405108 	ldr	x8, [x8, #160]
+  1e0ee0:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0ee4:	3d8017e0 	str	q0, [sp, #80]
+  1e0ee8:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0eec:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0ef0:	b90053f5 	str	w21, [sp, #80]
+  1e0ef4:	f9403d28 	ldr	x8, [x9, #120]
+---
+  1e0e6c:	910143e2 	add	x2, sp, #0x50
+  1e0e70:	f9405108 	ldr	x8, [x8, #160]
+  1e0e74:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0e78:	b81b03bb 	stur	w27, [x29, #-80]
+  1e0e7c:	fc1b43a0 	stur	d0, [x29, #-76]
+  1e0e80:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0e84:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0e88:	3d8017e1 	str	q1, [sp, #80]
+  1e0e8c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0e90:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0e94:	b90053f5 	str	w21, [sp, #80]
+  1e0e98:	f9403d28 	ldr	x8, [x9, #120]
+  1e0e9c:	d63f0100 	blr	x8
+  1e0ea0:	321b0348 	orr	w8, w26, #0x20
+  1e0ea4:	7100001f 	cmp	w0, #0x0
+  1e0ea8:	1a9a011a 	csel	w26, w8, w26, eq	// eq = none
+  1e0eac:	14000002 	b	1e0eb4 <D3D11CoreCreateDevice@@Base-0x1436c>
+  1e0eb0:	321b035a 	orr	w26, w26, #0x20
+  1e0eb4:	6f00e400 	movi	v0.2d, #0x0
+  1e0eb8:	52800048 	mov	w8, #0x2                   	// #2
+  1e0ebc:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0ec0:	110006b4 	add	w20, w21, #0x1
+  1e0ec4:	d10183a1 	sub	x1, x29, #0x60
+  1e0ec8:	910143e2 	add	x2, sp, #0x50
+  1e0ecc:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0ed0:	293623bb 	stp	w27, w8, [x29, #-80]
+  1e0ed4:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0ed8:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0edc:	f9405108 	ldr	x8, [x8, #160]
+  1e0ee0:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0ee4:	3d8017e0 	str	q0, [sp, #80]
+  1e0ee8:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0eec:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0ef0:	b90053f5 	str	w21, [sp, #80]
+  1e0ef4:	f9403d28 	ldr	x8, [x9, #120]
+  1e0ef8:	d63f0100 	blr	x8
+  1e0efc:	34000320 	cbz	w0, 1e0f60 <D3D11CoreCreateDevice@@Base-0x142c0>
+  1e0f00:	6f00e401 	movi	v1.2d, #0x0
+  1e0f04:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0f08:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0f0c:	fd452900 	ldr	d0, [x8, #2640]
+  1e0f10:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0f14:	d10183a1 	sub	x1, x29, #0x60
+  1e0f18:	910143e2 	add	x2, sp, #0x50
+  1e0f1c:	aa1b03f9 	mov	x25, x27
+  1e0f20:	f9405108 	ldr	x8, [x8, #160]
+  1e0f24:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0f28:	b81b03bb 	stur	w27, [x29, #-80]
+  1e0f2c:	fc1b43a0 	stur	d0, [x29, #-76]
+  1e0f30:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0f34:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0f38:	3d8017e1 	str	q1, [sp, #80]
+  1e0f3c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0f40:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0f44:	b90053f5 	str	w21, [sp, #80]
+  1e0f48:	f9403d28 	ldr	x8, [x9, #120]
+  1e0f4c:	d63f0100 	blr	x8
+  1e0f50:	321a0348 	orr	w8, w26, #0x40
+  1e0f54:	7100001f 	cmp	w0, #0x0
+  1e0f58:	1a9a011b 	csel	w27, w8, w26, eq	// eq = none
+  1e0f5c:	14000003 	b	1e0f68 <D3D11CoreCreateDevice@@Base-0x142b8>
+  1e0f60:	aa1b03f9 	mov	x25, x27
+---
+  1e0eb0:	321b035a 	orr	w26, w26, #0x20
+  1e0eb4:	6f00e400 	movi	v0.2d, #0x0
+  1e0eb8:	52800048 	mov	w8, #0x2                   	// #2
+  1e0ebc:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0ec0:	110006b4 	add	w20, w21, #0x1
+  1e0ec4:	d10183a1 	sub	x1, x29, #0x60
+  1e0ec8:	910143e2 	add	x2, sp, #0x50
+  1e0ecc:	ad3d03a0 	stp	q0, q0, [x29, #-96]
+  1e0ed0:	293623bb 	stp	w27, w8, [x29, #-80]
+  1e0ed4:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0ed8:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0edc:	f9405108 	ldr	x8, [x8, #160]
+  1e0ee0:	ad0303e0 	stp	q0, q0, [sp, #96]
+  1e0ee4:	3d8017e0 	str	q0, [sp, #80]
+  1e0ee8:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0eec:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0ef0:	b90053f5 	str	w21, [sp, #80]
+  1e0ef4:	f9403d28 	ldr	x8, [x9, #120]
+  1e0ef8:	d63f0100 	blr	x8
+  1e0efc:	34000320 	cbz	w0, 1e0f60 <D3D11CoreCreateDevice@@Base-0x142c0>
+  1e0f00:	6f00e401 	movi	v1.2d, #0x0
+  1e0f04:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0f08:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0f0c:	fd452900 	ldr	d0, [x8, #2640]
+  1e0f10:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0f14:	d10183a1 	sub	x1, x29, #0x60
+  1e0f18:	910143e2 	add	x2, sp, #0x50
+  1e0f1c:	aa1b03f9 	mov	x25, x27
+  1e0f20:	f9405108 	ldr	x8, [x8, #160]
+  1e0f24:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0f28:	b81b03bb 	stur	w27, [x29, #-80]
+  1e0f2c:	fc1b43a0 	stur	d0, [x29, #-76]
+  1e0f30:	b81bc3b3 	stur	w19, [x29, #-68]
+  1e0f34:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0f38:	3d8017e1 	str	q1, [sp, #80]
+  1e0f3c:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0f40:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0f44:	b90053f5 	str	w21, [sp, #80]
+  1e0f48:	f9403d28 	ldr	x8, [x9, #120]
+  1e0f4c:	d63f0100 	blr	x8
+  1e0f50:	321a0348 	orr	w8, w26, #0x40
+  1e0f54:	7100001f 	cmp	w0, #0x0
+  1e0f58:	1a9a011b 	csel	w27, w8, w26, eq	// eq = none
+  1e0f5c:	14000003 	b	1e0f68 <D3D11CoreCreateDevice@@Base-0x142b8>
+  1e0f60:	aa1b03f9 	mov	x25, x27
+  1e0f64:	321a035b 	orr	w27, w26, #0x40
+  1e0f68:	b9401bf3 	ldr	w19, [sp, #24]
+  1e0f6c:	b9776ee8 	ldr	w8, [x23, #14188]
+  1e0f70:	d10183aa 	sub	x10, x29, #0x60
+  1e0f74:	34000648 	cbz	w8, 1e103c <D3D11CoreCreateDevice@@Base-0x141e4>
+  1e0f78:	f9401be8 	ldr	x8, [sp, #48]
+  1e0f7c:	aa1903f4 	mov	x20, x25
+  1e0f80:	b9400d08 	ldr	w8, [x8, #12]
+  1e0f84:	71000d1f 	cmp	w8, #0x3
+  1e0f88:	540005c8 	b.hi	1e1040 <D3D11CoreCreateDevice@@Base-0x141e0>  // b.pmore
+  1e0f8c:	6f00e401 	movi	v1.2d, #0x0
+  1e0f90:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0f94:	52800029 	mov	w9, #0x1                   	// #1
+  1e0f98:	fd457500 	ldr	d0, [x8, #2792]
+  1e0f9c:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0fa0:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0fa4:	110006b3 	add	w19, w21, #0x1
+---
+  1e0f40:	b81a03b4 	stur	w20, [x29, #-96]
+  1e0f44:	b90053f5 	str	w21, [sp, #80]
+  1e0f48:	f9403d28 	ldr	x8, [x9, #120]
+  1e0f4c:	d63f0100 	blr	x8
+  1e0f50:	321a0348 	orr	w8, w26, #0x40
+  1e0f54:	7100001f 	cmp	w0, #0x0
+  1e0f58:	1a9a011b 	csel	w27, w8, w26, eq	// eq = none
+  1e0f5c:	14000003 	b	1e0f68 <D3D11CoreCreateDevice@@Base-0x142b8>
+  1e0f60:	aa1b03f9 	mov	x25, x27
+  1e0f64:	321a035b 	orr	w27, w26, #0x40
+  1e0f68:	b9401bf3 	ldr	w19, [sp, #24]
+  1e0f6c:	b9776ee8 	ldr	w8, [x23, #14188]
+  1e0f70:	d10183aa 	sub	x10, x29, #0x60
+  1e0f74:	34000648 	cbz	w8, 1e103c <D3D11CoreCreateDevice@@Base-0x141e4>
+  1e0f78:	f9401be8 	ldr	x8, [sp, #48]
+  1e0f7c:	aa1903f4 	mov	x20, x25
+  1e0f80:	b9400d08 	ldr	w8, [x8, #12]
+  1e0f84:	71000d1f 	cmp	w8, #0x3
+  1e0f88:	540005c8 	b.hi	1e1040 <D3D11CoreCreateDevice@@Base-0x141e0>  // b.pmore
+  1e0f8c:	6f00e401 	movi	v1.2d, #0x0
+  1e0f90:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0f94:	52800029 	mov	w9, #0x1                   	// #1
+  1e0f98:	fd457500 	ldr	d0, [x8, #2792]
+  1e0f9c:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0fa0:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0fa4:	110006b3 	add	w19, w21, #0x1
+  1e0fa8:	d10183a1 	sub	x1, x29, #0x60
+  1e0fac:	910143e2 	add	x2, sp, #0x50
+  1e0fb0:	f9405108 	ldr	x8, [x8, #160]
+  1e0fb4:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0fb8:	293627b4 	stp	w20, w9, [x29, #-80]
+  1e0fbc:	fc01c140 	stur	d0, [x10, #28]
+  1e0fc0:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0fc4:	3d8017e1 	str	q1, [sp, #80]
+  1e0fc8:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0fcc:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0fd0:	b90053f5 	str	w21, [sp, #80]
+  1e0fd4:	f9403d28 	ldr	x8, [x9, #120]
+  1e0fd8:	d63f0100 	blr	x8
+  1e0fdc:	f94017f9 	ldr	x25, [sp, #40]
+  1e0fe0:	34000360 	cbz	w0, 1e104c <D3D11CoreCreateDevice@@Base-0x141d4>
+  1e0fe4:	6f00e401 	movi	v1.2d, #0x0
+  1e0fe8:	b0fff3e8 	adrp	x8, 5d000 <D3D11CoreCreateDevice@@Base-0x198220>
+  1e0fec:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0ff0:	3dc34500 	ldr	q0, [x8, #3344]
+  1e0ff4:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0ff8:	d10183a1 	sub	x1, x29, #0x60
+  1e0ffc:	910143e2 	add	x2, sp, #0x50
+  1e1000:	f9405108 	ldr	x8, [x8, #160]
+  1e1004:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e1008:	b81b03b4 	stur	w20, [x29, #-80]
+  1e100c:	3c9b43a0 	stur	q0, [x29, #-76]
+  1e1010:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e1014:	3d8017e1 	str	q1, [sp, #80]
+  1e1018:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e101c:	b81a03b3 	stur	w19, [x29, #-96]
+  1e1020:	b90053f5 	str	w21, [sp, #80]
+  1e1024:	f9403d28 	ldr	x8, [x9, #120]
+  1e1028:	d63f0100 	blr	x8
+  1e102c:	7100001f 	cmp	w0, #0x0
+  1e1030:	1a9f17e8 	cset	w8, eq	// eq = none
+  1e1034:	5317591a 	lsl	w26, w8, #9
+---
+  1e0f90:	f0fff3e8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  1e0f94:	52800029 	mov	w9, #0x1                   	// #1
+  1e0f98:	fd457500 	ldr	d0, [x8, #2792]
+  1e0f9c:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0fa0:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0fa4:	110006b3 	add	w19, w21, #0x1
+  1e0fa8:	d10183a1 	sub	x1, x29, #0x60
+  1e0fac:	910143e2 	add	x2, sp, #0x50
+  1e0fb0:	f9405108 	ldr	x8, [x8, #160]
+  1e0fb4:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e0fb8:	293627b4 	stp	w20, w9, [x29, #-80]
+  1e0fbc:	fc01c140 	stur	d0, [x10, #28]
+  1e0fc0:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e0fc4:	3d8017e1 	str	q1, [sp, #80]
+  1e0fc8:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e0fcc:	b81a03b3 	stur	w19, [x29, #-96]
+  1e0fd0:	b90053f5 	str	w21, [sp, #80]
+  1e0fd4:	f9403d28 	ldr	x8, [x9, #120]
+  1e0fd8:	d63f0100 	blr	x8
+  1e0fdc:	f94017f9 	ldr	x25, [sp, #40]
+  1e0fe0:	34000360 	cbz	w0, 1e104c <D3D11CoreCreateDevice@@Base-0x141d4>
+  1e0fe4:	6f00e401 	movi	v1.2d, #0x0
+  1e0fe8:	b0fff3e8 	adrp	x8, 5d000 <D3D11CoreCreateDevice@@Base-0x198220>
+  1e0fec:	f81c03bf 	stur	xzr, [x29, #-64]
+  1e0ff0:	3dc34500 	ldr	q0, [x8, #3344]
+  1e0ff4:	f9400ee8 	ldr	x8, [x23, #24]
+  1e0ff8:	d10183a1 	sub	x1, x29, #0x60
+  1e0ffc:	910143e2 	add	x2, sp, #0x50
+  1e1000:	f9405108 	ldr	x8, [x8, #160]
+  1e1004:	ad3d07a1 	stp	q1, q1, [x29, #-96]
+  1e1008:	b81b03b4 	stur	w20, [x29, #-80]
+  1e100c:	3c9b43a0 	stur	q0, [x29, #-76]
+  1e1010:	ad0307e1 	stp	q1, q1, [sp, #96]
+  1e1014:	3d8017e1 	str	q1, [sp, #80]
+  1e1018:	a9408109 	ldp	x9, x0, [x8, #8]
+  1e101c:	b81a03b3 	stur	w19, [x29, #-96]
+  1e1020:	b90053f5 	str	w21, [sp, #80]
+  1e1024:	f9403d28 	ldr	x8, [x9, #120]
+  1e1028:	d63f0100 	blr	x8
+  1e102c:	7100001f 	cmp	w0, #0x0
+  1e1030:	1a9f17e8 	cset	w8, eq	// eq = none
+  1e1034:	5317591a 	lsl	w26, w8, #9
+  1e1038:	14000006 	b	1e1050 <D3D11CoreCreateDevice@@Base-0x141d0>
+  1e103c:	aa1903f4 	mov	x20, x25
+  1e1040:	f94017f9 	ldr	x25, [sp, #40]
+  1e1044:	2a1f03fa 	mov	w26, wzr
+  1e1048:	14000003 	b	1e1054 <D3D11CoreCreateDevice@@Base-0x141cc>
+  1e104c:	5280401a 	mov	w26, #0x200                 	// #512
+  1e1050:	b9401bf3 	ldr	w19, [sp, #24]
+  1e1054:	b94013e8 	ldr	w8, [sp, #16]
+  1e1058:	52827009 	mov	w9, #0x1380                	// #4992
+  1e105c:	72a41209 	movk	w9, #0x2090, lsl #16
+  1e1060:	7100011f 	cmp	w8, #0x0
+  1e1064:	5282f008 	mov	w8, #0x1780                	// #6016
+  1e1068:	72a49208 	movk	w8, #0x2490, lsl #16
+  1e106c:	1a880128 	csel	w8, w9, w8, eq	// eq = none
+  1e1070:	52820009 	mov	w9, #0x1000                	// #4096
+  1e1074:	f240039f 	tst	x28, #0x1
+  1e1078:	72a00209 	movk	w9, #0x10, lsl #16
+  1e107c:	1a880129 	csel	w9, w9, w8, eq	// eq = none
+  1e1080:	f9400ee8 	ldr	x8, [x23, #24]
+  1e1084:	2a090369 	orr	w9, w27, w9
+---
+  1e13a4:	9a883121 	csel	x1, x9, x8, cc	// cc = lo, ul, last
+  1e13a8:	910003e8 	mov	x8, sp
+  1e13ac:	97fe1140 	bl	1658ac <D3D11CoreCreateDevice@@Base-0x8f974>
+  1e13b0:	52800ae0 	mov	w0, #0x57                  	// #87
+  1e13b4:	b94003e8 	ldr	w8, [sp]
+  1e13b8:	72b000e0 	movk	w0, #0x8007, lsl #16
+  1e13bc:	340006e8 	cbz	w8, 1e1498 <D3D11CoreCreateDevice@@Base-0x13d88>
+  1e13c0:	2a1403ea 	mov	w10, w20
+  1e13c4:	7100429f 	cmp	w20, #0x10
+  1e13c8:	aa1303e9 	mov	x9, x19
+  1e13cc:	b900027f 	str	wzr, [x19]
+  1e13d0:	540005a8 	b.hi	1e1484 <D3D11CoreCreateDevice@@Base-0x13d9c>  // b.pmore
+  1e13d4:	52800029 	mov	w9, #0x1                   	// #1
+  1e13d8:	528022cc 	mov	w12, #0x116                 	// #278
+  1e13dc:	1aca212b 	lsl	w11, w9, w10
+  1e13e0:	72a0002c 	movk	w12, #0x1, lsl #16
+  1e13e4:	6a0c017f 	tst	w11, w12
+  1e13e8:	540004e0 	b.eq	1e1484 <D3D11CoreCreateDevice@@Base-0x13d9c>  // b.none
+  1e13ec:	6f00e400 	movi	v0.2d, #0x0
+  1e13f0:	f9002bff 	str	xzr, [sp, #80]
+  1e13f4:	9100c3e1 	add	x1, sp, #0x30
+  1e13f8:	910003e2 	mov	x2, sp
+  1e13fc:	ad0083e0 	stp	q0, q0, [sp, #16]
+  1e1400:	ad0183e0 	stp	q0, q0, [sp, #48]
+  1e1404:	290827e8 	stp	w8, w9, [sp, #64]
+  1e1408:	f9400ea9 	ldr	x9, [x21, #24]
+  1e140c:	52800088 	mov	w8, #0x4                   	// #4
+  1e1410:	b9004fe8 	str	w8, [sp, #76]
+  1e1414:	f9405128 	ldr	x8, [x9, #160]
+  1e1418:	3d8003e0 	str	q0, [sp]
+  1e141c:	52960f69 	mov	w9, #0xb07b                	// #45179
+  1e1420:	72a77369 	movk	w9, #0x3b9b, lsl #16
+  1e1424:	a940810a 	ldp	x10, x0, [x8, #8]
+  1e1428:	1100052b 	add	w11, w9, #0x1
+  1e142c:	b90033eb 	str	w11, [sp, #48]
+  1e1430:	b90003e9 	str	w9, [sp]
+  1e1434:	f9403d48 	ldr	x8, [x10, #120]
+  1e1438:	d63f0100 	blr	x8
+  1e143c:	34000160 	cbz	w0, 1e1468 <D3D11CoreCreateDevice@@Base-0x13db8>
+  1e1440:	2a1f03e0 	mov	w0, wzr
+  1e1444:	14000015 	b	1e1498 <D3D11CoreCreateDevice@@Base-0x13d88>
+  1e1448:	7100045f 	cmp	w2, #0x1
+  1e144c:	528800a9 	mov	w9, #0x4005                	// #16389
+  1e1450:	1a9f17e8 	cset	w8, eq	// eq = none
+  1e1454:	7100005f 	cmp	w2, #0x0
+  1e1458:	72b00009 	movk	w9, #0x8000, lsl #16
+  1e145c:	1a9f0120 	csel	w0, w9, wzr, eq	// eq = none
+  1e1460:	b9000088 	str	w8, [x4]
+  1e1464:	d65f03c0 	ret
+  1e1468:	b94027e8 	ldr	w8, [sp, #36]
+  1e146c:	6a14011f 	tst	w8, w20
+  1e1470:	54fffe80 	b.eq	1e1440 <D3D11CoreCreateDevice@@Base-0x13de0>  // b.none
+  1e1474:	2a1f03e0 	mov	w0, wzr
+  1e1478:	52800028 	mov	w8, #0x1                   	// #1
+  1e147c:	b9000268 	str	w8, [x19]
+  1e1480:	14000006 	b	1e1498 <D3D11CoreCreateDevice@@Base-0x13d88>
+  1e1484:	51000548 	sub	w8, w10, #0x1
+  1e1488:	7100811f 	cmp	w8, #0x20
+  1e148c:	528800a8 	mov	w8, #0x4005                	// #16389
+  1e1490:	72b00008 	movk	w8, #0x8000, lsl #16
+  1e1494:	1a8833e0 	csel	w0, wzr, w8, cc	// cc = lo, ul, last
+  1e1498:	a9484ff4 	ldp	x20, x19, [sp, #128]
+---
+  1f54a4:	f9400108 	ldr	x8, [x8]
+  1f54a8:	9119c3e1 	add	x1, sp, #0x670
+  1f54ac:	d100a3a2 	sub	x2, x29, #0x28
+  1f54b0:	aa1503e0 	mov	x0, x21
+  1f54b4:	d63f0100 	blr	x8
+  1f54b8:	a90173f5 	stp	x21, x28, [sp, #16]
+  1f54bc:	37f80780 	tbnz	w0, #31, 1f55ac <D3D11CoreCreateDevice@@Base+0x38c>
+  1f54c0:	f85d83a0 	ldur	x0, [x29, #-40]
+  1f54c4:	f9400008 	ldr	x8, [x0]
+  1f54c8:	f9404d09 	ldr	x9, [x8, #152]
+  1f54cc:	9119c3e8 	add	x8, sp, #0x670
+  1f54d0:	d63f0120 	blr	x9
+  1f54d4:	f85e83a1 	ldur	x1, [x29, #-24]
+  1f54d8:	b4000161 	cbz	x1, 1f5504 <D3D11CoreCreateDevice@@Base+0x2e4>
+  1f54dc:	12800000 	mov	w0, #0xffffffff            	// #-1
+  1f54e0:	97fdaffc 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  1f54e4:	7100041f 	cmp	w0, #0x1
+  1f54e8:	540000e1 	b.ne	1f5504 <D3D11CoreCreateDevice@@Base+0x2e4>  // b.any
+  1f54ec:	f85e83ba 	ldur	x26, [x29, #-24]
+  1f54f0:	b40000ba 	cbz	x26, 1f5504 <D3D11CoreCreateDevice@@Base+0x2e4>
+  1f54f4:	aa1a03e0 	mov	x0, x26
+  1f54f8:	940151e6 	bl	249c90 <D3D11On12CreateDevice@@Base+0x53aac>
+  1f54fc:	aa1a03e0 	mov	x0, x26
+  1f5500:	97fda8ad 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  1f5504:	f9433be8 	ldr	x8, [sp, #1648]
+  1f5508:	f85d83a0 	ldur	x0, [x29, #-40]
+  1f550c:	f81e83a8 	stur	x8, [x29, #-24]
+  1f5510:	f9400008 	ldr	x8, [x0]
+  1f5514:	f9405109 	ldr	x9, [x8, #160]
+  1f5518:	9119c3e8 	add	x8, sp, #0x670
+  1f551c:	d63f0120 	blr	x9
+  1f5520:	f85e03a1 	ldur	x1, [x29, #-32]
+  1f5524:	b4000161 	cbz	x1, 1f5550 <D3D11CoreCreateDevice@@Base+0x330>
+  1f5528:	12800000 	mov	w0, #0xffffffff            	// #-1
+  1f552c:	97fdafe9 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  1f5530:	7100041f 	cmp	w0, #0x1
+  1f5534:	540000e1 	b.ne	1f5550 <D3D11CoreCreateDevice@@Base+0x330>  // b.any
+  1f5538:	f85e03ba 	ldur	x26, [x29, #-32]
+  1f553c:	b40000ba 	cbz	x26, 1f5550 <D3D11CoreCreateDevice@@Base+0x330>
+  1f5540:	aa1a03e0 	mov	x0, x26
+  1f5544:	9402a7b3 	bl	29f410 <D3D11On12CreateDevice@@Base+0xa922c>
+  1f5548:	aa1a03e0 	mov	x0, x26
+  1f554c:	97fda89a 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  1f5550:	f9433be8 	ldr	x8, [sp, #1648]
+  1f5554:	f81e03a8 	stur	x8, [x29, #-32]
+  1f5558:	140000c1 	b	1f585c <D3D11CoreCreateDevice@@Base+0x63c>
+  1f555c:	52800a00 	mov	w0, #0x50                  	// #80
+  1f5560:	97fda869 	bl	15f704 <D3D11CoreCreateDevice@@Base-0x95b1c>
+  1f5564:	90fff348 	adrp	x8, 5d000 <D3D11CoreCreateDevice@@Base-0x198220>
+  1f5568:	52800e49 	mov	w9, #0x72                  	// #114
+  1f556c:	f90343e0 	str	x0, [sp, #1664]
+  1f5570:	3dc2ed00 	ldr	q0, [x8, #2992]
+  1f5574:	90fff328 	adrp	x8, 59000 <D3D11CoreCreateDevice@@Base-0x19c220>
+  1f5578:	91236508 	add	x8, x8, #0x8d9
+  1f557c:	ad400901 	ldp	q1, q2, [x8]
+  1f5580:	79008009 	strh	w9, [x0, #64]
+  1f5584:	3d8002c0 	str	q0, [x22]
+  1f5588:	ad000801 	stp	q1, q2, [x0]
+  1f558c:	ad410500 	ldp	q0, q1, [x8, #32]
+  1f5590:	ad010400 	stp	q0, q1, [x0, #32]
+  1f5594:	f0000b40 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  1f5598:	9119c3e2 	add	x2, sp, #0x670
+---
+  207770:	b9400834 	ldr	w20, [x1, #8]
+  207774:	5280006a 	mov	w10, #0x3                   	// #3
+  207778:	b9402429 	ldr	w9, [x1, #36]
+  20777c:	fd400028 	ldr	d8, [x1]
+  207780:	aa0103f5 	mov	x21, x1
+  207784:	f9400d08 	ldr	x8, [x8, #24]
+  207788:	7218029f 	tst	w20, #0x100
+  20778c:	1a8a0136 	csel	w22, w9, w10, eq	// eq = none
+  207790:	f81f83a8 	stur	x8, [x29, #-8]
+  207794:	b4000108 	cbz	x8, 2077b4 <D3D11On12CreateDevice@@Base+0x115d0>
+  207798:	52800020 	mov	w0, #0x1                   	// #1
+  20779c:	aa0803e1 	mov	x1, x8
+  2077a0:	2a0203f3 	mov	w19, w2
+  2077a4:	97fd674b 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2077a8:	2a1303e2 	mov	w2, w19
+  2077ac:	f85f83b3 	ldur	x19, [x29, #-8]
+  2077b0:	14000002 	b	2077b8 <D3D11On12CreateDevice@@Base+0x115d4>
+  2077b4:	aa1f03f3 	mov	x19, xzr
+  2077b8:	6f00e400 	movi	v0.2d, #0x0
+  2077bc:	0ea00901 	rev64	v1.2s, v8.2s
+  2077c0:	52960f68 	mov	w8, #0xb07b                	// #45179
+  2077c4:	72a77368 	movk	w8, #0x3b9b, lsl #16
+  2077c8:	f9002bff 	str	xzr, [sp, #80]
+  2077cc:	11000509 	add	w9, w8, #0x1
+  2077d0:	b90053f4 	str	w20, [sp, #80]
+  2077d4:	ad0083e0 	stp	q0, q0, [sp, #16]
+  2077d8:	ad0183e0 	stp	q0, q0, [sp, #48]
+  2077dc:	b90033e9 	str	w9, [sp, #48]
+  2077e0:	f9405269 	ldr	x9, [x19, #160]
+  2077e4:	fd0023e1 	str	d1, [sp, #64]
+  2077e8:	3d8003e0 	str	q0, [sp]
+  2077ec:	f9400920 	ldr	x0, [x9, #16]
+  2077f0:	f940052a 	ldr	x10, [x9, #8]
+  2077f4:	29095be2 	stp	w2, w22, [sp, #72]
+  2077f8:	b90003e8 	str	w8, [sp]
+  2077fc:	f9403d49 	ldr	x9, [x10, #120]
+  207800:	9100c3e1 	add	x1, sp, #0x30
+  207804:	910003e2 	mov	x2, sp
+  207808:	d63f0120 	blr	x9
+  20780c:	2a0003f4 	mov	w20, w0
+  207810:	34000080 	cbz	w0, 207820 <D3D11On12CreateDevice@@Base+0x1163c>
+  207814:	2a1f03fc 	mov	w28, wzr
+  207818:	2a1f03fb 	mov	w27, wzr
+  20781c:	14000006 	b	207834 <D3D11On12CreateDevice@@Base+0x11650>
+  207820:	29426be8 	ldp	w8, w26, [sp, #16]
+  207824:	29445bf7 	ldp	w23, w22, [sp, #32]
+  207828:	294363f9 	ldp	w25, w24, [sp, #24]
+  20782c:	12185d1b 	and	w27, w8, #0xffffff00
+  207830:	12001d1c 	and	w28, w8, #0xff
+  207834:	12800000 	mov	w0, #0xffffffff            	// #-1
+  207838:	aa1303e1 	mov	x1, x19
+  20783c:	97fd6725 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  207840:	7100041f 	cmp	w0, #0x1
+  207844:	54000101 	b.ne	207864 <D3D11On12CreateDevice@@Base+0x11680>  // b.any
+  207848:	f85f83b3 	ldur	x19, [x29, #-8]
+  20784c:	b40000d3 	cbz	x19, 207864 <D3D11On12CreateDevice@@Base+0x11680>
+  207850:	aa1303e0 	mov	x0, x19
+  207854:	9401fc5f 	bl	2869d0 <D3D11On12CreateDevice@@Base+0x907ec>
+  207858:	aa1303e0 	mov	x0, x19
+  20785c:	52800801 	mov	w1, #0x40                  	// #64
+  207860:	97fd5ffe 	bl	15f858 <D3D11CoreCreateDevice@@Base-0x959c8>
+  207864:	35000234 	cbnz	w20, 2078a8 <D3D11On12CreateDevice@@Base+0x116c4>
+---
+  24890c:	a9085ff8 	stp	x24, x23, [sp, #128]
+  248910:	a90957f6 	stp	x22, x21, [sp, #144]
+  248914:	a90a4ff4 	stp	x20, x19, [sp, #160]
+  248918:	910183fd 	add	x29, sp, #0x60
+  24891c:	52800028 	mov	w8, #0x1                   	// #1
+  248920:	b800701f 	stur	wzr, [x0, #7]
+  248924:	aa0103f5 	mov	x21, x1
+  248928:	f900001f 	str	xzr, [x0]
+  24892c:	aa0003f3 	mov	x19, x0
+  248930:	52890818 	mov	w24, #0x4840                	// #18496
+  248934:	7800b008 	sturh	w8, [x0, #11]
+  248938:	52960f56 	mov	w22, #0xb07a                	// #45178
+  24893c:	aa0203f4 	mov	x20, x2
+  248940:	b900101f 	str	wzr, [x0, #16]
+  248944:	72a77418 	movk	w24, #0x3ba0, lsl #16
+  248948:	72a77376 	movk	w22, #0x3b9b, lsl #16
+  24894c:	f9000c1f 	str	xzr, [x0, #24]
+  248950:	52800020 	mov	w0, #0x1                   	// #1
+  248954:	f9400028 	ldr	x8, [x1]
+  248958:	f9405101 	ldr	x1, [x8, #160]
+  24895c:	f90007e1 	str	x1, [sp, #8]
+  248960:	97fc62dc 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  248964:	f94002a8 	ldr	x8, [x21]
+  248968:	6f00e400 	movi	v0.2d, #0x0
+  24896c:	9100c3fa 	add	x26, sp, #0x30
+  248970:	f9002bff 	str	xzr, [sp, #80]
+  248974:	f94007f7 	ldr	x23, [sp, #8]
+  248978:	b943b909 	ldr	w9, [x8, #952]
+  24897c:	f9405108 	ldr	x8, [x8, #160]
+  248980:	a901fffa 	stp	x26, xzr, [sp, #24]
+  248984:	b9002bff 	str	wzr, [sp, #40]
+  248988:	7100013f 	cmp	w9, #0x0
+  24898c:	ad0183e0 	stp	q0, q0, [sp, #48]
+  248990:	1a9f17e9 	cset	w9, eq	// eq = none
+  248994:	b90033f8 	str	w24, [sp, #48]
+  248998:	39000269 	strb	w9, [x19]
+  24899c:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489a0:	b90013f6 	str	w22, [sp, #16]
+  2489a4:	f9403128 	ldr	x8, [x9, #96]
+  2489a8:	910043e2 	add	x2, sp, #0x10
+  2489ac:	52800c81 	mov	w1, #0x64                  	// #100
+  2489b0:	d63f0100 	blr	x8
+  2489b4:	6f00e400 	movi	v0.2d, #0x0
+  2489b8:	f94002a8 	ldr	x8, [x21]
+  2489bc:	f9002bff 	str	xzr, [sp, #80]
+  2489c0:	f94027f9 	ldr	x25, [sp, #72]
+  2489c4:	a901fffa 	stp	x26, xzr, [sp, #24]
+  2489c8:	f9405108 	ldr	x8, [x8, #160]
+  2489cc:	b9002bff 	str	wzr, [sp, #40]
+  2489d0:	b90013f6 	str	w22, [sp, #16]
+  2489d4:	ad0183e0 	stp	q0, q0, [sp, #48]
+  2489d8:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489dc:	b90033f8 	str	w24, [sp, #48]
+  2489e0:	f9403128 	ldr	x8, [x9, #96]
+  2489e4:	910043e2 	add	x2, sp, #0x10
+  2489e8:	52800c41 	mov	w1, #0x62                  	// #98
+  2489ec:	d63f0100 	blr	x8
+  2489f0:	6f00e400 	movi	v0.2d, #0x0
+  2489f4:	9100c3e8 	add	x8, sp, #0x30
+  2489f8:	f9002bff 	str	xzr, [sp, #80]
+  2489fc:	a901ffe8 	stp	x8, xzr, [sp, #24]
+  248a00:	f94002a8 	ldr	x8, [x21]
+---
+  248958:	f9405101 	ldr	x1, [x8, #160]
+  24895c:	f90007e1 	str	x1, [sp, #8]
+  248960:	97fc62dc 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  248964:	f94002a8 	ldr	x8, [x21]
+  248968:	6f00e400 	movi	v0.2d, #0x0
+  24896c:	9100c3fa 	add	x26, sp, #0x30
+  248970:	f9002bff 	str	xzr, [sp, #80]
+  248974:	f94007f7 	ldr	x23, [sp, #8]
+  248978:	b943b909 	ldr	w9, [x8, #952]
+  24897c:	f9405108 	ldr	x8, [x8, #160]
+  248980:	a901fffa 	stp	x26, xzr, [sp, #24]
+  248984:	b9002bff 	str	wzr, [sp, #40]
+  248988:	7100013f 	cmp	w9, #0x0
+  24898c:	ad0183e0 	stp	q0, q0, [sp, #48]
+  248990:	1a9f17e9 	cset	w9, eq	// eq = none
+  248994:	b90033f8 	str	w24, [sp, #48]
+  248998:	39000269 	strb	w9, [x19]
+  24899c:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489a0:	b90013f6 	str	w22, [sp, #16]
+  2489a4:	f9403128 	ldr	x8, [x9, #96]
+  2489a8:	910043e2 	add	x2, sp, #0x10
+  2489ac:	52800c81 	mov	w1, #0x64                  	// #100
+  2489b0:	d63f0100 	blr	x8
+  2489b4:	6f00e400 	movi	v0.2d, #0x0
+  2489b8:	f94002a8 	ldr	x8, [x21]
+  2489bc:	f9002bff 	str	xzr, [sp, #80]
+  2489c0:	f94027f9 	ldr	x25, [sp, #72]
+  2489c4:	a901fffa 	stp	x26, xzr, [sp, #24]
+  2489c8:	f9405108 	ldr	x8, [x8, #160]
+  2489cc:	b9002bff 	str	wzr, [sp, #40]
+  2489d0:	b90013f6 	str	w22, [sp, #16]
+  2489d4:	ad0183e0 	stp	q0, q0, [sp, #48]
+  2489d8:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489dc:	b90033f8 	str	w24, [sp, #48]
+  2489e0:	f9403128 	ldr	x8, [x9, #96]
+  2489e4:	910043e2 	add	x2, sp, #0x10
+  2489e8:	52800c41 	mov	w1, #0x62                  	// #98
+  2489ec:	d63f0100 	blr	x8
+  2489f0:	6f00e400 	movi	v0.2d, #0x0
+  2489f4:	9100c3e8 	add	x8, sp, #0x30
+  2489f8:	f9002bff 	str	xzr, [sp, #80]
+  2489fc:	a901ffe8 	stp	x8, xzr, [sp, #24]
+  248a00:	f94002a8 	ldr	x8, [x21]
+  248a04:	f94027fa 	ldr	x26, [sp, #72]
+  248a08:	b9002bff 	str	wzr, [sp, #40]
+  248a0c:	f9405108 	ldr	x8, [x8, #160]
+  248a10:	b90013f6 	str	w22, [sp, #16]
+  248a14:	ad0183e0 	stp	q0, q0, [sp, #48]
+  248a18:	a9408109 	ldp	x9, x0, [x8, #8]
+  248a1c:	b90033f8 	str	w24, [sp, #48]
+  248a20:	f9403128 	ldr	x8, [x9, #96]
+  248a24:	910043e2 	add	x2, sp, #0x10
+  248a28:	52800c61 	mov	w1, #0x63                  	// #99
+  248a2c:	d63f0100 	blr	x8
+  248a30:	b9404be8 	ldr	w8, [sp, #72]
+  248a34:	0a190349 	and	w9, w26, w25
+  248a38:	0a080128 	and	w8, w9, w8
+  248a3c:	531f7d08 	lsr	w8, w8, #31
+  248a40:	39000668 	strb	w8, [x19, #1]
+  248a44:	f94002a8 	ldr	x8, [x21]
+  248a48:	b946b109 	ldr	w9, [x8, #1712]
+  248a4c:	7100013f 	cmp	w9, #0x0
+---
+  24899c:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489a0:	b90013f6 	str	w22, [sp, #16]
+  2489a4:	f9403128 	ldr	x8, [x9, #96]
+  2489a8:	910043e2 	add	x2, sp, #0x10
+  2489ac:	52800c81 	mov	w1, #0x64                  	// #100
+  2489b0:	d63f0100 	blr	x8
+  2489b4:	6f00e400 	movi	v0.2d, #0x0
+  2489b8:	f94002a8 	ldr	x8, [x21]
+  2489bc:	f9002bff 	str	xzr, [sp, #80]
+  2489c0:	f94027f9 	ldr	x25, [sp, #72]
+  2489c4:	a901fffa 	stp	x26, xzr, [sp, #24]
+  2489c8:	f9405108 	ldr	x8, [x8, #160]
+  2489cc:	b9002bff 	str	wzr, [sp, #40]
+  2489d0:	b90013f6 	str	w22, [sp, #16]
+  2489d4:	ad0183e0 	stp	q0, q0, [sp, #48]
+  2489d8:	a9408109 	ldp	x9, x0, [x8, #8]
+  2489dc:	b90033f8 	str	w24, [sp, #48]
+  2489e0:	f9403128 	ldr	x8, [x9, #96]
+  2489e4:	910043e2 	add	x2, sp, #0x10
+  2489e8:	52800c41 	mov	w1, #0x62                  	// #98
+  2489ec:	d63f0100 	blr	x8
+  2489f0:	6f00e400 	movi	v0.2d, #0x0
+  2489f4:	9100c3e8 	add	x8, sp, #0x30
+  2489f8:	f9002bff 	str	xzr, [sp, #80]
+  2489fc:	a901ffe8 	stp	x8, xzr, [sp, #24]
+  248a00:	f94002a8 	ldr	x8, [x21]
+  248a04:	f94027fa 	ldr	x26, [sp, #72]
+  248a08:	b9002bff 	str	wzr, [sp, #40]
+  248a0c:	f9405108 	ldr	x8, [x8, #160]
+  248a10:	b90013f6 	str	w22, [sp, #16]
+  248a14:	ad0183e0 	stp	q0, q0, [sp, #48]
+  248a18:	a9408109 	ldp	x9, x0, [x8, #8]
+  248a1c:	b90033f8 	str	w24, [sp, #48]
+  248a20:	f9403128 	ldr	x8, [x9, #96]
+  248a24:	910043e2 	add	x2, sp, #0x10
+  248a28:	52800c61 	mov	w1, #0x63                  	// #99
+  248a2c:	d63f0100 	blr	x8
+  248a30:	b9404be8 	ldr	w8, [sp, #72]
+  248a34:	0a190349 	and	w9, w26, w25
+  248a38:	0a080128 	and	w8, w9, w8
+  248a3c:	531f7d08 	lsr	w8, w8, #31
+  248a40:	39000668 	strb	w8, [x19, #1]
+  248a44:	f94002a8 	ldr	x8, [x21]
+  248a48:	b946b109 	ldr	w9, [x8, #1712]
+  248a4c:	7100013f 	cmp	w9, #0x0
+  248a50:	1a9f07e9 	cset	w9, ne	// ne = any
+  248a54:	39000a69 	strb	w9, [x19, #2]
+  248a58:	b9402109 	ldr	w9, [x8, #32]
+  248a5c:	3100053f 	cmn	w9, #0x1
+  248a60:	54000100 	b.eq	248a80 <D3D11On12CreateDevice@@Base+0x5289c>  // b.none
+  248a64:	340000a9 	cbz	w9, 248a78 <D3D11On12CreateDevice@@Base+0x52894>
+  248a68:	7100053f 	cmp	w9, #0x1
+  248a6c:	540000e1 	b.ne	248a88 <D3D11On12CreateDevice@@Base+0x528a4>  // b.any
+  248a70:	52800089 	mov	w9, #0x4                   	// #4
+  248a74:	14000004 	b	248a84 <D3D11On12CreateDevice@@Base+0x528a0>
+  248a78:	12800009 	mov	w9, #0xffffffff            	// #-1
+  248a7c:	14000002 	b	248a84 <D3D11On12CreateDevice@@Base+0x528a0>
+  248a80:	f9416ae9 	ldr	x9, [x23, #720]
+  248a84:	f9000e69 	str	x9, [x19, #24]
+  248a88:	39405689 	ldrb	w9, [x20, #21]
+  248a8c:	39001269 	strb	w9, [x19, #4]
+  248a90:	39400289 	ldrb	w9, [x20]
+---
+  2523a0:	97fc3507 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  2523a4:	f9405674 	ldr	x20, [x19, #168]
+  2523a8:	b4000354 	cbz	x20, 252410 <D3D11On12CreateDevice@@Base+0x5c22c>
+  2523ac:	f9405a76 	ldr	x22, [x19, #176]
+  2523b0:	aa1403e0 	mov	x0, x20
+  2523b4:	eb1402df 	cmp	x22, x20
+  2523b8:	54000280 	b.eq	252408 <D3D11On12CreateDevice@@Base+0x5c224>  // b.none
+  2523bc:	aa1603f5 	mov	x21, x22
+  2523c0:	14000004 	b	2523d0 <D3D11On12CreateDevice@@Base+0x5c1ec>
+  2523c4:	eb1402bf 	cmp	x21, x20
+  2523c8:	aa1503f6 	mov	x22, x21
+  2523cc:	540001c0 	b.eq	252404 <D3D11On12CreateDevice@@Base+0x5c220>  // b.none
+  2523d0:	f85f0ea8 	ldr	x8, [x21, #-16]!
+  2523d4:	b4ffff88 	cbz	x8, 2523c4 <D3D11On12CreateDevice@@Base+0x5c1e0>
+  2523d8:	91002101 	add	x1, x8, #0x8
+  2523dc:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2523e0:	97fc3c3c 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2523e4:	7100041f 	cmp	w0, #0x1
+  2523e8:	54fffee1 	b.ne	2523c4 <D3D11On12CreateDevice@@Base+0x5c1e0>  // b.any
+  2523ec:	f85f02c0 	ldur	x0, [x22, #-16]
+  2523f0:	b4fffea0 	cbz	x0, 2523c4 <D3D11On12CreateDevice@@Base+0x5c1e0>
+  2523f4:	f9400008 	ldr	x8, [x0]
+  2523f8:	f9400508 	ldr	x8, [x8, #8]
+  2523fc:	d63f0100 	blr	x8
+  252400:	17fffff1 	b	2523c4 <D3D11On12CreateDevice@@Base+0x5c1e0>
+  252404:	f9405660 	ldr	x0, [x19, #168]
+  252408:	f9005a74 	str	x20, [x19, #176]
+  25240c:	97fc34ea 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  252410:	f9405268 	ldr	x8, [x19, #160]
+  252414:	b4000288 	cbz	x8, 252464 <D3D11On12CreateDevice@@Base+0x5c280>
+  252418:	aa1f03f5 	mov	x21, xzr
+  25241c:	aa1f03f4 	mov	x20, xzr
+  252420:	14000009 	b	252444 <D3D11On12CreateDevice@@Base+0x5c260>
+  252424:	8b0812a0 	add	x0, x21, x8, lsl #4
+  252428:	f9400008 	ldr	x8, [x0]
+  25242c:	f9400108 	ldr	x8, [x8]
+  252430:	d63f0100 	blr	x8
+  252434:	f9405268 	ldr	x8, [x19, #160]
+  252438:	91000694 	add	x20, x20, #0x1
+  25243c:	eb08029f 	cmp	x20, x8
+  252440:	54000122 	b.cs	252464 <D3D11On12CreateDevice@@Base+0x5c280>  // b.hs, b.nlast
+  252444:	f2402688 	ands	x8, x20, #0x3ff
+  252448:	54fffee1 	b.ne	252424 <D3D11On12CreateDevice@@Base+0x5c240>  // b.any
+  25244c:	b4000075 	cbz	x21, 252458 <D3D11On12CreateDevice@@Base+0x5c274>
+  252450:	f96002a0 	ldr	x0, [x21, #16384]
+  252454:	14000002 	b	25245c <D3D11On12CreateDevice@@Base+0x5c278>
+  252458:	f8490260 	ldur	x0, [x19, #144]
+  25245c:	aa0003f5 	mov	x21, x0
+  252460:	17fffff2 	b	252428 <D3D11On12CreateDevice@@Base+0x5c244>
+  252464:	f9404a68 	ldr	x8, [x19, #144]
+  252468:	91024260 	add	x0, x19, #0x90
+  25246c:	aa1f03e1 	mov	x1, xzr
+  252470:	a909fe68 	stp	x8, xzr, [x19, #152]
+  252474:	940005fb 	bl	253c60 <D3D11On12CreateDevice@@Base+0x5da7c>
+  252478:	f9401661 	ldr	x1, [x19, #40]
+  25247c:	b4000161 	cbz	x1, 2524a8 <D3D11On12CreateDevice@@Base+0x5c2c4>
+  252480:	12800000 	mov	w0, #0xffffffff            	// #-1
+  252484:	97fc3c13 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  252488:	7100041f 	cmp	w0, #0x1
+  25248c:	540000e1 	b.ne	2524a8 <D3D11On12CreateDevice@@Base+0x5c2c4>  // b.any
+  252490:	f9401674 	ldr	x20, [x19, #40]
+  252494:	b40000b4 	cbz	x20, 2524a8 <D3D11On12CreateDevice@@Base+0x5c2c4>
+---
+  252550:	b40001e1 	cbz	x1, 25258c <D3D11On12CreateDevice@@Base+0x5c3a8>
+  252554:	12800000 	mov	w0, #0xffffffff            	// #-1
+  252558:	97fc3bde 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  25255c:	7100041f 	cmp	w0, #0x1
+  252560:	54000161 	b.ne	25258c <D3D11On12CreateDevice@@Base+0x5c3a8>  // b.any
+  252564:	f9400a73 	ldr	x19, [x19, #16]
+  252568:	b4000133 	cbz	x19, 25258c <D3D11On12CreateDevice@@Base+0x5c3a8>
+  25256c:	aa1303e0 	mov	x0, x19
+  252570:	9403dc32 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  252574:	aa1303e0 	mov	x0, x19
+  252578:	a9434ff4 	ldp	x20, x19, [sp, #48]
+  25257c:	f9400bf7 	ldr	x23, [sp, #16]
+  252580:	a94257f6 	ldp	x22, x21, [sp, #32]
+  252584:	a8c47bfd 	ldp	x29, x30, [sp], #64
+  252588:	17fc348b 	b	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  25258c:	a9434ff4 	ldp	x20, x19, [sp, #48]
+  252590:	f9400bf7 	ldr	x23, [sp, #16]
+  252594:	a94257f6 	ldp	x22, x21, [sp, #32]
+  252598:	a8c47bfd 	ldp	x29, x30, [sp], #64
+  25259c:	d65f03c0 	ret
+  2525a0:	97fc4d05 	bl	1659b4 <D3D11CoreCreateDevice@@Base-0x8f86c>
+  2525a4:	97fc4d04 	bl	1659b4 <D3D11CoreCreateDevice@@Base-0x8f86c>
+  2525a8:	97fc4d03 	bl	1659b4 <D3D11CoreCreateDevice@@Base-0x8f86c>
+  2525ac:	a9bc7bfd 	stp	x29, x30, [sp, #-64]!
+  2525b0:	f9000bf7 	str	x23, [sp, #16]
+  2525b4:	a90257f6 	stp	x22, x21, [sp, #32]
+  2525b8:	a9034ff4 	stp	x20, x19, [sp, #48]
+  2525bc:	910003fd 	mov	x29, sp
+  2525c0:	f9405008 	ldr	x8, [x0, #160]
+  2525c4:	aa0003f3 	mov	x19, x0
+  2525c8:	b4000288 	cbz	x8, 252618 <D3D11On12CreateDevice@@Base+0x5c434>
+  2525cc:	aa1f03f5 	mov	x21, xzr
+  2525d0:	aa1f03f4 	mov	x20, xzr
+  2525d4:	14000009 	b	2525f8 <D3D11On12CreateDevice@@Base+0x5c414>
+  2525d8:	8b0812a0 	add	x0, x21, x8, lsl #4
+  2525dc:	f9400008 	ldr	x8, [x0]
+  2525e0:	f9400108 	ldr	x8, [x8]
+  2525e4:	d63f0100 	blr	x8
+  2525e8:	f9405268 	ldr	x8, [x19, #160]
+  2525ec:	91000694 	add	x20, x20, #0x1
+  2525f0:	eb08029f 	cmp	x20, x8
+  2525f4:	54000122 	b.cs	252618 <D3D11On12CreateDevice@@Base+0x5c434>  // b.hs, b.nlast
+  2525f8:	f2402688 	ands	x8, x20, #0x3ff
+  2525fc:	54fffee1 	b.ne	2525d8 <D3D11On12CreateDevice@@Base+0x5c3f4>  // b.any
+  252600:	b4000075 	cbz	x21, 25260c <D3D11On12CreateDevice@@Base+0x5c428>
+  252604:	f96002a0 	ldr	x0, [x21, #16384]
+  252608:	14000002 	b	252610 <D3D11On12CreateDevice@@Base+0x5c42c>
+  25260c:	f9404a60 	ldr	x0, [x19, #144]
+  252610:	aa0003f5 	mov	x21, x0
+  252614:	17fffff2 	b	2525dc <D3D11On12CreateDevice@@Base+0x5c3f8>
+  252618:	a94ada74 	ldp	x20, x22, [x19, #168]
+  25261c:	f9404a68 	ldr	x8, [x19, #144]
+  252620:	a909fe68 	stp	x8, xzr, [x19, #152]
+  252624:	eb1402df 	cmp	x22, x20
+  252628:	54000260 	b.eq	252674 <D3D11On12CreateDevice@@Base+0x5c490>  // b.none
+  25262c:	aa1603f5 	mov	x21, x22
+  252630:	14000004 	b	252640 <D3D11On12CreateDevice@@Base+0x5c45c>
+  252634:	eb1402bf 	cmp	x21, x20
+  252638:	aa1503f6 	mov	x22, x21
+  25263c:	540001c0 	b.eq	252674 <D3D11On12CreateDevice@@Base+0x5c490>  // b.none
+  252640:	f85f0ea8 	ldr	x8, [x21, #-16]!
+  252644:	b4ffff88 	cbz	x8, 252634 <D3D11On12CreateDevice@@Base+0x5c450>
+---
+  268468:	17ffff2b 	b	268114 <D3D11On12CreateDevice@@Base+0x71f30>
+  26846c:	b9404701 	ldr	w1, [x24, #68]
+  268470:	2a1f03f8 	mov	w24, wzr
+  268474:	14000002 	b	26847c <D3D11On12CreateDevice@@Base+0x72298>
+  268478:	52800118 	mov	w24, #0x8                   	// #8
+  26847c:	910012a8 	add	x8, x21, #0x4
+  268480:	d0ffefa9 	adrp	x9, 5e000 <D3D11CoreCreateDevice@@Base-0x197220>
+  268484:	f9004bff 	str	xzr, [sp, #144]
+  268488:	4d40c900 	ld1r	{v0.4s}, [x8]
+  26848c:	d0ffefa8 	adrp	x8, 5e000 <D3D11CoreCreateDevice@@Base-0x197220>
+  268490:	3dc3dd22 	ldr	q2, [x9, #3952]
+  268494:	3dc1ad01 	ldr	q1, [x8, #1712]
+  268498:	b0ffefa8 	adrp	x8, 5d000 <D3D11CoreCreateDevice@@Base-0x198220>
+  26849c:	f9400669 	ldr	x9, [x19, #8]
+  2684a0:	b9004bff 	str	wzr, [sp, #72]
+  2684a4:	52890819 	mov	w25, #0x4840                	// #18496
+  2684a8:	52960f5a 	mov	w26, #0xb07a                	// #45178
+  2684ac:	6ea14401 	ushl	v1.4s, v0.4s, v1.4s
+  2684b0:	6ea24400 	ushl	v0.4s, v0.4s, v2.4s
+  2684b4:	6f00e402 	movi	v2.2d, #0x0
+  2684b8:	72a77419 	movk	w25, #0x3ba0, lsl #16
+  2684bc:	72a7737a 	movk	w26, #0x3b9b, lsl #16
+  2684c0:	9100c3e2 	add	x2, sp, #0x30
+  2684c4:	b90033fa 	str	w26, [sp, #48]
+  2684c8:	6e144401 	mov	v1.s[2], v0.s[2]
+  2684cc:	3dc3c100 	ldr	q0, [x8, #3840]
+  2684d0:	9101c3e8 	add	x8, sp, #0x70
+  2684d4:	a903ffe8 	stp	x8, xzr, [sp, #56]
+  2684d8:	f9405128 	ldr	x8, [x9, #160]
+  2684dc:	ad038be2 	stp	q2, q2, [sp, #112]
+  2684e0:	a940810a 	ldp	x10, x0, [x8, #8]
+  2684e4:	b90073f9 	str	w25, [sp, #112]
+  2684e8:	4e201c20 	and	v0.16b, v1.16b, v0.16b
+  2684ec:	f9403148 	ldr	x8, [x10, #96]
+  2684f0:	6e004001 	ext	v1.16b, v0.16b, v0.16b, #8
+  2684f4:	0ea11c00 	orr	v0.8b, v0.8b, v1.8b
+  2684f8:	9e660009 	fmov	x9, d0
+  2684fc:	d360fd2b 	lsr	x11, x9, #32
+  268500:	2a0b013b 	orr	w27, w9, w11
+  268504:	d63f0100 	blr	x8
+  268508:	f9400280 	ldr	x0, [x20]
+  26850c:	a94873f6 	ldp	x22, x28, [sp, #128]
+  268510:	b9407009 	ldr	w9, [x0, #112]
+  268514:	7100013f 	cmp	w9, #0x0
+  268518:	1a960388 	csel	w8, w28, w22, eq	// eq = none
+  26851c:	2a2803e8 	mvn	w8, w8
+  268520:	ea1b011f 	tst	x8, x27
+  268524:	54000840 	b.eq	26862c <D3D11On12CreateDevice@@Base+0x72448>  // b.none
+  268528:	b9408808 	ldr	w8, [x0, #136]
+  26852c:	f90013fb 	str	x27, [sp, #32]
+  268530:	290327f8 	stp	w24, w9, [sp, #24]
+  268534:	34000348 	cbz	w8, 26859c <D3D11On12CreateDevice@@Base+0x723b8>
+  268538:	aa1f03f8 	mov	x24, xzr
+  26853c:	9101c3fb 	add	x27, sp, #0x70
+  268540:	f9404808 	ldr	x8, [x0, #144]
+  268544:	6f00e400 	movi	v0.2d, #0x0
+  268548:	9100c3e2 	add	x2, sp, #0x30
+  26854c:	b8787901 	ldr	w1, [x8, x24, lsl #2]
+  268550:	f9400668 	ldr	x8, [x19, #8]
+  268554:	f9004bff 	str	xzr, [sp, #144]
+  268558:	a903fffb 	stp	x27, xzr, [sp, #56]
+  26855c:	f9405108 	ldr	x8, [x8, #160]
+---
+  2684ec:	f9403148 	ldr	x8, [x10, #96]
+  2684f0:	6e004001 	ext	v1.16b, v0.16b, v0.16b, #8
+  2684f4:	0ea11c00 	orr	v0.8b, v0.8b, v1.8b
+  2684f8:	9e660009 	fmov	x9, d0
+  2684fc:	d360fd2b 	lsr	x11, x9, #32
+  268500:	2a0b013b 	orr	w27, w9, w11
+  268504:	d63f0100 	blr	x8
+  268508:	f9400280 	ldr	x0, [x20]
+  26850c:	a94873f6 	ldp	x22, x28, [sp, #128]
+  268510:	b9407009 	ldr	w9, [x0, #112]
+  268514:	7100013f 	cmp	w9, #0x0
+  268518:	1a960388 	csel	w8, w28, w22, eq	// eq = none
+  26851c:	2a2803e8 	mvn	w8, w8
+  268520:	ea1b011f 	tst	x8, x27
+  268524:	54000840 	b.eq	26862c <D3D11On12CreateDevice@@Base+0x72448>  // b.none
+  268528:	b9408808 	ldr	w8, [x0, #136]
+  26852c:	f90013fb 	str	x27, [sp, #32]
+  268530:	290327f8 	stp	w24, w9, [sp, #24]
+  268534:	34000348 	cbz	w8, 26859c <D3D11On12CreateDevice@@Base+0x723b8>
+  268538:	aa1f03f8 	mov	x24, xzr
+  26853c:	9101c3fb 	add	x27, sp, #0x70
+  268540:	f9404808 	ldr	x8, [x0, #144]
+  268544:	6f00e400 	movi	v0.2d, #0x0
+  268548:	9100c3e2 	add	x2, sp, #0x30
+  26854c:	b8787901 	ldr	w1, [x8, x24, lsl #2]
+  268550:	f9400668 	ldr	x8, [x19, #8]
+  268554:	f9004bff 	str	xzr, [sp, #144]
+  268558:	a903fffb 	stp	x27, xzr, [sp, #56]
+  26855c:	f9405108 	ldr	x8, [x8, #160]
+  268560:	ad0383e0 	stp	q0, q0, [sp, #112]
+  268564:	b9004bff 	str	wzr, [sp, #72]
+  268568:	a9408109 	ldp	x9, x0, [x8, #8]
+  26856c:	b90073f9 	str	w25, [sp, #112]
+  268570:	b90033fa 	str	w26, [sp, #48]
+  268574:	f9403128 	ldr	x8, [x9, #96]
+  268578:	d63f0100 	blr	x8
+  26857c:	f9400280 	ldr	x0, [x20]
+  268580:	a94827ea 	ldp	x10, x9, [sp, #128]
+  268584:	91000718 	add	x24, x24, #0x1
+  268588:	b9408808 	ldr	w8, [x0, #136]
+  26858c:	aa1c013c 	orr	x28, x9, x28
+  268590:	aa160156 	orr	x22, x10, x22
+  268594:	eb08031f 	cmp	x24, x8
+  268598:	54fffd43 	b.cc	268540 <D3D11On12CreateDevice@@Base+0x7235c>  // b.lo, b.ul, b.last
+  26859c:	b94002e8 	ldr	w8, [x23]
+  2685a0:	f94013fb 	ldr	x27, [sp, #32]
+  2685a4:	34000328 	cbz	w8, 268608 <D3D11On12CreateDevice@@Base+0x72424>
+  2685a8:	aa1f03f7 	mov	x23, xzr
+  2685ac:	9101c3f8 	add	x24, sp, #0x70
+  2685b0:	f94012a8 	ldr	x8, [x21, #32]
+  2685b4:	6f00e400 	movi	v0.2d, #0x0
+  2685b8:	9100c3e2 	add	x2, sp, #0x30
+  2685bc:	b8777901 	ldr	w1, [x8, x23, lsl #2]
+  2685c0:	f9400668 	ldr	x8, [x19, #8]
+  2685c4:	f9004bff 	str	xzr, [sp, #144]
+  2685c8:	a903fff8 	stp	x24, xzr, [sp, #56]
+  2685cc:	f9405108 	ldr	x8, [x8, #160]
+  2685d0:	ad0383e0 	stp	q0, q0, [sp, #112]
+  2685d4:	b9004bff 	str	wzr, [sp, #72]
+  2685d8:	a9408109 	ldp	x9, x0, [x8, #8]
+  2685dc:	b90073f9 	str	w25, [sp, #112]
+  2685e0:	b90033fa 	str	w26, [sp, #48]
+---
+  26855c:	f9405108 	ldr	x8, [x8, #160]
+  268560:	ad0383e0 	stp	q0, q0, [sp, #112]
+  268564:	b9004bff 	str	wzr, [sp, #72]
+  268568:	a9408109 	ldp	x9, x0, [x8, #8]
+  26856c:	b90073f9 	str	w25, [sp, #112]
+  268570:	b90033fa 	str	w26, [sp, #48]
+  268574:	f9403128 	ldr	x8, [x9, #96]
+  268578:	d63f0100 	blr	x8
+  26857c:	f9400280 	ldr	x0, [x20]
+  268580:	a94827ea 	ldp	x10, x9, [sp, #128]
+  268584:	91000718 	add	x24, x24, #0x1
+  268588:	b9408808 	ldr	w8, [x0, #136]
+  26858c:	aa1c013c 	orr	x28, x9, x28
+  268590:	aa160156 	orr	x22, x10, x22
+  268594:	eb08031f 	cmp	x24, x8
+  268598:	54fffd43 	b.cc	268540 <D3D11On12CreateDevice@@Base+0x7235c>  // b.lo, b.ul, b.last
+  26859c:	b94002e8 	ldr	w8, [x23]
+  2685a0:	f94013fb 	ldr	x27, [sp, #32]
+  2685a4:	34000328 	cbz	w8, 268608 <D3D11On12CreateDevice@@Base+0x72424>
+  2685a8:	aa1f03f7 	mov	x23, xzr
+  2685ac:	9101c3f8 	add	x24, sp, #0x70
+  2685b0:	f94012a8 	ldr	x8, [x21, #32]
+  2685b4:	6f00e400 	movi	v0.2d, #0x0
+  2685b8:	9100c3e2 	add	x2, sp, #0x30
+  2685bc:	b8777901 	ldr	w1, [x8, x23, lsl #2]
+  2685c0:	f9400668 	ldr	x8, [x19, #8]
+  2685c4:	f9004bff 	str	xzr, [sp, #144]
+  2685c8:	a903fff8 	stp	x24, xzr, [sp, #56]
+  2685cc:	f9405108 	ldr	x8, [x8, #160]
+  2685d0:	ad0383e0 	stp	q0, q0, [sp, #112]
+  2685d4:	b9004bff 	str	wzr, [sp, #72]
+  2685d8:	a9408109 	ldp	x9, x0, [x8, #8]
+  2685dc:	b90073f9 	str	w25, [sp, #112]
+  2685e0:	b90033fa 	str	w26, [sp, #48]
+  2685e4:	f9403128 	ldr	x8, [x9, #96]
+  2685e8:	d63f0100 	blr	x8
+  2685ec:	a94827ea 	ldp	x10, x9, [sp, #128]
+  2685f0:	910006f7 	add	x23, x23, #0x1
+  2685f4:	b9401aa8 	ldr	w8, [x21, #24]
+  2685f8:	eb0802ff 	cmp	x23, x8
+  2685fc:	aa1c013c 	orr	x28, x9, x28
+  268600:	aa160156 	orr	x22, x10, x22
+  268604:	54fffd63 	b.cc	2685b0 <D3D11On12CreateDevice@@Base+0x723cc>  // b.lo, b.ul, b.last
+  268608:	b9401fe8 	ldr	w8, [sp, #28]
+  26860c:	7100011f 	cmp	w8, #0x0
+  268610:	1a960388 	csel	w8, w28, w22, eq	// eq = none
+  268614:	2a2803e8 	mvn	w8, w8
+  268618:	ea1b011f 	tst	x8, x27
+  26861c:	54ffeaa1 	b.ne	268370 <D3D11On12CreateDevice@@Base+0x7218c>  // b.any
+  268620:	b9401bf8 	ldr	w24, [sp, #24]
+  268624:	f9400280 	ldr	x0, [x20]
+  268628:	32180318 	orr	w24, w24, #0x100
+  26862c:	ad4006a0 	ldp	q0, q1, [x21]
+  268630:	9100c3e1 	add	x1, sp, #0x30
+  268634:	aa1f03e2 	mov	x2, xzr
+  268638:	ad0187e0 	stp	q0, q1, [sp, #48]
+  26863c:	3dc00aa0 	ldr	q0, [x21, #32]
+  268640:	b94033e8 	ldr	w8, [sp, #48]
+  268644:	3d8017e0 	str	q0, [sp, #80]
+  268648:	2a180108 	orr	w8, w8, w24
+  26864c:	b90033e8 	str	w8, [sp, #48]
+  268650:	9100a3e8 	add	x8, sp, #0x28
+---
+  2a75f4:	b9400be9 	ldr	w9, [sp, #8]
+  2a75f8:	b9410fe8 	ldr	w8, [sp, #268]
+  2a75fc:	29072289 	stp	w9, w8, [x20, #56]
+  2a7600:	34000648 	cbz	w8, 2a76c8 <D3D11On12CreateDevice@@Base+0xb14e4>
+  2a7604:	aa1b03fa 	mov	x26, x27
+  2a7608:	aa1f03f8 	mov	x24, xzr
+  2a760c:	5280051c 	mov	w28, #0x28                  	// #40
+  2a7610:	910023f3 	add	x19, sp, #0x8
+  2a7614:	910843fb 	add	x27, sp, #0x210
+  2a7618:	14000008 	b	2a7638 <D3D11On12CreateDevice@@Base+0xb1454>
+  2a761c:	2a1f03e8 	mov	w8, wzr
+  2a7620:	9b1c5f09 	madd	x9, x24, x28, x23
+  2a7624:	b9403e8a 	ldr	w10, [x20, #60]
+  2a7628:	91000718 	add	x24, x24, #0x1
+  2a762c:	eb0a031f 	cmp	x24, x10
+  2a7630:	39008128 	strb	w8, [x9, #32]
+  2a7634:	54000442 	b.cs	2a76bc <D3D11On12CreateDevice@@Base+0xb14d8>  // b.hs, b.nlast
+  2a7638:	f100431f 	cmp	x24, #0x10
+  2a763c:	54004160 	b.eq	2a7e68 <D3D11On12CreateDevice@@Base+0xb1c84>  // b.none
+  2a7640:	9b1c5f08 	madd	x8, x24, x28, x23
+  2a7644:	8b181269 	add	x9, x19, x24, lsl #4
+  2a7648:	9104212a 	add	x10, x9, #0x108
+  2a764c:	f9408529 	ldr	x9, [x9, #264]
+  2a7650:	3dc00140 	ldr	q0, [x10]
+  2a7654:	f940028a 	ldr	x10, [x20]
+  2a7658:	b9000118 	str	w24, [x8]
+  2a765c:	f9000509 	str	x9, [x8, #8]
+  2a7660:	3d800500 	str	q0, [x8, #16]
+  2a7664:	f9405148 	ldr	x8, [x10, #160]
+  2a7668:	a9408109 	ldp	x9, x0, [x8, #8]
+  2a766c:	f9404128 	ldr	x8, [x9, #128]
+  2a7670:	910843e1 	add	x1, sp, #0x210
+  2a7674:	d63f0100 	blr	x8
+  2a7678:	b94317e9 	ldr	w9, [sp, #788]
+  2a767c:	34fffd09 	cbz	w9, 2a761c <D3D11On12CreateDevice@@Base+0xb1438>
+  2a7680:	d37ced2a 	lsl	x10, x9, #4
+  2a7684:	aa1f03e8 	mov	x8, xzr
+  2a7688:	52800029 	mov	w9, #0x1                   	// #1
+  2a768c:	8b08036b 	add	x11, x27, x8
+  2a7690:	91004108 	add	x8, x8, #0x10
+  2a7694:	3944416b 	ldrb	w11, [x11, #272]
+  2a7698:	eb08015f 	cmp	x10, x8
+  2a769c:	0a0b0129 	and	w9, w9, w11
+  2a76a0:	54ffff61 	b.ne	2a768c <D3D11On12CreateDevice@@Base+0xb14a8>  // b.any
+  2a76a4:	3707fbc9 	tbnz	w9, #0, 2a761c <D3D11On12CreateDevice@@Base+0xb1438>
+  2a76a8:	f9400288 	ldr	x8, [x20]
+  2a76ac:	b946f108 	ldr	w8, [x8, #1776]
+  2a76b0:	7100091f 	cmp	w8, #0x2
+  2a76b4:	1a9f17e8 	cset	w8, eq	// eq = none
+  2a76b8:	17ffffda 	b	2a7620 <D3D11On12CreateDevice@@Base+0xb143c>
+  2a76bc:	b9403a89 	ldr	w9, [x20, #56]
+  2a76c0:	aa1a03fb 	mov	x27, x26
+  2a76c4:	910843fa 	add	x26, sp, #0x210
+  2a76c8:	34000c49 	cbz	w9, 2a7850 <D3D11On12CreateDevice@@Base+0xb166c>
+  2a76cc:	aa1f03ea 	mov	x10, xzr
+  2a76d0:	2a0903e8 	mov	w8, w9
+  2a76d4:	5280480b 	mov	w11, #0x240                 	// #576
+  2a76d8:	910023ec 	add	x12, sp, #0x8
+  2a76dc:	5280050d 	mov	w13, #0x28                  	// #40
+  2a76e0:	5280002e 	mov	w14, #0x1                   	// #1
+  2a76e4:	52a0080f 	mov	w15, #0x400000              	// #4194304
+  2a76e8:	52800170 	mov	w16, #0xb                   	// #11
+---
+  2bb7c8:	54fffce1 	b.ne	2bb764 <D3D11On12CreateDevice@@Base+0xc5580>  // b.any
+  2bb7cc:	aa1503e0 	mov	x0, x21
+  2bb7d0:	9402379a 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bb7d4:	aa1503e0 	mov	x0, x21
+  2bb7d8:	97fa8ff7 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bb7dc:	17ffffe2 	b	2bb764 <D3D11On12CreateDevice@@Base+0xc5580>
+  2bb7e0:	a9424ff4 	ldp	x20, x19, [sp, #32]
+  2bb7e4:	a94157f6 	ldp	x22, x21, [sp, #16]
+  2bb7e8:	a8c37bfd 	ldp	x29, x30, [sp], #48
+  2bb7ec:	d65f03c0 	ret
+  2bb7f0:	97faa871 	bl	1659b4 <D3D11CoreCreateDevice@@Base-0x8f86c>
+  2bb7f4:	a9bd7bfd 	stp	x29, x30, [sp, #-48]!
+  2bb7f8:	a90157f6 	stp	x22, x21, [sp, #16]
+  2bb7fc:	a9024ff4 	stp	x20, x19, [sp, #32]
+  2bb800:	910003fd 	mov	x29, sp
+  2bb804:	f9400816 	ldr	x22, [x0, #16]
+  2bb808:	aa0003f3 	mov	x19, x0
+  2bb80c:	b5000176 	cbnz	x22, 2bb838 <D3D11On12CreateDevice@@Base+0xc5654>
+  2bb810:	f9400260 	ldr	x0, [x19]
+  2bb814:	f900027f 	str	xzr, [x19]
+  2bb818:	b4000540 	cbz	x0, 2bb8c0 <D3D11On12CreateDevice@@Base+0xc56dc>
+  2bb81c:	a9424ff4 	ldp	x20, x19, [sp, #32]
+  2bb820:	a94157f6 	ldp	x22, x21, [sp, #16]
+  2bb824:	a8c37bfd 	ldp	x29, x30, [sp], #48
+  2bb828:	17fa8fe3 	b	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bb82c:	aa1403e0 	mov	x0, x20
+  2bb830:	97fa8fe1 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bb834:	b4fffef6 	cbz	x22, 2bb810 <D3D11On12CreateDevice@@Base+0xc562c>
+  2bb838:	f94052c8 	ldr	x8, [x22, #160]
+  2bb83c:	aa1603f4 	mov	x20, x22
+  2bb840:	f94002d6 	ldr	x22, [x22]
+  2bb844:	f9405515 	ldr	x21, [x8, #168]
+  2bb848:	b4000095 	cbz	x21, 2bb858 <D3D11On12CreateDevice@@Base+0xc5674>
+  2bb84c:	52800020 	mov	w0, #0x1                   	// #1
+  2bb850:	aa1503e1 	mov	x1, x21
+  2bb854:	97fa971f 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bb858:	f9400ea0 	ldr	x0, [x21, #24]
+  2bb85c:	f9405681 	ldr	x1, [x20, #168]
+  2bb860:	f9410ea8 	ldr	x8, [x21, #536]
+  2bb864:	aa1f03e2 	mov	x2, xzr
+  2bb868:	d63f0100 	blr	x8
+  2bb86c:	f9400ea0 	ldr	x0, [x21, #24]
+  2bb870:	f9405a81 	ldr	x1, [x20, #176]
+  2bb874:	f94166a8 	ldr	x8, [x21, #712]
+  2bb878:	aa1f03e2 	mov	x2, xzr
+  2bb87c:	d63f0100 	blr	x8
+  2bb880:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bb884:	aa1503e1 	mov	x1, x21
+  2bb888:	97fa9712 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bb88c:	7100041f 	cmp	w0, #0x1
+  2bb890:	540000a1 	b.ne	2bb8a4 <D3D11On12CreateDevice@@Base+0xc56c0>  // b.any
+  2bb894:	aa1503e0 	mov	x0, x21
+  2bb898:	94023768 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bb89c:	aa1503e0 	mov	x0, x21
+  2bb8a0:	97fa8fc5 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bb8a4:	f9400a88 	ldr	x8, [x20, #16]
+  2bb8a8:	f100851f 	cmp	x8, #0x21
+  2bb8ac:	54fffc03 	b.cc	2bb82c <D3D11On12CreateDevice@@Base+0xc5648>  // b.lo, b.ul, b.last
+  2bb8b0:	f9401280 	ldr	x0, [x20, #32]
+  2bb8b4:	b4fffbc0 	cbz	x0, 2bb82c <D3D11On12CreateDevice@@Base+0xc5648>
+  2bb8b8:	97fa8fc1 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  2bb8bc:	17ffffdc 	b	2bb82c <D3D11On12CreateDevice@@Base+0xc5648>
+---
+  2bbae8:	f9405515 	ldr	x21, [x8, #168]
+  2bbaec:	b4000095 	cbz	x21, 2bbafc <D3D11On12CreateDevice@@Base+0xc5918>
+  2bbaf0:	52800020 	mov	w0, #0x1                   	// #1
+  2bbaf4:	aa1503e1 	mov	x1, x21
+  2bbaf8:	97fa9676 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bbafc:	f9400ea0 	ldr	x0, [x21, #24]
+  2bbb00:	f9401e81 	ldr	x1, [x20, #56]
+  2bbb04:	f940fea8 	ldr	x8, [x21, #504]
+  2bbb08:	aa1f03e2 	mov	x2, xzr
+  2bbb0c:	d63f0100 	blr	x8
+  2bbb10:	f9400ea0 	ldr	x0, [x21, #24]
+  2bbb14:	f9402281 	ldr	x1, [x20, #64]
+  2bbb18:	f940fea8 	ldr	x8, [x21, #504]
+  2bbb1c:	aa1f03e2 	mov	x2, xzr
+  2bbb20:	d63f0100 	blr	x8
+  2bbb24:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bbb28:	aa1503e1 	mov	x1, x21
+  2bbb2c:	97fa9669 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bbb30:	7100041f 	cmp	w0, #0x1
+  2bbb34:	54fffce1 	b.ne	2bbad0 <D3D11On12CreateDevice@@Base+0xc58ec>  // b.any
+  2bbb38:	aa1503e0 	mov	x0, x21
+  2bbb3c:	940236bf 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bbb40:	aa1503e0 	mov	x0, x21
+  2bbb44:	97fa8f1c 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bbb48:	17ffffe2 	b	2bbad0 <D3D11On12CreateDevice@@Base+0xc58ec>
+  2bbb4c:	aa1403e0 	mov	x0, x20
+  2bbb50:	97fa8f19 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bbb54:	b4fff3d6 	cbz	x22, 2bb9cc <D3D11On12CreateDevice@@Base+0xc57e8>
+  2bbb58:	f94052c8 	ldr	x8, [x22, #160]
+  2bbb5c:	aa1603f4 	mov	x20, x22
+  2bbb60:	f94002d6 	ldr	x22, [x22]
+  2bbb64:	f9405515 	ldr	x21, [x8, #168]
+  2bbb68:	b4000095 	cbz	x21, 2bbb78 <D3D11On12CreateDevice@@Base+0xc5994>
+  2bbb6c:	52800020 	mov	w0, #0x1                   	// #1
+  2bbb70:	aa1503e1 	mov	x1, x21
+  2bbb74:	97fa9657 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bbb78:	f9400ea0 	ldr	x0, [x21, #24]
+  2bbb7c:	f9405681 	ldr	x1, [x20, #168]
+  2bbb80:	f9410ea8 	ldr	x8, [x21, #536]
+  2bbb84:	aa1f03e2 	mov	x2, xzr
+  2bbb88:	d63f0100 	blr	x8
+  2bbb8c:	f9400ea0 	ldr	x0, [x21, #24]
+  2bbb90:	f9405a81 	ldr	x1, [x20, #176]
+  2bbb94:	f94166a8 	ldr	x8, [x21, #712]
+  2bbb98:	aa1f03e2 	mov	x2, xzr
+  2bbb9c:	d63f0100 	blr	x8
+  2bbba0:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bbba4:	aa1503e1 	mov	x1, x21
+  2bbba8:	97fa964a 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bbbac:	7100041f 	cmp	w0, #0x1
+  2bbbb0:	540000a1 	b.ne	2bbbc4 <D3D11On12CreateDevice@@Base+0xc59e0>  // b.any
+  2bbbb4:	aa1503e0 	mov	x0, x21
+  2bbbb8:	940236a0 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bbbbc:	aa1503e0 	mov	x0, x21
+  2bbbc0:	97fa8efd 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bbbc4:	f9400a88 	ldr	x8, [x20, #16]
+  2bbbc8:	f100851f 	cmp	x8, #0x21
+  2bbbcc:	54fffc03 	b.cc	2bbb4c <D3D11On12CreateDevice@@Base+0xc5968>  // b.lo, b.ul, b.last
+  2bbbd0:	f9401280 	ldr	x0, [x20, #32]
+  2bbbd4:	b4fffbc0 	cbz	x0, 2bbb4c <D3D11On12CreateDevice@@Base+0xc5968>
+  2bbbd8:	97fa8ef9 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  2bbbdc:	17ffffdc 	b	2bbb4c <D3D11On12CreateDevice@@Base+0xc5968>
+---
+  2bdbb4:	540000c1 	b.ne	2bdbcc <D3D11On12CreateDevice@@Base+0xc79e8>  // b.any
+  2bdbb8:	91004340 	add	x0, x26, #0x10
+  2bdbbc:	91004281 	add	x1, x20, #0x10
+  2bdbc0:	97ffe9cb 	bl	2b82ec <D3D11On12CreateDevice@@Base+0xc2108>
+  2bdbc4:	3607ff00 	tbz	w0, #0, 2bdba4 <D3D11On12CreateDevice@@Base+0xc79c0>
+  2bdbc8:	14000012 	b	2bdc10 <D3D11On12CreateDevice@@Base+0xc7a2c>
+  2bdbcc:	eb15011f 	cmp	x8, x21
+  2bdbd0:	54fffe63 	b.cc	2bdb9c <D3D11On12CreateDevice@@Base+0xc79b8>  // b.lo, b.ul, b.last
+  2bdbd4:	9ad50909 	udiv	x9, x8, x21
+  2bdbd8:	9b15a128 	msub	x8, x9, x21, x8
+  2bdbdc:	17fffff0 	b	2bdb9c <D3D11On12CreateDevice@@Base+0xc79b8>
+  2bdbe0:	8a1b0108 	and	x8, x8, x27
+  2bdbe4:	eb18011f 	cmp	x8, x24
+  2bdbe8:	54000621 	b.ne	2bdcac <D3D11On12CreateDevice@@Base+0xc7ac8>  // b.any
+  2bdbec:	f940035a 	ldr	x26, [x26]
+  2bdbf0:	b40005fa 	cbz	x26, 2bdcac <D3D11On12CreateDevice@@Base+0xc7ac8>
+  2bdbf4:	f9400748 	ldr	x8, [x26, #8]
+  2bdbf8:	eb16011f 	cmp	x8, x22
+  2bdbfc:	54ffff21 	b.ne	2bdbe0 <D3D11On12CreateDevice@@Base+0xc79fc>  // b.any
+  2bdc00:	91004340 	add	x0, x26, #0x10
+  2bdc04:	91004281 	add	x1, x20, #0x10
+  2bdc08:	97ffe9b9 	bl	2b82ec <D3D11On12CreateDevice@@Base+0xc2108>
+  2bdc0c:	3607ff00 	tbz	w0, #0, 2bdbec <D3D11On12CreateDevice@@Base+0xc7a08>
+  2bdc10:	f940a3f3 	ldr	x19, [sp, #320]
+  2bdc14:	aa1a03f4 	mov	x20, x26
+  2bdc18:	b4001773 	cbz	x19, 2bdf04 <D3D11On12CreateDevice@@Base+0xc7d20>
+  2bdc1c:	394543e8 	ldrb	w8, [sp, #336]
+  2bdc20:	34000408 	cbz	w8, 2bdca0 <D3D11On12CreateDevice@@Base+0xc7abc>
+  2bdc24:	f9405268 	ldr	x8, [x19, #160]
+  2bdc28:	f9405515 	ldr	x21, [x8, #168]
+  2bdc2c:	b4000095 	cbz	x21, 2bdc3c <D3D11On12CreateDevice@@Base+0xc7a58>
+  2bdc30:	52800020 	mov	w0, #0x1                   	// #1
+  2bdc34:	aa1503e1 	mov	x1, x21
+  2bdc38:	97fa8e26 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bdc3c:	f9400ea0 	ldr	x0, [x21, #24]
+  2bdc40:	f9405661 	ldr	x1, [x19, #168]
+  2bdc44:	f9410ea8 	ldr	x8, [x21, #536]
+  2bdc48:	aa1f03e2 	mov	x2, xzr
+  2bdc4c:	d63f0100 	blr	x8
+  2bdc50:	f9400ea0 	ldr	x0, [x21, #24]
+  2bdc54:	f9405a61 	ldr	x1, [x19, #176]
+  2bdc58:	f94166a8 	ldr	x8, [x21, #712]
+  2bdc5c:	aa1f03e2 	mov	x2, xzr
+  2bdc60:	d63f0100 	blr	x8
+  2bdc64:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bdc68:	aa1503e1 	mov	x1, x21
+  2bdc6c:	97fa8e19 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bdc70:	7100041f 	cmp	w0, #0x1
+  2bdc74:	540000a1 	b.ne	2bdc88 <D3D11On12CreateDevice@@Base+0xc7aa4>  // b.any
+  2bdc78:	aa1503e0 	mov	x0, x21
+  2bdc7c:	94022e6f 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bdc80:	aa1503e0 	mov	x0, x21
+  2bdc84:	97fa86cc 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bdc88:	f9400a68 	ldr	x8, [x19, #16]
+  2bdc8c:	f100851f 	cmp	x8, #0x21
+  2bdc90:	54000083 	b.cc	2bdca0 <D3D11On12CreateDevice@@Base+0xc7abc>  // b.lo, b.ul, b.last
+  2bdc94:	f9401260 	ldr	x0, [x19, #32]
+  2bdc98:	b4000040 	cbz	x0, 2bdca0 <D3D11On12CreateDevice@@Base+0xc7abc>
+  2bdc9c:	97fa86c8 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  2bdca0:	aa1303e0 	mov	x0, x19
+  2bdca4:	97fa86c4 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bdca8:	14000097 	b	2bdf04 <D3D11On12CreateDevice@@Base+0xc7d20>
+---
+  2bff00:	f940f688 	ldr	x8, [x20, #488]
+  2bff04:	aa1f03e2 	mov	x2, xzr
+  2bff08:	d63f0100 	blr	x8
+  2bff0c:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bff10:	aa1403e1 	mov	x1, x20
+  2bff14:	97fa856f 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bff18:	7100041f 	cmp	w0, #0x1
+  2bff1c:	540000a1 	b.ne	2bff30 <D3D11On12CreateDevice@@Base+0xc9d4c>  // b.any
+  2bff20:	aa1403e0 	mov	x0, x20
+  2bff24:	940225c5 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bff28:	aa1403e0 	mov	x0, x20
+  2bff2c:	97fa7e22 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bff30:	aa1303e0 	mov	x0, x19
+  2bff34:	a9414ff4 	ldp	x20, x19, [sp, #16]
+  2bff38:	a8c27bfd 	ldp	x29, x30, [sp], #32
+  2bff3c:	17fa7e1e 	b	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bff40:	a9414ff4 	ldp	x20, x19, [sp, #16]
+  2bff44:	a8c27bfd 	ldp	x29, x30, [sp], #32
+  2bff48:	d65f03c0 	ret
+  2bff4c:	97fa969a 	bl	1659b4 <D3D11CoreCreateDevice@@Base-0x8f86c>
+  2bff50:	a9be7bfd 	stp	x29, x30, [sp, #-32]!
+  2bff54:	a9014ff4 	stp	x20, x19, [sp, #16]
+  2bff58:	910003fd 	mov	x29, sp
+  2bff5c:	f9400013 	ldr	x19, [x0]
+  2bff60:	f900001f 	str	xzr, [x0]
+  2bff64:	b40004d3 	cbz	x19, 2bfffc <D3D11On12CreateDevice@@Base+0xc9e18>
+  2bff68:	39404008 	ldrb	w8, [x0, #16]
+  2bff6c:	34000408 	cbz	w8, 2bffec <D3D11On12CreateDevice@@Base+0xc9e08>
+  2bff70:	f9405268 	ldr	x8, [x19, #160]
+  2bff74:	f9405514 	ldr	x20, [x8, #168]
+  2bff78:	b4000094 	cbz	x20, 2bff88 <D3D11On12CreateDevice@@Base+0xc9da4>
+  2bff7c:	52800020 	mov	w0, #0x1                   	// #1
+  2bff80:	aa1403e1 	mov	x1, x20
+  2bff84:	97fa8553 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bff88:	f9400e80 	ldr	x0, [x20, #24]
+  2bff8c:	f9405661 	ldr	x1, [x19, #168]
+  2bff90:	f9410e88 	ldr	x8, [x20, #536]
+  2bff94:	aa1f03e2 	mov	x2, xzr
+  2bff98:	d63f0100 	blr	x8
+  2bff9c:	f9400e80 	ldr	x0, [x20, #24]
+  2bffa0:	f9405a61 	ldr	x1, [x19, #176]
+  2bffa4:	f9416688 	ldr	x8, [x20, #712]
+  2bffa8:	aa1f03e2 	mov	x2, xzr
+  2bffac:	d63f0100 	blr	x8
+  2bffb0:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2bffb4:	aa1403e1 	mov	x1, x20
+  2bffb8:	97fa8546 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2bffbc:	7100041f 	cmp	w0, #0x1
+  2bffc0:	540000a1 	b.ne	2bffd4 <D3D11On12CreateDevice@@Base+0xc9df0>  // b.any
+  2bffc4:	aa1403e0 	mov	x0, x20
+  2bffc8:	9402259c 	bl	349638 <D3D11On12CreateDevice@@Base+0x153454>
+  2bffcc:	aa1403e0 	mov	x0, x20
+  2bffd0:	97fa7df9 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2bffd4:	f9400a68 	ldr	x8, [x19, #16]
+  2bffd8:	f100851f 	cmp	x8, #0x21
+  2bffdc:	54000083 	b.cc	2bffec <D3D11On12CreateDevice@@Base+0xc9e08>  // b.lo, b.ul, b.last
+  2bffe0:	f9401260 	ldr	x0, [x19, #32]
+  2bffe4:	b4000040 	cbz	x0, 2bffec <D3D11On12CreateDevice@@Base+0xc9e08>
+  2bffe8:	97fa7df5 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  2bffec:	aa1303e0 	mov	x0, x19
+  2bfff0:	a9414ff4 	ldp	x20, x19, [sp, #16]
+  2bfff4:	a8c27bfd 	ldp	x29, x30, [sp], #32
+---
+  2c8604:	36000068 	tbz	w8, #0, 2c8610 <D3D11On12CreateDevice@@Base+0xd242c>
+  2c8608:	f9408fe0 	ldr	x0, [sp, #280]
+  2c860c:	97fa5c6a 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2c8610:	910062c0 	add	x0, x22, #0x18
+  2c8614:	97f953bd 	bl	11d508 <D3D11CoreCreateDevice@@Base-0xd7d18>
+  2c8618:	900004c8 	adrp	x8, 360000 <getpid@plt+0x14d70>
+  2c861c:	9102c3e0 	add	x0, sp, #0xb0
+  2c8620:	f9448d08 	ldr	x8, [x8, #2328]
+  2c8624:	91002101 	add	x1, x8, #0x8
+  2c8628:	97f959a3 	bl	11ecb4 <D3D11CoreCreateDevice@@Base-0xd656c>
+  2c862c:	910202c0 	add	x0, x22, #0x80
+  2c8630:	97f953a9 	bl	11d4d4 <D3D11CoreCreateDevice@@Base-0xd7d4c>
+  2c8634:	900004c0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  2c8638:	910123e2 	add	x2, sp, #0x48
+  2c863c:	52800081 	mov	w1, #0x4                   	// #4
+  2c8640:	f9453800 	ldr	x0, [x0, #2672]
+  2c8644:	9401ae15 	bl	333e98 <D3D11On12CreateDevice@@Base+0x13dcb4>
+  2c8648:	394123e8 	ldrb	w8, [sp, #72]
+  2c864c:	36000068 	tbz	w8, #0, 2c8658 <D3D11On12CreateDevice@@Base+0xd2474>
+  2c8650:	f9402fe0 	ldr	x0, [sp, #88]
+  2c8654:	97fa5c58 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2c8658:	b94063e8 	ldr	w8, [sp, #96]
+  2c865c:	91018333 	add	x19, x25, #0x60
+  2c8660:	889ffe68 	stlr	w8, [x19]
+  2c8664:	f9404be0 	ldr	x0, [sp, #144]
+  2c8668:	b40000a0 	cbz	x0, 2c867c <D3D11On12CreateDevice@@Base+0xd2498>
+  2c866c:	f9400008 	ldr	x8, [x0]
+  2c8670:	f9403fe1 	ldr	x1, [sp, #120]
+  2c8674:	f9405108 	ldr	x8, [x8, #160]
+  2c8678:	d63f0100 	blr	x8
+  2c867c:	88dffe68 	ldar	w8, [x19]
+  2c8680:	3100111f 	cmn	w8, #0x4
+  2c8684:	54ffed40 	b.eq	2c842c <D3D11On12CreateDevice@@Base+0xd2248>  // b.none
+  2c8688:	f9400320 	ldr	x0, [x25]
+  2c868c:	97fef921 	bl	286b10 <D3D11On12CreateDevice@@Base+0x9092c>
+  2c8690:	17ffff67 	b	2c842c <D3D11On12CreateDevice@@Base+0xd2248>
+  2c8694:	f94043e0 	ldr	x0, [sp, #128]
+  2c8698:	b40002e0 	cbz	x0, 2c86f4 <D3D11On12CreateDevice@@Base+0xd2510>
+  2c869c:	f9404be8 	ldr	x8, [sp, #144]
+  2c86a0:	b40000e8 	cbz	x8, 2c86bc <D3D11On12CreateDevice@@Base+0xd24d8>
+  2c86a4:	f9400109 	ldr	x9, [x8]
+  2c86a8:	f9404fe1 	ldr	x1, [sp, #152]
+  2c86ac:	f9402929 	ldr	x9, [x9, #80]
+  2c86b0:	aa0803e0 	mov	x0, x8
+  2c86b4:	d63f0120 	blr	x9
+  2c86b8:	f94043e0 	ldr	x0, [sp, #128]
+  2c86bc:	f94047e1 	ldr	x1, [sp, #136]
+  2c86c0:	9100c362 	add	x2, x27, #0x30
+  2c86c4:	97ffe96b 	bl	2c2c70 <D3D11On12CreateDevice@@Base+0xcca8c>
+  2c86c8:	2a0003e2 	mov	w2, w0
+  2c86cc:	f9404be0 	ldr	x0, [sp, #144]
+  2c86d0:	b90063e2 	str	w2, [sp, #96]
+  2c86d4:	b4000100 	cbz	x0, 2c86f4 <D3D11On12CreateDevice@@Base+0xd2510>
+  2c86d8:	f9400008 	ldr	x8, [x0]
+  2c86dc:	f9404fe1 	ldr	x1, [sp, #152]
+  2c86e0:	f9402d08 	ldr	x8, [x8, #88]
+  2c86e4:	d63f0100 	blr	x8
+  2c86e8:	f9404fe8 	ldr	x8, [sp, #152]
+  2c86ec:	aa1f03f5 	mov	x21, xzr
+  2c86f0:	f9000be8 	str	x8, [sp, #16]
+  2c86f4:	f9401b20 	ldr	x0, [x25, #48]
+  2c86f8:	b50001a0 	cbnz	x0, 2c872c <D3D11On12CreateDevice@@Base+0xd2548>
+---
+  2c8ae0:	ad0283e1 	stp	q1, q0, [sp, #80]
+  2c8ae4:	b40000d6 	cbz	x22, 2c8afc <D3D11On12CreateDevice@@Base+0xd2918>
+  2c8ae8:	f94002c8 	ldr	x8, [x22]
+  2c8aec:	f94057e1 	ldr	x1, [sp, #168]
+  2c8af0:	f9403108 	ldr	x8, [x8, #96]
+  2c8af4:	aa1603e0 	mov	x0, x22
+  2c8af8:	d63f0100 	blr	x8
+  2c8afc:	910183e8 	add	x8, sp, #0x60
+  2c8b00:	910143e9 	add	x9, sp, #0x50
+  2c8b04:	a902ffff 	stp	xzr, xzr, [sp, #40]
+  2c8b08:	a903a3ff 	stp	xzr, x8, [sp, #56]
+  2c8b0c:	f85f03a8 	ldur	x8, [x29, #-16]
+  2c8b10:	f90027e9 	str	x9, [sp, #72]
+  2c8b14:	529e5389 	mov	w9, #0xf29c                	// #62108
+  2c8b18:	72a773a9 	movk	w9, #0x3b9d, lsl #16
+  2c8b1c:	f9400d00 	ldr	x0, [x8, #24]
+  2c8b20:	b9002be9 	str	w9, [sp, #40]
+  2c8b24:	f9417d09 	ldr	x9, [x8, #760]
+  2c8b28:	52800048 	mov	w8, #0x2                   	// #2
+  2c8b2c:	b9003fe8 	str	w8, [sp, #60]
+  2c8b30:	9100a3e1 	add	x1, sp, #0x28
+  2c8b34:	92800002 	mov	x2, #0xffffffffffffffff    	// #-1
+  2c8b38:	d63f0120 	blr	x9
+  2c8b3c:	2a0003f7 	mov	w23, w0
+  2c8b40:	b4000116 	cbz	x22, 2c8b60 <D3D11On12CreateDevice@@Base+0xd297c>
+  2c8b44:	340001f7 	cbz	w23, 2c8b80 <D3D11On12CreateDevice@@Base+0xd299c>
+  2c8b48:	f94002c8 	ldr	x8, [x22]
+  2c8b4c:	f94047e1 	ldr	x1, [sp, #136]
+  2c8b50:	f9405108 	ldr	x8, [x8, #160]
+  2c8b54:	aa1603e0 	mov	x0, x22
+  2c8b58:	d63f0100 	blr	x8
+  2c8b5c:	14000002 	b	2c8b64 <D3D11On12CreateDevice@@Base+0xd2980>
+  2c8b60:	340001d7 	cbz	w23, 2c8b98 <D3D11On12CreateDevice@@Base+0xd29b4>
+  2c8b64:	91018328 	add	x8, x25, #0x60
+  2c8b68:	310012ff 	cmn	w23, #0x4
+  2c8b6c:	889ffd17 	stlr	w23, [x8]
+  2c8b70:	54000140 	b.eq	2c8b98 <D3D11On12CreateDevice@@Base+0xd29b4>  // b.none
+  2c8b74:	f9400320 	ldr	x0, [x25]
+  2c8b78:	97fef7e6 	bl	286b10 <D3D11On12CreateDevice@@Base+0x9092c>
+  2c8b7c:	14000007 	b	2c8b98 <D3D11On12CreateDevice@@Base+0xd29b4>
+  2c8b80:	f94002c8 	ldr	x8, [x22]
+  2c8b84:	f94057e1 	ldr	x1, [sp, #168]
+  2c8b88:	f94047e2 	ldr	x2, [sp, #136]
+  2c8b8c:	f9403508 	ldr	x8, [x8, #104]
+  2c8b90:	aa1603e0 	mov	x0, x22
+  2c8b94:	d63f0100 	blr	x8
+  2c8b98:	f94043f6 	ldr	x22, [sp, #128]
+  2c8b9c:	b50003f6 	cbnz	x22, 2c8c18 <D3D11On12CreateDevice@@Base+0xd2a34>
+  2c8ba0:	1400003f 	b	2c8c9c <D3D11On12CreateDevice@@Base+0xd2ab8>
+  2c8ba4:	910c02c0 	add	x0, x22, #0x300
+  2c8ba8:	9100c341 	add	x1, x26, #0x30
+  2c8bac:	9400d365 	bl	2fd940 <D3D11On12CreateDevice@@Base+0x10775c>
+  2c8bb0:	f9400ac0 	ldr	x0, [x22, #16]
+  2c8bb4:	f9400008 	ldr	x8, [x0]
+  2c8bb8:	f9400d08 	ldr	x8, [x8, #24]
+  2c8bbc:	aa1703e1 	mov	x1, x23
+  2c8bc0:	d63f0100 	blr	x8
+  2c8bc4:	b40000d8 	cbz	x24, 2c8bdc <D3D11On12CreateDevice@@Base+0xd29f8>
+  2c8bc8:	f9400308 	ldr	x8, [x24]
+  2c8bcc:	f9403d08 	ldr	x8, [x8, #120]
+  2c8bd0:	aa1803e0 	mov	x0, x24
+  2c8bd4:	aa1703e1 	mov	x1, x23
+---
+  2c8ba8:	9100c341 	add	x1, x26, #0x30
+  2c8bac:	9400d365 	bl	2fd940 <D3D11On12CreateDevice@@Base+0x10775c>
+  2c8bb0:	f9400ac0 	ldr	x0, [x22, #16]
+  2c8bb4:	f9400008 	ldr	x8, [x0]
+  2c8bb8:	f9400d08 	ldr	x8, [x8, #24]
+  2c8bbc:	aa1703e1 	mov	x1, x23
+  2c8bc0:	d63f0100 	blr	x8
+  2c8bc4:	b40000d8 	cbz	x24, 2c8bdc <D3D11On12CreateDevice@@Base+0xd29f8>
+  2c8bc8:	f9400308 	ldr	x8, [x24]
+  2c8bcc:	f9403d08 	ldr	x8, [x8, #120]
+  2c8bd0:	aa1803e0 	mov	x0, x24
+  2c8bd4:	aa1703e1 	mov	x1, x23
+  2c8bd8:	d63f0100 	blr	x8
+  2c8bdc:	12800000 	mov	w0, #0xffffffff            	// #-1
+  2c8be0:	aa1603e1 	mov	x1, x22
+  2c8be4:	97fa623b 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2c8be8:	7100041f 	cmp	w0, #0x1
+  2c8bec:	54000101 	b.ne	2c8c0c <D3D11On12CreateDevice@@Base+0xd2a28>  // b.any
+  2c8bf0:	f9404bf6 	ldr	x22, [sp, #144]
+  2c8bf4:	b40000d6 	cbz	x22, 2c8c0c <D3D11On12CreateDevice@@Base+0xd2a28>
+  2c8bf8:	aa1603e0 	mov	x0, x22
+  2c8bfc:	97ffe419 	bl	2c1c60 <D3D11On12CreateDevice@@Base+0xcba7c>
+  2c8c00:	aa1603e0 	mov	x0, x22
+  2c8c04:	52800801 	mov	w1, #0x40                  	// #64
+  2c8c08:	97fa5b14 	bl	15f858 <D3D11CoreCreateDevice@@Base-0x959c8>
+  2c8c0c:	f9004bff 	str	xzr, [sp, #144]
+  2c8c10:	f94043f6 	ldr	x22, [sp, #128]
+  2c8c14:	b4000456 	cbz	x22, 2c8c9c <D3D11On12CreateDevice@@Base+0xd2ab8>
+  2c8c18:	f94052c8 	ldr	x8, [x22, #160]
+  2c8c1c:	b4000288 	cbz	x8, 2c8c6c <D3D11On12CreateDevice@@Base+0xd2a88>
+  2c8c20:	aa1f03f8 	mov	x24, xzr
+  2c8c24:	aa1f03f7 	mov	x23, xzr
+  2c8c28:	14000009 	b	2c8c4c <D3D11On12CreateDevice@@Base+0xd2a68>
+  2c8c2c:	8b081300 	add	x0, x24, x8, lsl #4
+  2c8c30:	f9400008 	ldr	x8, [x0]
+  2c8c34:	f9400108 	ldr	x8, [x8]
+  2c8c38:	d63f0100 	blr	x8
+  2c8c3c:	f94052c8 	ldr	x8, [x22, #160]
+  2c8c40:	910006f7 	add	x23, x23, #0x1
+  2c8c44:	eb0802ff 	cmp	x23, x8
+  2c8c48:	54000122 	b.cs	2c8c6c <D3D11On12CreateDevice@@Base+0xd2a88>  // b.hs, b.nlast
+  2c8c4c:	f24026e8 	ands	x8, x23, #0x3ff
+  2c8c50:	54fffee1 	b.ne	2c8c2c <D3D11On12CreateDevice@@Base+0xd2a48>  // b.any
+  2c8c54:	b4000078 	cbz	x24, 2c8c60 <D3D11On12CreateDevice@@Base+0xd2a7c>
+  2c8c58:	f9600300 	ldr	x0, [x24, #16384]
+  2c8c5c:	14000002 	b	2c8c64 <D3D11On12CreateDevice@@Base+0xd2a80>
+  2c8c60:	f9404ac0 	ldr	x0, [x22, #144]
+  2c8c64:	aa0003f8 	mov	x24, x0
+  2c8c68:	17fffff2 	b	2c8c30 <D3D11On12CreateDevice@@Base+0xd2a4c>
+  2c8c6c:	a94aded4 	ldp	x20, x23, [x22, #168]
+  2c8c70:	f9404ac8 	ldr	x8, [x22, #144]
+  2c8c74:	a909fec8 	stp	x8, xzr, [x22, #152]
+  2c8c78:	eb17029f 	cmp	x20, x23
+  2c8c7c:	54000100 	b.eq	2c8c9c <D3D11On12CreateDevice@@Base+0xd2ab8>  // b.none
+  2c8c80:	a9400680 	ldp	x0, x1, [x20]
+  2c8c84:	f9400008 	ldr	x8, [x0]
+  2c8c88:	f9400d08 	ldr	x8, [x8, #24]
+  2c8c8c:	d63f0100 	blr	x8
+  2c8c90:	91004294 	add	x20, x20, #0x10
+  2c8c94:	eb17029f 	cmp	x20, x23
+  2c8c98:	54ffff41 	b.ne	2c8c80 <D3D11On12CreateDevice@@Base+0xd2a9c>  // b.any
+  2c8c9c:	f85e03a0 	ldur	x0, [x29, #-32]
+---
+hits=31
+
+===== vkCreateImage slot=0x180 =====
+hits=0
+
+===== vkCreateImageView slot=0x198 =====
+hits=0
+
+===== vkCreateShaderModule slot=0x1a8 =====
+hits=0
+
+===== vkCreateGraphicsPipelines slot=0x1d8 =====
+hits=0
+
+===== vkCreateComputePipelines slot=0x1e0 =====
+hits=0
+
+===== vkCreateSampler slot=0x200 =====
+  1f9804:	540000e1 	b.ne	1f9820 <D3D11On12CreateDevice@@Base+0x363c>  // b.any
+  1f9808:	aa1303e0 	mov	x0, x19
+  1f980c:	9402557e 	bl	28ee04 <D3D11On12CreateDevice@@Base+0x98c20>
+  1f9810:	aa1303e0 	mov	x0, x19
+  1f9814:	a9414ff4 	ldp	x20, x19, [sp, #16]
+  1f9818:	a8c27bfd 	ldp	x29, x30, [sp], #32
+  1f981c:	17fd97e6 	b	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  1f9820:	a9414ff4 	ldp	x20, x19, [sp, #16]
+  1f9824:	a8c27bfd 	ldp	x29, x30, [sp], #32
+  1f9828:	d65f03c0 	ret
+  1f982c:	a9bd7bfd 	stp	x29, x30, [sp, #-48]!
+  1f9830:	a90157f6 	stp	x22, x21, [sp, #16]
+  1f9834:	a9024ff4 	stp	x20, x19, [sp, #32]
+  1f9838:	910003fd 	mov	x29, sp
+  1f983c:	f0000b28 	adrp	x8, 360000 <getpid@plt+0x14d70>
+  1f9840:	aa0003f3 	mov	x19, x0
+  1f9844:	f0000b09 	adrp	x9, 35c000 <getpid@plt+0x10d70>
+  1f9848:	91064129 	add	x9, x9, #0x190
+  1f984c:	f9466908 	ldr	x8, [x8, #3280]
+  1f9850:	f940600a 	ldr	x10, [x0, #192]
+  1f9854:	f9000009 	str	x9, [x0]
+  1f9858:	91004108 	add	x8, x8, #0x10
+  1f985c:	f9003c08 	str	x8, [x0, #120]
+  1f9860:	b400022a 	cbz	x10, 1f98a4 <D3D11On12CreateDevice@@Base+0x36c0>
+  1f9864:	aa1f03f4 	mov	x20, xzr
+  1f9868:	aa1f03f5 	mov	x21, xzr
+  1f986c:	91032276 	add	x22, x19, #0xc8
+  1f9870:	f9405e68 	ldr	x8, [x19, #184]
+  1f9874:	f9406669 	ldr	x9, [x19, #200]
+  1f9878:	8b1402ca 	add	x10, x22, x20
+  1f987c:	8b140129 	add	x9, x9, x20
+  1f9880:	f100091f 	cmp	x8, #0x2
+  1f9884:	9a890148 	csel	x8, x10, x9, eq	// eq = none
+  1f9888:	a9408109 	ldp	x9, x0, [x8, #8]
+  1f988c:	d63f0120 	blr	x9
+  1f9890:	f9406268 	ldr	x8, [x19, #192]
+  1f9894:	910006b5 	add	x21, x21, #0x1
+  1f9898:	91006294 	add	x20, x20, #0x18
+  1f989c:	eb0802bf 	cmp	x21, x8
+  1f98a0:	54fffe83 	b.cc	1f9870 <D3D11On12CreateDevice@@Base+0x368c>  // b.lo, b.ul, b.last
+  1f98a4:	f9405e68 	ldr	x8, [x19, #184]
+  1f98a8:	f900627f 	str	xzr, [x19, #192]
+  1f98ac:	f1000d1f 	cmp	x8, #0x3
+  1f98b0:	54000083 	b.cc	1f98c0 <D3D11On12CreateDevice@@Base+0x36dc>  // b.lo, b.ul, b.last
+  1f98b4:	f9406660 	ldr	x0, [x19, #200]
+  1f98b8:	b4000040 	cbz	x0, 1f98c0 <D3D11On12CreateDevice@@Base+0x36dc>
+  1f98bc:	97fd97c0 	bl	15f7bc <D3D11CoreCreateDevice@@Base-0x95a64>
+  1f98c0:	91022260 	add	x0, x19, #0x88
+  1f98c4:	97fc8cde 	bl	11cc3c <D3D11CoreCreateDevice@@Base-0xd85e4>
+  1f98c8:	f9402a74 	ldr	x20, [x19, #80]
+  1f98cc:	b40003f4 	cbz	x20, 1f9948 <D3D11On12CreateDevice@@Base+0x3764>
+  1f98d0:	12800000 	mov	w0, #0xffffffff            	// #-1
+  1f98d4:	aa1403e1 	mov	x1, x20
+  1f98d8:	97fdb636 	bl	1671b0 <D3D11CoreCreateDevice@@Base-0x8e070>
+  1f98dc:	7100041f 	cmp	w0, #0x1
+  1f98e0:	54000341 	b.ne	1f9948 <D3D11On12CreateDevice@@Base+0x3764>  // b.any
+  1f98e4:	f9400e95 	ldr	x21, [x20, #24]
+  1f98e8:	b4000135 	cbz	x21, 1f990c <D3D11On12CreateDevice@@Base+0x3728>
+  1f98ec:	910042a1 	add	x1, x21, #0x10
+  1f98f0:	12800000 	mov	w0, #0xffffffff            	// #-1
+  1f98f4:	97fdb62f 	bl	1671b0 <D3D11CoreCreateDevice@@Base-0x8e070>
+  1f98f8:	7100041f 	cmp	w0, #0x1
+---
+  21ce84:	d11003ff 	sub	sp, sp, #0x400
+  21ce88:	34000302 	cbz	w2, 21cee8 <D3D11On12CreateDevice@@Base+0x26d04>
+  21ce8c:	b4000183 	cbz	x3, 21cebc <D3D11On12CreateDevice@@Base+0x26cd8>
+  21ce90:	2a0203e8 	mov	w8, w2
+  21ce94:	910003e9 	mov	x9, sp
+  21ce98:	14000005 	b	21ceac <D3D11On12CreateDevice@@Base+0x26cc8>
+  21ce9c:	f1000508 	subs	x8, x8, #0x1
+  21cea0:	91002063 	add	x3, x3, #0x8
+  21cea4:	f800852a 	str	x10, [x9], #8
+  21cea8:	54000200 	b.eq	21cee8 <D3D11On12CreateDevice@@Base+0x26d04>  // b.none
+  21ceac:	f940006a 	ldr	x10, [x3]
+  21ceb0:	b4ffff6a 	cbz	x10, 21ce9c <D3D11On12CreateDevice@@Base+0x26cb8>
+  21ceb4:	f940054a 	ldr	x10, [x10, #8]
+  21ceb8:	17fffff9 	b	21ce9c <D3D11On12CreateDevice@@Base+0x26cb8>
+  21cebc:	531d7048 	lsl	w8, w2, #3
+  21cec0:	aa0003f3 	mov	x19, x0
+  21cec4:	910003e0 	mov	x0, sp
+  21cec8:	2a0103f4 	mov	w20, w1
+  21cecc:	2a1f03e1 	mov	w1, wzr
+  21ced0:	2a0203f5 	mov	w21, w2
+  21ced4:	aa0803e2 	mov	x2, x8
+  21ced8:	9404b7d2 	bl	34ae20 <memset@plt>
+  21cedc:	aa1303e0 	mov	x0, x19
+  21cee0:	2a1403e1 	mov	w1, w20
+  21cee4:	2a1503e2 	mov	w2, w21
+  21cee8:	f9400800 	ldr	x0, [x0, #16]
+  21ceec:	910003e3 	mov	x3, sp
+  21cef0:	f9400008 	ldr	x8, [x0]
+  21cef4:	f9406508 	ldr	x8, [x8, #200]
+  21cef8:	d63f0100 	blr	x8
+  21cefc:	911003ff 	add	sp, sp, #0x400
+  21cf00:	a9424ff4 	ldp	x20, x19, [sp, #32]
+  21cf04:	a94157fc 	ldp	x28, x21, [sp, #16]
+  21cf08:	a8c37bfd 	ldp	x29, x30, [sp], #48
+  21cf0c:	d65f03c0 	ret
+  21cf10:	7100405f 	cmp	w2, #0x10
+  21cf14:	540004e8 	b.hi	21cfb0 <D3D11On12CreateDevice@@Base+0x26dcc>  // b.pmore
+  21cf18:	d102c3ff 	sub	sp, sp, #0xb0
+  21cf1c:	a9087bfd 	stp	x29, x30, [sp, #128]
+  21cf20:	f9004bf5 	str	x21, [sp, #144]
+  21cf24:	a90a4ff4 	stp	x20, x19, [sp, #160]
+  21cf28:	910203fd 	add	x29, sp, #0x80
+  21cf2c:	34000302 	cbz	w2, 21cf8c <D3D11On12CreateDevice@@Base+0x26da8>
+  21cf30:	b4000183 	cbz	x3, 21cf60 <D3D11On12CreateDevice@@Base+0x26d7c>
+  21cf34:	2a0203e8 	mov	w8, w2
+  21cf38:	910003e9 	mov	x9, sp
+  21cf3c:	14000005 	b	21cf50 <D3D11On12CreateDevice@@Base+0x26d6c>
+  21cf40:	f1000508 	subs	x8, x8, #0x1
+  21cf44:	91002063 	add	x3, x3, #0x8
+  21cf48:	f800852a 	str	x10, [x9], #8
+  21cf4c:	54000200 	b.eq	21cf8c <D3D11On12CreateDevice@@Base+0x26da8>  // b.none
+  21cf50:	f940006a 	ldr	x10, [x3]
+  21cf54:	b4ffff6a 	cbz	x10, 21cf40 <D3D11On12CreateDevice@@Base+0x26d5c>
+  21cf58:	f940054a 	ldr	x10, [x10, #8]
+  21cf5c:	17fffff9 	b	21cf40 <D3D11On12CreateDevice@@Base+0x26d5c>
+  21cf60:	531d7048 	lsl	w8, w2, #3
+  21cf64:	aa0003f3 	mov	x19, x0
+  21cf68:	910003e0 	mov	x0, sp
+  21cf6c:	2a0103f4 	mov	w20, w1
+  21cf70:	2a1f03e1 	mov	w1, wzr
+  21cf74:	2a0203f5 	mov	w21, w2
+  21cf78:	aa0803e2 	mov	x2, x8
+---
+  2a7940:	3dc2d901 	ldr	q1, [x8, #2912]
+  2a7944:	f9400288 	ldr	x8, [x20]
+  2a7948:	3dc0ad22 	ldr	q2, [x9, #688]
+  2a794c:	528001c9 	mov	w9, #0xe                   	// #14
+  2a7950:	b85e03bc 	ldur	w28, [x29, #-32]
+  2a7954:	2a0003f6 	mov	w22, w0
+  2a7958:	f9405501 	ldr	x1, [x8, #168]
+  2a795c:	f81703bf 	stur	xzr, [x29, #-144]
+  2a7960:	5280002a 	mov	w10, #0x1                   	// #1
+  2a7964:	ad110b40 	stp	q0, q2, [x26, #544]
+  2a7968:	b81203a9 	stur	w9, [x29, #-224]
+  2a796c:	528003e9 	mov	w9, #0x1f                  	// #31
+  2a7970:	ad128340 	stp	q0, q0, [x26, #592]
+  2a7974:	b81503aa 	stur	w10, [x29, #-176]
+  2a7978:	b81583a9 	stur	w9, [x29, #-168]
+  2a797c:	3d809341 	str	q1, [x26, #576]
+  2a7980:	f81083a1 	stur	x1, [x29, #-248]
+  2a7984:	b4000081 	cbz	x1, 2a7994 <D3D11On12CreateDevice@@Base+0xb17b0>
+  2a7988:	52800020 	mov	w0, #0x1                   	// #1
+  2a798c:	97fae6d1 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2a7990:	f9400288 	ldr	x8, [x20]
+  2a7994:	b9433108 	ldr	w8, [x8, #816]
+  2a7998:	340001e8 	cbz	w8, 2a79d4 <D3D11On12CreateDevice@@Base+0xb17f0>
+  2a799c:	90ffedc8 	adrp	x8, 5f000 <D3D11CoreCreateDevice@@Base-0x196220>
+  2a79a0:	9131c108 	add	x8, x8, #0xc70
+  2a79a4:	f85083b7 	ldur	x23, [x29, #-248]
+  2a79a8:	ad400101 	ldp	q1, q0, [x8]
+  2a79ac:	d10383a8 	sub	x8, x29, #0xe0
+  2a79b0:	f94066e9 	ldr	x9, [x23, #200]
+  2a79b4:	ad000341 	stp	q1, q0, [x26]
+  2a79b8:	f9400ee0 	ldr	x0, [x23, #24]
+  2a79bc:	f90113e8 	str	x8, [sp, #544]
+  2a79c0:	910843e1 	add	x1, sp, #0x210
+  2a79c4:	d10103a2 	sub	x2, x29, #0x40
+  2a79c8:	d63f0120 	blr	x9
+  2a79cc:	52800033 	mov	w19, #0x1                   	// #1
+  2a79d0:	1400001c 	b	2a7a40 <D3D11On12CreateDevice@@Base+0xb185c>
+  2a79d4:	f85083b7 	ldur	x23, [x29, #-248]
+  2a79d8:	f0ffee68 	adrp	x8, 76000 <D3D11CoreCreateDevice@@Base-0x17f220>
+  2a79dc:	91154108 	add	x8, x8, #0x550
+  2a79e0:	3dc00100 	ldr	q0, [x8]
+  2a79e4:	f9400908 	ldr	x8, [x8, #16]
+  2a79e8:	910843ea 	add	x10, sp, #0x210
+  2a79ec:	f9400ee0 	ldr	x0, [x23, #24]
+  2a79f0:	f940c2e9 	ldr	x9, [x23, #384]
+  2a79f4:	3d800340 	str	q0, [x26]
+  2a79f8:	f90113e8 	str	x8, [sp, #544]
+  2a79fc:	d10383a1 	sub	x1, x29, #0xe0
+  2a7a00:	91004143 	add	x3, x10, #0x10
+  2a7a04:	aa1f03e2 	mov	x2, xzr
+  2a7a08:	d63f0120 	blr	x9
+  2a7a0c:	7100001f 	cmp	w0, #0x0
+  2a7a10:	1a9f17f3 	cset	w19, eq	// eq = none
+  2a7a14:	35000160 	cbnz	w0, 2a7a40 <D3D11On12CreateDevice@@Base+0xb185c>
+  2a7a18:	f9400ee0 	ldr	x0, [x23, #24]
+  2a7a1c:	f94062e8 	ldr	x8, [x23, #192]
+  2a7a20:	910843e1 	add	x1, sp, #0x210
+  2a7a24:	d10103a2 	sub	x2, x29, #0x40
+  2a7a28:	d63f0100 	blr	x8
+  2a7a2c:	f9400ee0 	ldr	x0, [x23, #24]
+  2a7a30:	f94113e1 	ldr	x1, [sp, #544]
+  2a7a34:	f940c6e8 	ldr	x8, [x23, #392]
+---
+hits=3
+
+===== vkCreateDescriptorSetLayout slot=0x210 =====
+hits=0
+
+===== vkCreatePipelineLayout slot=0x218 =====
+hits=0
+
+===== vkAllocateDescriptorSets slot=0x238 =====
+hits=0
+
+===== vkUpdateDescriptorSets slot=0x248 =====
+  21d370:	d11003ff 	sub	sp, sp, #0x400
+  21d374:	34000302 	cbz	w2, 21d3d4 <D3D11On12CreateDevice@@Base+0x271f0>
+  21d378:	b4000183 	cbz	x3, 21d3a8 <D3D11On12CreateDevice@@Base+0x271c4>
+  21d37c:	2a0203e8 	mov	w8, w2
+  21d380:	910003e9 	mov	x9, sp
+  21d384:	14000005 	b	21d398 <D3D11On12CreateDevice@@Base+0x271b4>
+  21d388:	f1000508 	subs	x8, x8, #0x1
+  21d38c:	91002063 	add	x3, x3, #0x8
+  21d390:	f800852a 	str	x10, [x9], #8
+  21d394:	54000200 	b.eq	21d3d4 <D3D11On12CreateDevice@@Base+0x271f0>  // b.none
+  21d398:	f940006a 	ldr	x10, [x3]
+  21d39c:	b4ffff6a 	cbz	x10, 21d388 <D3D11On12CreateDevice@@Base+0x271a4>
+  21d3a0:	f940054a 	ldr	x10, [x10, #8]
+  21d3a4:	17fffff9 	b	21d388 <D3D11On12CreateDevice@@Base+0x271a4>
+  21d3a8:	531d7048 	lsl	w8, w2, #3
+  21d3ac:	aa0003f3 	mov	x19, x0
+  21d3b0:	910003e0 	mov	x0, sp
+  21d3b4:	2a0103f4 	mov	w20, w1
+  21d3b8:	2a1f03e1 	mov	w1, wzr
+  21d3bc:	2a0203f5 	mov	w21, w2
+  21d3c0:	aa0803e2 	mov	x2, x8
+  21d3c4:	9404b697 	bl	34ae20 <memset@plt>
+  21d3c8:	aa1303e0 	mov	x0, x19
+  21d3cc:	2a1403e1 	mov	w1, w20
+  21d3d0:	2a1503e2 	mov	w2, w21
+  21d3d4:	f9400800 	ldr	x0, [x0, #16]
+  21d3d8:	910003e3 	mov	x3, sp
+  21d3dc:	f9400008 	ldr	x8, [x0]
+  21d3e0:	f9407d08 	ldr	x8, [x8, #248]
+  21d3e4:	d63f0100 	blr	x8
+  21d3e8:	911003ff 	add	sp, sp, #0x400
+  21d3ec:	a9424ff4 	ldp	x20, x19, [sp, #32]
+  21d3f0:	a94157fc 	ldp	x28, x21, [sp, #16]
+  21d3f4:	a8c37bfd 	ldp	x29, x30, [sp], #48
+  21d3f8:	d65f03c0 	ret
+  21d3fc:	7100405f 	cmp	w2, #0x10
+  21d400:	540004e8 	b.hi	21d49c <D3D11On12CreateDevice@@Base+0x272b8>  // b.pmore
+  21d404:	d102c3ff 	sub	sp, sp, #0xb0
+  21d408:	a9087bfd 	stp	x29, x30, [sp, #128]
+  21d40c:	f9004bf5 	str	x21, [sp, #144]
+  21d410:	a90a4ff4 	stp	x20, x19, [sp, #160]
+  21d414:	910203fd 	add	x29, sp, #0x80
+  21d418:	34000302 	cbz	w2, 21d478 <D3D11On12CreateDevice@@Base+0x27294>
+  21d41c:	b4000183 	cbz	x3, 21d44c <D3D11On12CreateDevice@@Base+0x27268>
+  21d420:	2a0203e8 	mov	w8, w2
+  21d424:	910003e9 	mov	x9, sp
+  21d428:	14000005 	b	21d43c <D3D11On12CreateDevice@@Base+0x27258>
+  21d42c:	f1000508 	subs	x8, x8, #0x1
+  21d430:	91002063 	add	x3, x3, #0x8
+  21d434:	f800852a 	str	x10, [x9], #8
+  21d438:	54000200 	b.eq	21d478 <D3D11On12CreateDevice@@Base+0x27294>  // b.none
+  21d43c:	f940006a 	ldr	x10, [x3]
+  21d440:	b4ffff6a 	cbz	x10, 21d42c <D3D11On12CreateDevice@@Base+0x27248>
+  21d444:	f940054a 	ldr	x10, [x10, #8]
+  21d448:	17fffff9 	b	21d42c <D3D11On12CreateDevice@@Base+0x27248>
+  21d44c:	531d7048 	lsl	w8, w2, #3
+  21d450:	aa0003f3 	mov	x19, x0
+  21d454:	910003e0 	mov	x0, sp
+  21d458:	2a0103f4 	mov	w20, w1
+  21d45c:	2a1f03e1 	mov	w1, wzr
+  21d460:	2a0203f5 	mov	w21, w2
+  21d464:	aa0803e2 	mov	x2, x8
+---
+  2851d0:	97fb6979 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2851d4:	aa1503e0 	mov	x0, x21
+  2851d8:	92401e81 	and	x1, x20, #0xff
+  2851dc:	a9424ff4 	ldp	x20, x19, [sp, #32]
+  2851e0:	f9400bf5 	ldr	x21, [sp, #16]
+  2851e4:	a8c37bfd 	ldp	x29, x30, [sp], #48
+  2851e8:	d65f03c0 	ret
+  2851ec:	aa0003f4 	mov	x20, x0
+  2851f0:	91006260 	add	x0, x19, #0x18
+  2851f4:	97fffbbc 	bl	2840e4 <D3D11On12CreateDevice@@Base+0x8df00>
+  2851f8:	14000002 	b	285200 <D3D11On12CreateDevice@@Base+0x8f01c>
+  2851fc:	aa0003f4 	mov	x20, x0
+  285200:	aa1303e0 	mov	x0, x19
+  285204:	97fb696c 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  285208:	aa1403e0 	mov	x0, x20
+  28520c:	97fb7160 	bl	16178c <D3D11CoreCreateDevice@@Base-0x93a94>
+  285210:	a9bc7bfd 	stp	x29, x30, [sp, #-64]!
+  285214:	a9015ff8 	stp	x24, x23, [sp, #16]
+  285218:	a90257f6 	stp	x22, x21, [sp, #32]
+  28521c:	a9034ff4 	stp	x20, x19, [sp, #48]
+  285220:	910003fd 	mov	x29, sp
+  285224:	f9400408 	ldr	x8, [x0, #8]
+  285228:	aa0003f3 	mov	x19, x0
+  28522c:	f9405514 	ldr	x20, [x8, #168]
+  285230:	b4000094 	cbz	x20, 285240 <D3D11On12CreateDevice@@Base+0x8f05c>
+  285234:	52800020 	mov	w0, #0x1                   	// #1
+  285238:	aa1403e1 	mov	x1, x20
+  28523c:	97fb70a5 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  285240:	f9407e68 	ldr	x8, [x19, #248]
+  285244:	b4000968 	cbz	x8, 285370 <D3D11On12CreateDevice@@Base+0x8f18c>
+  285248:	f9400e80 	ldr	x0, [x20, #24]
+  28524c:	f9405e61 	ldr	x1, [x19, #184]
+  285250:	f9411688 	ldr	x8, [x20, #552]
+  285254:	aa1f03e2 	mov	x2, xzr
+  285258:	d63f0100 	blr	x8
+  28525c:	f9407e76 	ldr	x22, [x19, #248]
+  285260:	f1000adf 	cmp	x22, #0x2
+  285264:	54000883 	b.cc	285374 <D3D11On12CreateDevice@@Base+0x8f190>  // b.lo, b.ul, b.last
+  285268:	f9400e80 	ldr	x0, [x20, #24]
+  28526c:	f9406261 	ldr	x1, [x19, #192]
+  285270:	f9411688 	ldr	x8, [x20, #552]
+  285274:	aa1f03e2 	mov	x2, xzr
+  285278:	d63f0100 	blr	x8
+  28527c:	f9407e76 	ldr	x22, [x19, #248]
+  285280:	f1000edf 	cmp	x22, #0x3
+  285284:	54000783 	b.cc	285374 <D3D11On12CreateDevice@@Base+0x8f190>  // b.lo, b.ul, b.last
+  285288:	f9400e80 	ldr	x0, [x20, #24]
+  28528c:	f9406661 	ldr	x1, [x19, #200]
+  285290:	f9411688 	ldr	x8, [x20, #552]
+  285294:	aa1f03e2 	mov	x2, xzr
+  285298:	d63f0100 	blr	x8
+  28529c:	f9407e76 	ldr	x22, [x19, #248]
+  2852a0:	f10012df 	cmp	x22, #0x4
+  2852a4:	54000683 	b.cc	285374 <D3D11On12CreateDevice@@Base+0x8f190>  // b.lo, b.ul, b.last
+  2852a8:	f9400e80 	ldr	x0, [x20, #24]
+  2852ac:	f9406a61 	ldr	x1, [x19, #208]
+  2852b0:	f9411688 	ldr	x8, [x20, #552]
+  2852b4:	aa1f03e2 	mov	x2, xzr
+  2852b8:	d63f0100 	blr	x8
+  2852bc:	f9407e76 	ldr	x22, [x19, #248]
+  2852c0:	f10016df 	cmp	x22, #0x5
+  2852c4:	54000583 	b.cc	285374 <D3D11On12CreateDevice@@Base+0x8f190>  // b.lo, b.ul, b.last
+---
+  2c2974:	d503201f 	nop
+  2c2978:	10466d08 	adr	x8, 34f718 <getpid@plt+0x4488>
+  2c297c:	3941c3e9 	ldrb	w9, [sp, #112]
+  2c2980:	91004108 	add	x8, x8, #0x10
+  2c2984:	a902a3ea 	stp	x10, x8, [sp, #40]
+  2c2988:	36000069 	tbz	w9, #0, 2c2994 <D3D11On12CreateDevice@@Base+0xcc7b0>
+  2c298c:	f94043e0 	ldr	x0, [sp, #128]
+  2c2990:	97fa7389 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2c2994:	910062a0 	add	x0, x21, #0x18
+  2c2998:	97f96adc 	bl	11d508 <D3D11CoreCreateDevice@@Base-0xd7d18>
+  2c299c:	910063e0 	add	x0, sp, #0x18
+  2c29a0:	910022c1 	add	x1, x22, #0x8
+  2c29a4:	910063f5 	add	x21, sp, #0x18
+  2c29a8:	97f970c3 	bl	11ecb4 <D3D11CoreCreateDevice@@Base-0xd656c>
+  2c29ac:	910202a0 	add	x0, x21, #0x80
+  2c29b0:	97f96ac9 	bl	11d4d4 <D3D11CoreCreateDevice@@Base-0xd7d4c>
+  2c29b4:	d00004e0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  2c29b8:	910003e2 	mov	x2, sp
+  2c29bc:	52800081 	mov	w1, #0x4                   	// #4
+  2c29c0:	f9453800 	ldr	x0, [x0, #2672]
+  2c29c4:	9401c535 	bl	333e98 <D3D11On12CreateDevice@@Base+0x13dcb4>
+  2c29c8:	394003e8 	ldrb	w8, [sp]
+  2c29cc:	36000068 	tbz	w8, #0, 2c29d8 <D3D11On12CreateDevice@@Base+0xcc7f4>
+  2c29d0:	f9400be0 	ldr	x0, [sp, #16]
+  2c29d4:	97fa7378 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2c29d8:	f9401288 	ldr	x8, [x20, #32]
+  2c29dc:	91004262 	add	x2, x19, #0x10
+  2c29e0:	52800021 	mov	w1, #0x1                   	// #1
+  2c29e4:	f9407d09 	ldr	x9, [x8, #248]
+  2c29e8:	f9400d00 	ldr	x0, [x8, #24]
+  2c29ec:	d63f0120 	blr	x9
+  2c29f0:	b9001fa0 	str	w0, [x29, #28]
+  2c29f4:	340001e0 	cbz	w0, 2c2a30 <D3D11On12CreateDevice@@Base+0xcc84c>
+  2c29f8:	f0ffeca0 	adrp	x0, 59000 <D3D11CoreCreateDevice@@Base-0x19c220>
+  2c29fc:	910b2800 	add	x0, x0, #0x2ca
+  2c2a00:	910063e8 	add	x8, sp, #0x18
+  2c2a04:	910073a1 	add	x1, x29, #0x1c
+  2c2a08:	94000ea1 	bl	2c648c <D3D11On12CreateDevice@@Base+0xd02a8>
+  2c2a0c:	d00004e0 	adrp	x0, 360000 <getpid@plt+0x14d70>
+  2c2a10:	910063e2 	add	x2, sp, #0x18
+  2c2a14:	52800081 	mov	w1, #0x4                   	// #4
+  2c2a18:	f9453800 	ldr	x0, [x0, #2672]
+  2c2a1c:	9401c51f 	bl	333e98 <D3D11On12CreateDevice@@Base+0x13dcb4>
+  2c2a20:	394063e8 	ldrb	w8, [sp, #24]
+  2c2a24:	36000068 	tbz	w8, #0, 2c2a30 <D3D11On12CreateDevice@@Base+0xcc84c>
+  2c2a28:	f94017e0 	ldr	x0, [sp, #40]
+  2c2a2c:	97fa7362 	bl	15f7b4 <D3D11CoreCreateDevice@@Base-0x95a6c>
+  2c2a30:	b9001a7f 	str	wzr, [x19, #24]
+  2c2a34:	a9564ff4 	ldp	x20, x19, [sp, #352]
+  2c2a38:	f940a3fc 	ldr	x28, [sp, #320]
+  2c2a3c:	a95557f6 	ldp	x22, x21, [sp, #336]
+  2c2a40:	a9537bfd 	ldp	x29, x30, [sp, #304]
+  2c2a44:	9105c3ff 	add	sp, sp, #0x170
+  2c2a48:	d65f03c0 	ret
+  2c2a4c:	394003e8 	ldrb	w8, [sp]
+  2c2a50:	aa0003f3 	mov	x19, x0
+  2c2a54:	360001a8 	tbz	w8, #0, 2c2a88 <D3D11On12CreateDevice@@Base+0xcc8a4>
+  2c2a58:	f9400be0 	ldr	x0, [sp, #16]
+  2c2a5c:	14000005 	b	2c2a70 <D3D11On12CreateDevice@@Base+0xcc88c>
+  2c2a60:	394063e8 	ldrb	w8, [sp, #24]
+  2c2a64:	aa0003f3 	mov	x19, x0
+  2c2a68:	36000108 	tbz	w8, #0, 2c2a88 <D3D11On12CreateDevice@@Base+0xcc8a4>
+---
+  2c45f8:	f9453800 	ldr	x0, [x0, #2672]
+  2c45fc:	9401be27 	bl	333e98 <D3D11On12CreateDevice@@Base+0x13dcb4>
+  2c4600:	14000052 	b	2c4748 <D3D11On12CreateDevice@@Base+0xce564>
+  2c4604:	a95d27e8 	ldp	x8, x9, [sp, #464]
+  2c4608:	cb08012a 	sub	x10, x9, x8
+  2c460c:	b94103e9 	ldr	w9, [sp, #256]
+  2c4610:	9342fd4a 	asr	x10, x10, #2
+  2c4614:	eb0a0121 	subs	x1, x9, x10
+  2c4618:	54000089 	b.ls	2c4628 <D3D11On12CreateDevice@@Base+0xce444>  // b.plast
+  2c461c:	910743e0 	add	x0, sp, #0x1d0
+  2c4620:	94000b63 	bl	2c73ac <D3D11On12CreateDevice@@Base+0xd11c8>
+  2c4624:	14000004 	b	2c4634 <D3D11On12CreateDevice@@Base+0xce450>
+  2c4628:	54000062 	b.cs	2c4634 <D3D11On12CreateDevice@@Base+0xce450>  // b.hs, b.nlast
+  2c462c:	8b090908 	add	x8, x8, x9, lsl #2
+  2c4630:	f900efe8 	str	x8, [sp, #472]
+  2c4634:	f9400668 	ldr	x8, [x19, #8]
+  2c4638:	f9400e69 	ldr	x9, [x19, #24]
+  2c463c:	b944910a 	ldr	w10, [x8, #1168]
+  2c4640:	3400012a 	cbz	w10, 2c4664 <D3D11On12CreateDevice@@Base+0xce480>
+  2c4644:	f9405101 	ldr	x1, [x8, #160]
+  2c4648:	f9409d39 	ldr	x25, [x9, #312]
+  2c464c:	f900a3e1 	str	x1, [sp, #320]
+  2c4650:	b40001a1 	cbz	x1, 2c4684 <D3D11On12CreateDevice@@Base+0xce4a0>
+  2c4654:	52800020 	mov	w0, #0x1                   	// #1
+  2c4658:	97fa739e 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2c465c:	f940a3f5 	ldr	x21, [sp, #320]
+  2c4660:	1400000a 	b	2c4688 <D3D11On12CreateDevice@@Base+0xce4a4>
+  2c4664:	f9405101 	ldr	x1, [x8, #160]
+  2c4668:	f9407d39 	ldr	x25, [x9, #248]
+  2c466c:	f900a3e1 	str	x1, [sp, #320]
+  2c4670:	b4000341 	cbz	x1, 2c46d8 <D3D11On12CreateDevice@@Base+0xce4f4>
+  2c4674:	52800020 	mov	w0, #0x1                   	// #1
+  2c4678:	97fa7396 	bl	1614d0 <D3D11CoreCreateDevice@@Base-0x93d50>
+  2c467c:	f940a3f5 	ldr	x21, [sp, #320]
+  2c4680:	14000017 	b	2c46dc <D3D11On12CreateDevice@@Base+0xce4f8>
+  2c4684:	aa1f03f5 	mov	x21, xzr
+  2c4688:	f9400aa0 	ldr	x0, [x21, #16]
+  2c468c:	f940ebe3 	ldr	x3, [sp, #464]
+  2c4690:	910243e1 	add	x1, sp, #0x90
+  2c4694:	910403e2 	add	x2, sp, #0x100
+  2c4698:	d63f0320 	blr	x25
+  2c469c:	14000015 	b	2c46f0 <D3D11On12CreateDevice@@Base+0xce50c>
+  2c46a0:	d100050a 	sub	x10, x8, #0x1
+  2c46a4:	2a1f03ec 	mov	w12, wzr
+  2c46a8:	aa1f03eb 	mov	x11, xzr
+  2c46ac:	3100055f 	cmn	w10, #0x1
+  2c46b0:	54004940 	b.eq	2c4fd8 <D3D11On12CreateDevice@@Base+0xcedf4>  // b.none
+  2c46b4:	d360fd4d 	lsr	x13, x10, #32
+  2c46b8:	2a0c03ea 	mov	w10, w12
+  2c46bc:	b5ffe3cd 	cbnz	x13, 2c4334 <D3D11On12CreateDevice@@Base+0xce150>
+  2c46c0:	4e040f60 	dup	v0.4s, w27
+  2c46c4:	f100811f 	cmp	x8, #0x20
+  2c46c8:	540048c2 	b.cs	2c4fe0 <D3D11On12CreateDevice@@Base+0xcedfc>  // b.hs, b.nlast
+  2c46cc:	2a1f03ea 	mov	w10, wzr
+  2c46d0:	aa1f03eb 	mov	x11, xzr
+  2c46d4:	14000269 	b	2c5078 <D3D11On12CreateDevice@@Base+0xcee94>
+  2c46d8:	aa1f03f5 	mov	x21, xzr
+  2c46dc:	f9400aa0 	ldr	x0, [x21, #16]
+  2c46e0:	f9405e61 	ldr	x1, [x19, #184]
+  2c46e4:	f940ebe3 	ldr	x3, [sp, #464]
+  2c46e8:	910403e2 	add	x2, sp, #0x100
+  2c46ec:	d63f0320 	blr	x25
+---
+  2e79e0:	54000062 	b.cs	2e79ec <D3D11On12CreateDevice@@Base+0xf1808>  // b.hs, b.nlast
+  2e79e4:	aa1a03fc 	mov	x28, x26
+  2e79e8:	14000003 	b	2e79f4 <D3D11On12CreateDevice@@Base+0xf1810>
+  2e79ec:	9adb0b48 	udiv	x8, x26, x27
+  2e79f0:	9b1be91c 	msub	x28, x8, x27, x26
+  2e79f4:	f9407e69 	ldr	x9, [x19, #248]
+  2e79f8:	f87c7928 	ldr	x8, [x9, x28, lsl #3]
+  2e79fc:	b4000088 	cbz	x8, 2e7a0c <D3D11On12CreateDevice@@Base+0xf1828>
+  2e7a00:	f9400109 	ldr	x9, [x8]
+  2e7a04:	f90002e9 	str	x9, [x23]
+  2e7a08:	14000014 	b	2e7a58 <D3D11On12CreateDevice@@Base+0xf1874>
+  2e7a0c:	f9408668 	ldr	x8, [x19, #264]
+  2e7a10:	f9008677 	str	x23, [x19, #264]
+  2e7a14:	f90002e8 	str	x8, [x23]
+  2e7a18:	91042268 	add	x8, x19, #0x108
+  2e7a1c:	f83c7928 	str	x8, [x9, x28, lsl #3]
+  2e7a20:	f94002e8 	ldr	x8, [x23]
+  2e7a24:	b40001c8 	cbz	x8, 2e7a5c <D3D11On12CreateDevice@@Base+0xf1878>
+  2e7a28:	d1000769 	sub	x9, x27, #0x1
+  2e7a2c:	f9400508 	ldr	x8, [x8, #8]
+  2e7a30:	ea09037f 	tst	x27, x9
+  2e7a34:	54000061 	b.ne	2e7a40 <D3D11On12CreateDevice@@Base+0xf185c>  // b.any
+  2e7a38:	8a090108 	and	x8, x8, x9
+  2e7a3c:	14000005 	b	2e7a50 <D3D11On12CreateDevice@@Base+0xf186c>
+  2e7a40:	eb1b011f 	cmp	x8, x27
+  2e7a44:	54000063 	b.cc	2e7a50 <D3D11On12CreateDevice@@Base+0xf186c>  // b.lo, b.ul, b.last
+  2e7a48:	9adb0909 	udiv	x9, x8, x27
+  2e7a4c:	9b1ba128 	msub	x8, x9, x27, x8
+  2e7a50:	f9407e69 	ldr	x9, [x19, #248]
+  2e7a54:	8b080d28 	add	x8, x9, x8, lsl #3
+  2e7a58:	f9000117 	str	x23, [x8]
+  2e7a5c:	f9408a68 	ldr	x8, [x19, #272]
+  2e7a60:	91000508 	add	x8, x8, #0x1
+  2e7a64:	f9008a68 	str	x8, [x19, #272]
+  2e7a68:	f85f83a8 	ldur	x8, [x29, #-8]
+  2e7a6c:	f9400108 	ldr	x8, [x8]
+  2e7a70:	f9400909 	ldr	x9, [x8, #16]
+  2e7a74:	f9401d00 	ldr	x0, [x8, #56]
+  2e7a78:	f9418129 	ldr	x9, [x9, #768]
+  2e7a7c:	2a1f03e1 	mov	w1, wzr
+  2e7a80:	aa1603e2 	mov	x2, x22
+  2e7a84:	d63f0120 	blr	x9
+  2e7a88:	f9406668 	ldr	x8, [x19, #200]
+  2e7a8c:	f85f83a9 	ldur	x9, [x29, #-8]
+  2e7a90:	a9410516 	ldp	x22, x1, [x8, #16]
+  2e7a94:	f9400520 	ldr	x0, [x9, #8]
+  2e7a98:	97fe743f 	bl	284b94 <D3D11On12CreateDevice@@Base+0x8e9b0>
+  2e7a9c:	aa0003f7 	mov	x23, x0
+  2e7aa0:	a9468268 	ldp	x8, x0, [x19, #104]
+  2e7aa4:	29502a6b 	ldp	w11, w10, [x19, #128]
+  2e7aa8:	f900efff 	str	xzr, [sp, #472]
+  2e7aac:	294a2508 	ldp	w8, w9, [x8, #80]
+  2e7ab0:	b9400801 	ldr	w1, [x0, #8]
+  2e7ab4:	6b09015f 	cmp	w10, w9
+  2e7ab8:	52801309 	mov	w9, #0x98                  	// #152
+  2e7abc:	7a480160 	ccmp	w11, w8, #0x0, eq	// eq = none
+  2e7ac0:	52801408 	mov	w8, #0xa0                  	// #160
+  2e7ac4:	9a881128 	csel	x8, x9, x8, ne	// ne = any
+  2e7ac8:	f8686a68 	ldr	x8, [x19, x8]
+  2e7acc:	f9401d08 	ldr	x8, [x8, #56]
+  2e7ad0:	f900e7e8 	str	x8, [sp, #456]
+  2e7ad4:	97fc02ba 	bl	1e85bc <D3D11CoreCreateDevice@@Base-0xcc64>
+---
+hits=5
+
+===== vkCmdBindPipeline slot=0x300 =====
+hits=0
+
+===== vkCmdBindDescriptorSets slot=0x3c0 =====
+hits=0
+
+===== vkCmdBindIndexBuffer slot=0x3c8 =====
+hits=0
+
+===== vkCmdBindVertexBuffers slot=0x3d0 =====
+hits=0
+
