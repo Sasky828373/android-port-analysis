@@ -747,32 +747,6 @@ jobs:
             echo "::notice::Full-native renderer is not complete; preserving GOLD so the APK remains runnable."
           }
 
-      - name: Monolithic native-renderer build manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p hybrid-report
-          ROOT=XHYN_V017_UNPACKED/lib/arm64-v8a
-          {
-            echo "XHYN V0.17 NATIVE-RENDERER MONOLITHIC BUILD"
-            echo "target_frame_ms=8.33"
-            echo "V10=BindCompute counter bypass"
-            echo "V11=PassContext EndAndSubmit logging bypass"
-            echo "V12=Submission Begin timing/logging bypass"
-            echo "native_runtime=grVulkanRuntime"
-            echo "native_render_graph=grVulkanRenderGraph"
-            echo "native_resource_tracker=grVulkanResourceStateTracker"
-            echo "native_passes=PedSkin,Luminance,PtxRefract"
-            echo
-            echo "Remaining compatibility backend:"
-            for x in libdxvk_d3d11.so libdxvk_dxgi.so libdxvk_d3d10core.so; do
-              if test -s "$ROOT/$x"; then echo "$x=PRESENT"; else echo "$x=ABSENT"; fi
-            done
-            echo
-            echo "NOTE: This build combines every verified native optimization in one APK."
-            echo "It does not delete the compatibility backend until all Rage D3D11 draw/resource/shader/present calls have native Vulkan replacements."
-          } > hybrid-report/monolithic-native-build.txt
-
       - name: Verify hybrid native stack
         shell: bash
         run: |
