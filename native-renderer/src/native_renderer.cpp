@@ -170,6 +170,37 @@ extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_update_descriptors(const VkWriteDescriptorSet* writes,uint32_t writeCount,const VkCopyDescriptorSet* copies,uint32_t copyCount){
  if(!g.device)return;vkUpdateDescriptorSets(g.device,writeCount,writes,copyCount,copies);
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_buffer(uint64_t rageBuffer,VkBuffer buffer,uint32_t kind){
+ if(!rageBuffer||!buffer||(kind!=NR_VERTEX_BUFFER&&kind!=NR_INDEX_BUFFER&&kind!=NR_CBUFFER))return false;
+ gtav_native_renderer_register_resource(rageBuffer,(uint64_t)(uintptr_t)buffer,kind,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_sampler(uint64_t rageSampler,VkSampler sampler){
+ if(!rageSampler||!sampler)return false;gtav_native_renderer_register_resource(rageSampler,(uint64_t)(uintptr_t)sampler,NR_SAMPLER,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_image_view(uint64_t rageResource,VkImageView view,uint32_t kind){
+ if(!rageResource||!view||(kind!=NR_SRV&&kind!=NR_RTV&&kind!=NR_DSV&&kind!=NR_UAV))return false;
+ gtav_native_renderer_register_resource(rageResource,(uint64_t)(uintptr_t)view,kind,1);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_resolve_bound_resources(void* ctx){
+ if(!ctx)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ for(unsigned i=0;i<16;i++){if(m.vertexBuffers[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.vertexBuffers[i],NR_VERTEX_BUFFER))return false;}
+ if(m.indexBuffer&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.indexBuffer,NR_INDEX_BUFFER))return false;
+ for(unsigned i=0;i<16;i++){
+  if(m.vsCB[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.vsCB[i],NR_CBUFFER))return false;
+  if(m.psCB[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.psCB[i],NR_CBUFFER))return false;
+  if(m.csCB[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.csCB[i],NR_CBUFFER))return false;
+  if(m.vsSampler[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.vsSampler[i],NR_SAMPLER))return false;
+  if(m.psSampler[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.psSampler[i],NR_SAMPLER))return false;
+  if(m.csSampler[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.csSampler[i],NR_SAMPLER))return false;
+ }
+ for(unsigned i=0;i<32;i++){
+  if(m.vsSRV[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.vsSRV[i],NR_SRV))return false;
+  if(m.psSRV[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.psSRV[i],NR_SRV))return false;
+  if(m.csSRV[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.csSRV[i],NR_SRV))return false;
+ }
+ for(unsigned i=0;i<16;i++)if(m.csUAV[i]&&!gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)m.csUAV[i],NR_UAV))return false;
+ return true;
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_shader(uint64_t rageShader,VkShaderModule module,uint32_t stage){
  if(!rageShader||!module)return false;
  uint32_t kind=stage==VK_SHADER_STAGE_VERTEX_BIT?NR_VS:stage==VK_SHADER_STAGE_FRAGMENT_BIT?NR_PS:stage==VK_SHADER_STAGE_COMPUTE_BIT?NR_CS:0;
