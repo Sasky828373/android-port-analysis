@@ -409,6 +409,37 @@ jobs:
           Path("hybrid-report/gold-vulkan-hot-slot-calls.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Trace GOLD dispatch through nested device table
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          # Direct offset-only matching produced false positives because ordinary C++ vtables share offsets.
+          # Require evidence that the base object came from the GOLD Vulkan dispatch/device object:
+          # look for the characteristic nested load [base,#16/40] before the slot load and BLR.
+          slots={"vkQueueSubmit":0x38,"vkQueueSubmit2":0x40,"vkWaitForFences":0x108,
+                 "vkWaitSemaphores":0x2f8,"vkAcquireNextImageKHR":0x588,"vkQueuePresentKHR":0x590,
+                 "vkUpdateDescriptorSets":0x248,"vkUpdateDescriptorSetWithTemplate":0x2d0}
+          out=[]
+          for name,slot in slots.items():
+            out.append(f"=== {name} expected slot +0x{slot:x} ===")
+            hits=0
+            for i,line in enumerate(dis):
+              if not re.search(rf'ldr\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]',line): continue
+              before="\n".join(dis[max(0,i-10):i])
+              after="\n".join(dis[i:min(len(dis),i+8)])
+              if "blr" not in after: continue
+              # Reject obvious virtual-method patterns and retain dispatch-like object chains.
+              if re.search(r'ldr\s+x\d+,\s*\[x\d+\]\n.*ldr\s+x\d+,\s*\[x\d+,\s*#(?:16|40)\]',before):
+                out.extend(dis[max(0,i-14):min(len(dis),i+14)]); out.append("---"); hits+=1
+            out.append(f"filtered_hits={hits}")
+          Path("hybrid-report/gold-vulkan-hot-slot-calls-v2.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
