@@ -18,8 +18,12 @@
 // returning fabricated COM objects would crash later and hide the real migration gap.
 // Native Vulkan attaches to the engine runtime only after that runtime has valid handles.
 static int32_t legacyD3DLeak(const char* name) {
-  __android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","unexpected legacy startup call: %s",name);
-  return (int32_t)0x80004001u;
+  // A DXGI/D3D11 entry here means the engine is still taking its legacy bootstrap.
+  // Do not return E_NOTIMPL: the caller treats device creation failure as fatal before
+  // grVulkanRuntime can become available. Abort this path deterministically and leave
+  // a unique marker instead of returning null COM objects that crash later.
+  __android_log_print(ANDROID_LOG_FATAL,"GTAV-NATIVE","FATAL legacy graphics bootstrap reached: %s",name);
+  __builtin_trap();
 }
 extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
   if(out)*out=nullptr; return legacyD3DLeak("CreateDXGIFactory");
