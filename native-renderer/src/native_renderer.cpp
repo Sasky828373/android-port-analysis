@@ -416,18 +416,39 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
    vkCmdSetScissor(cb,0,n,reinterpret_cast<const VkRect2D*>(m.scissors));
  }
 }
-static bool bindMappedGraphicsState(const GtavNativeDrawState& s,bool indexed){
+static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool indexed){
  if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
  if(indexed&&!s.index_buffer)return false;
  vkCmdBindPipeline(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline);
- VkBuffer vb=s.vertex_buffer; VkDeviceSize vo=s.vertex_offset;
- vkCmdBindVertexBuffers(s.command_buffer,0,1,&vb,&vo);
+ // Bind every active mirrored vertex stream, not only slot 0. This keeps native
+ // multi-stream vertex input identical to the RAGE/D3D state before a draw.
+ RageMirrorState m{};
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ VkBuffer vbs[16]{}; VkDeviceSize offsets[16]{};
+ uint32_t last=0;
+ for(uint32_t i=0;i<16;i++){
+   if(!m.vertexBuffers[i])continue;
+   uint64_t mapped=resolveMapped(m.vertexBuffers[i],NR_VERTEX_BUFFER);
+   if(!mapped)return false;
+   vbs[i]=(VkBuffer)(uintptr_t)mapped; offsets[i]=m.offsets[i]; last=i+1;
+ }
+ if(!last)return false;
+ // Vulkan requires valid handles for every element in a single bind call, so
+ // preserve holes by binding contiguous active runs.
+ for(uint32_t first=0;first<last;){
+   while(first<last&&!vbs[first])first++;
+   if(first>=last)break;
+   uint32_t end=first+1;while(end<last&&vbs[end])end++;
+   vkCmdBindVertexBuffers(s.command_buffer,first,end-first,&vbs[first],&offsets[first]);
+   first=end;
+ }
  if(indexed)vkCmdBindIndexBuffer(s.command_buffer,s.index_buffer,s.index_offset,s.index_type);
  vkCmdBindDescriptorSets(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline_layout,0,1,&s.descriptor_set,0,nullptr);
+ applyMirroredDynamicState(ctx,s.command_buffer);
  return true;
 }
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDispatch(s.command_buffer,x,y,z);return true;}
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
