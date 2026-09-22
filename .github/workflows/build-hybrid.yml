@@ -524,6 +524,30 @@ jobs:
           PY
           sha256sum "$LIB" "$D3D" "$DXGI" >> hybrid-report/native-final-integrity.txt
 
+      - name: GPU 8.33ms native migration audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          D3D=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
+          DXGI=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so
+          GTAV=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          {
+            echo "=== Remaining translation libraries ==="
+            file "$D3D" "$DXGI"
+            echo
+            echo "=== Vulkan submission/sync/descriptor surface ==="
+            strings -a "$D3D" | grep -E 'vk(QueueSubmit2?|QueuePresentKHR|WaitForFences|WaitSemaphores|UpdateDescriptorSets|UpdateDescriptorSetWithTemplate|CmdBindDescriptorSets|CmdPipelineBarrier2?|CmdBeginRendering|CmdEndRendering)' | sort -u || true
+            echo
+            echo "=== Native GTA renderer symbols ==="
+            nm -C "$GTAV" 2>/dev/null | grep -Ei 'Vulkan|Descriptor|ConstantBuffer|BindCompute|RenderPass|Pipeline|Barrier' | head -n 1000 || true
+          } > hybrid-report/gpu-native-migration-audit.txt
+          # Hard truth gate: do not label the APK fully native while DXVK translation remains.
+          if test -s "$D3D" && test -s "$DXGI"; then
+            echo "FULL_NATIVE_GPU=NO" >> hybrid-report/gpu-native-migration-audit.txt
+            echo "TARGET_FRAME_MS=8.33" >> hybrid-report/gpu-native-migration-audit.txt
+          fi
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
