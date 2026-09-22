@@ -827,6 +827,12 @@ jobs:
           done
           grep -E ' [TtWw] .*grVulkanNativeDeviceAdapter::(IsRequested|Initialize)' hybrid-report/native-adapter/provider-scan.txt > hybrid-report/native-adapter/provider-definitions.txt || true
           test -s hybrid-report/native-adapter/provider-definitions.txt
+          # Provider resolved: both adapter functions live in libgtav.so itself.
+          # Capture their exact implementations and nearby data/control flow before patching.
+          "$OBJDUMP" -d --demangle --start-address=0x622ef80 --stop-address=0x622f300 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter.disasm.txt
+          "$OBJDUMP" -s --start-address=0x622ef80 --stop-address=0x622f300 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter.bytes.txt
+          grep -n -E 'grVulkanNativeDeviceAdapter|sysParam|Get@plt|IsRequested|Initialize|Driver|Vulkan' hybrid-report/native-adapter/native-device-adapter.disasm.txt > hybrid-report/native-adapter/native-device-adapter-highlights.txt || true
+          test -s hybrid-report/native-adapter/native-device-adapter.disasm.txt
 
       - name: Extract RAGE D3D11 migration targets
         shell: bash
@@ -1087,6 +1093,9 @@ jobs:
             hybrid-report/native-adapter/libgtav-adapter-plt.disasm.txt
             hybrid-report/native-adapter/provider-scan.txt
             hybrid-report/native-adapter/provider-definitions.txt
+            hybrid-report/native-adapter/native-device-adapter.disasm.txt
+            hybrid-report/native-adapter/native-device-adapter.bytes.txt
+            hybrid-report/native-adapter/native-device-adapter-highlights.txt
             hybrid-report/full-native/key-addresses.txt
             hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
           compression-level: 0
