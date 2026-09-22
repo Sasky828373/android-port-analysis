@@ -13,29 +13,29 @@
 #include <android/log.h>
 
 
-// Native startup bridge for the three legacy imports still present in libgtav.so.
-// These exports make the DXVK-free package linkable as one unit. They deliberately
-// return failure until the engine's native Vulkan adapter has initialized; no fake
-// D3D COM objects are fabricated.
+// Legacy import symbols remain exported only so Android's loader can resolve libgtav.so.
+// The engine startup is patched to select its built-in native Vulkan adapter before these
+// legacy factories are reached. If a legacy call leaks through, fail closed instead of
+// manufacturing invalid COM objects.
+static int32_t legacyD3DLeak(const char* name) {
+  __android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","unexpected legacy startup call: %s",name);
+  return (int32_t)0x80004001u;
+}
 extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
-  if (out) *out = nullptr;
-  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","CreateDXGIFactory redirected to native Vulkan startup");
-  return (int32_t)0x80004001u; // E_NOTIMPL: native path must own device/swapchain
+  if(out)*out=nullptr; return legacyD3DLeak("CreateDXGIFactory");
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
-    void*, uint32_t, void*, uint32_t, const uint32_t*, uint32_t, uint32_t,
-    void** device, uint32_t* featureLevel, void** context) {
-  if (device) *device=nullptr; if (featureLevel) *featureLevel=0; if (context) *context=nullptr;
-  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","D3D11CreateDevice intercepted for native Vulkan startup");
-  return (int32_t)0x80004001u;
+    void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,
+    void** device,uint32_t* featureLevel,void** context) {
+  if(device)*device=nullptr; if(featureLevel)*featureLevel=0; if(context)*context=nullptr;
+  return legacyD3DLeak("D3D11CreateDevice");
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSwapChain(
-    void*, uint32_t, void*, uint32_t, const uint32_t*, uint32_t, uint32_t, const void*,
-    void** swapchain, void** device, uint32_t* featureLevel, void** context) {
-  if (swapchain) *swapchain=nullptr; if (device) *device=nullptr;
-  if (featureLevel) *featureLevel=0; if (context) *context=nullptr;
-  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","D3D11CreateDeviceAndSwapChain intercepted for native Vulkan startup");
-  return (int32_t)0x80004001u;
+    void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,const void*,
+    void** swapchain,void** device,uint32_t* featureLevel,void** context) {
+  if(swapchain)*swapchain=nullptr; if(device)*device=nullptr;
+  if(featureLevel)*featureLevel=0; if(context)*context=nullptr;
+  return legacyD3DLeak("D3D11CreateDeviceAndSwapChain");
 }
 
 namespace gtavnative {
