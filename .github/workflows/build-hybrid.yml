@@ -371,6 +371,44 @@ jobs:
           Path("hybrid-report/gold-vulkan-proc-xrefs-v2.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Trace GOLD Vulkan hot dispatch slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          slots={
+            "vkQueueSubmit":0x38,
+            "vkQueueSubmit2":0x40,
+            "vkWaitForFences":0x108,
+            "vkWaitSemaphores":0x2f8,
+            "vkAcquireNextImageKHR":0x588,
+            "vkQueuePresentKHR":0x590,
+            "vkUpdateDescriptorSets":0x248,
+            "vkUpdateDescriptorSetWithTemplate":0x2d0,
+          }
+          out=[]
+          for name,slot in slots.items():
+            out.append(f"=== {name} dispatch-slot +0x{slot:x} ===")
+            pats=[
+              re.compile(rf'ldr\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]'),
+              re.compile(rf'ldur\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]'),
+            ]
+            hits=0
+            for i,line in enumerate(dis):
+              if any(p.search(line) for p in pats):
+                # only useful if an indirect call follows shortly
+                window=dis[i:min(i+8,len(dis))]
+                if any(re.search(r'\bblr\s+x\d+',x) for x in window):
+                  out.extend(dis[max(0,i-12):min(len(dis),i+18)])
+                  out.append("---"); hits+=1
+            out.append(f"hits={hits}")
+          Path("hybrid-report/gold-vulkan-hot-slot-calls.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
