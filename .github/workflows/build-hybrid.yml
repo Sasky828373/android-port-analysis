@@ -866,11 +866,18 @@ jobs:
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK only
+        uses: actions/upload-artifact@v4
         with:
-          name: XHYN-V0.17-HYBRID-PERFORMANCE
+          name: XHYN-V0.17-APK-ONLY
           path: |
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
-            hybrid-report/
           compression-level: 0
+
+      - name: Upload native analysis reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V0.17-NATIVE-REPORTS
+          path: hybrid-report/
+          compression-level: 6
