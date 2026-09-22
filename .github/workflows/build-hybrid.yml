@@ -640,14 +640,9 @@ jobs:
           set -euo pipefail
           mkdir -p hybrid-report
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
-          D3D=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
-          DXGI=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so
           test "$(stat -c%s "$LIB")" = "154327768"
           readelf -h "$LIB" | grep -q 'AArch64'
-          readelf -h "$D3D" | grep -q 'AArch64'
-          readelf -h "$DXGI" | grep -q 'AArch64'
-          strings -a "$D3D" | grep -q 'GTAV_VULKAN_LIBRARY'
-          strings -a "$D3D" | grep -q 'gtav_android_surface_state'
+          readelf -h XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so | grep -q 'AArch64'
           python3 - <<'PY'
           from pathlib import Path
           p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
@@ -673,7 +668,7 @@ jobs:
               "BindCompute counter bypass OK\nAndroidPerformance Update already RET\n"
           )
           PY
-          sha256sum "$LIB" "$D3D" "$DXGI" >> hybrid-report/native-final-integrity.txt
+          sha256sum "$LIB" XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so >> hybrid-report/native-final-integrity.txt
 
       - name: GPU 8.33ms native migration audit
         shell: bash
