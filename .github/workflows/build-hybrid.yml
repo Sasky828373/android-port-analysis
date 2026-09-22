@@ -963,39 +963,44 @@ jobs:
           apktool d -f -r "XHYN V_0.17custom.apk" -o /tmp/xhyn-launcher >/dev/null
           python3 - <<'PY'
           from pathlib import Path
-          files=list(Path("/tmp/xhyn-launcher").glob("smali*/**/*.smali"))
-          hits=[]
-          for p in files:
+          smalis=list(Path("/tmp/xhyn-launcher").glob("smali*/**/*.smali"))
+          recovery=[]
+          renderer=[]
+          for p in smalis:
               s=p.read_text(errors="ignore")
-              if "Invalid graphics recovery value" in s:
-                  hits.append(p)
-          if not hits:
-              raise SystemExit("graphics recovery string not found")
-          if len(hits)!=1:
-              raise SystemExit(f"expected one recovery validator, found {len(hits)}: {hits}")
-          p=hits[0]; s=p.read_text()
-          pos=s.index("Invalid graphics recovery value")
-          # Patch the conditional branch immediately preceding the error construction,
-          # independent of register/label numbering emitted by this apktool version.
-          lines=s.splitlines()
+              if "Invalid graphics recovery value" in s: recovery.append(p)
+              if "Bundled renderer (September 11 base)" in s or "DXVK renderer" in s: renderer.append(p)
+          if len(recovery)!=1:
+              raise SystemExit(f"expected one recovery validator, found {len(recovery)}: {recovery}")
+          # Remove only the throw path for the obsolete DXVK recovery value.
+          p=recovery[0]; lines=p.read_text().splitlines()
           idx=next(i for i,l in enumerate(lines) if "Invalid graphics recovery value" in l)
-          branch=None
-          for i in range(idx-1,max(-1,idx-30),-1):
-              t=lines[i].strip()
-              if t.startswith("if-") and ", :" in t:
-                  branch=i; break
-          if branch is None:
-              raise SystemExit("recovery conditional branch not found near error")
-          target=lines[branch].split(", :",1)[1].strip()
-          # Invert the branch so the invalid-value error block is bypassed while preserving
-          # the launcher's existing valid continuation target.
-          op=lines[branch].strip().split()[0]
-          inv={"if-eqz":"if-nez","if-nez":"if-eqz","if-eq":"if-ne","if-ne":"if-eq"}
-          if op not in inv:
-              raise SystemExit(f"unsupported recovery gate {op}")
-          lines[branch]=lines[branch].replace(op,inv[op],1)
+          newi=None
+          for i in range(idx-1,max(-1,idx-20),-1):
+              if "new-instance" in lines[i] and "Ljava/io/IOException;" in lines[i]:
+                  newi=i; break
+          if newi is None: raise SystemExit("recovery IOException construction not found")
+          # Find the label immediately after this IOException throw block and jump there.
+          target=None
+          for i in range(idx+1,min(len(lines),idx+30)):
+              if lines[i].strip().startswith(":"):
+                  target=lines[i].strip(); break
+          if target is None: raise SystemExit("recovery continuation label not found")
+          lines[newi:newi]=["    # native Vulkan build: DXVK recovery is obsolete",f"    goto {target}"]
           p.write_text("\n".join(lines)+"\n")
-          print("patched",p,"line",branch+1,op,"->",inv[op])
+          print("recovery patched:",p,target)
+          # Rewrite launcher-facing DXVK renderer labels so this build no longer advertises
+          # the removed DXVK payload as its active renderer.
+          changed=0
+          for p in renderer:
+              s=p.read_text(errors="ignore")
+              n=s.replace("DXVK renderer","Native Vulkan renderer")
+              n=n.replace("Bundled renderer (September 11 base)","Native Vulkan renderer")
+              n=n.replace("The bundled renderer remains the default. All alternate pairs are experimental and require a full app restart.",
+                          "Native Vulkan renderer is built into this package.")
+              if n!=s:
+                  p.write_text(n); changed+=1
+          print("renderer UI files patched:",changed)
           PY
           apktool b /tmp/xhyn-launcher -o /tmp/xhyn-launcher-built.apk >/dev/null
           unzip -p /tmp/xhyn-launcher-built.apk classes.dex > /tmp/patched-classes.dex
