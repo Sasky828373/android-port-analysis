@@ -1178,6 +1178,27 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace D3D11CreateDevice-only callsites and consumers
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/d3d11-device-only
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$NM" -D -C "$LIB" | grep -E 'D3D11CreateDevice($|@)|D3D11CreateDeviceAndSwapChain|g_D3D11CreateDevice' > "$OUT/symbols.txt" || true
+          "$READELF" -W -r "$LIB" | grep -E 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain' > "$OUT/relocations.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6158100 --stop-address=0x6158900 "$LIB" > "$OUT/initclass-device-region.txt"
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B24 -A60 -E 'D3D11CreateDevice(@plt)?|g_D3D11CreateDevice' > "$OUT/all-device-callsite-xrefs.txt" || true
+          grep -n -B16 -A36 -E 'blr|cbz|cbnz|tbz|tbnz|ldr.*\[x[0-9]+.*#0x' "$OUT/initclass-device-region.txt" > "$OUT/indirect-consumers.txt" || true
+
+      - name: Upload D3D11CreateDevice-only trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-device-only-${{ github.run_number }}
+          path: hybrid-report/d3d11-device-only/
+
       - name: Trace full D3D11 bootstrap compatibility surface
         shell: bash
         run: |
