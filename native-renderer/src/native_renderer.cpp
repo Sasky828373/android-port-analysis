@@ -141,6 +141,37 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  return vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors)==VK_SUCCESS;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_descriptor_set_layout(const VkDescriptorSetLayoutBinding* bindings,uint32_t count,VkDescriptorSetLayout* out){
+ if(!g.device||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};ci.bindingCount=count;ci.pBindings=bindings;
+ return vkCreateDescriptorSetLayout(g.device,&ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_alloc_descriptor_set(VkDescriptorSetLayout layout,VkDescriptorSet* out){
+ if(!g.device||!g.descriptors||!layout||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=g.descriptors;ai.descriptorSetCount=1;ai.pSetLayouts=&layout;
+ return vkAllocateDescriptorSets(g.device,&ai,out);
+}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_pipeline_layout(const VkDescriptorSetLayout* sets,uint32_t setCount,const VkPushConstantRange* pushes,uint32_t pushCount,VkPipelineLayout* out){
+ if(!g.device||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ VkPipelineLayoutCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};ci.setLayoutCount=setCount;ci.pSetLayouts=sets;ci.pushConstantRangeCount=pushCount;ci.pPushConstantRanges=pushes;
+ return vkCreatePipelineLayout(g.device,&ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_graphics_pipeline(const VkGraphicsPipelineCreateInfo* ci,VkPipeline* out){
+ if(!g.device||!ci||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ return vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_compute_pipeline(const VkComputePipelineCreateInfo* ci,VkPipeline* out){
+ if(!g.device||!ci||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ return vkCreateComputePipelines(g.device,VK_NULL_HANDLE,1,ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_graphics_state(uint64_t key,VkPipeline pipeline,VkPipelineLayout layout,VkDescriptorSet descriptor){
+ if(!key||!pipeline||!layout||!descriptor)return false;
+ {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache[key]={pipeline,layout,descriptor};}
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)pipeline,NR_GRAPHICS_PIPELINE,1);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)layout,NR_PIPELINE_LAYOUT,1);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)descriptor,NR_DESCRIPTOR_SET,1);
+ return true;
+}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_bind_pipeline(VkCommandBuffer c,VkPipelineBindPoint p,VkPipeline v){if(c&&v)vkCmdBindPipeline(c,p,v);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_bind_descriptors(VkCommandBuffer c,VkPipelineBindPoint p,VkPipelineLayout l,uint32_t first,uint32_t n,const VkDescriptorSet* s){if(c&&l&&n&&s)vkCmdBindDescriptorSets(c,p,l,first,n,s,0,nullptr);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_update_uniform_buffer(VkDescriptorSet s,uint32_t b,VkBuffer v,VkDeviceSize o,VkDeviceSize r){if(!g.device||!s||!v)return;VkDescriptorBufferInfo bi{v,o,r};VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=s;w.dstBinding=b;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;w.pBufferInfo=&bi;vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);}
