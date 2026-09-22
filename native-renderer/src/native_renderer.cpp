@@ -12,6 +12,32 @@
 #include <dlfcn.h>
 #include <android/log.h>
 
+
+// Native startup bridge for the three legacy imports still present in libgtav.so.
+// These exports make the DXVK-free package linkable as one unit. They deliberately
+// return failure until the engine's native Vulkan adapter has initialized; no fake
+// D3D COM objects are fabricated.
+extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
+  if (out) *out = nullptr;
+  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","CreateDXGIFactory redirected to native Vulkan startup");
+  return (int32_t)0x80004001u; // E_NOTIMPL: native path must own device/swapchain
+}
+extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
+    void*, uint32_t, void*, uint32_t, const uint32_t*, uint32_t, uint32_t,
+    void** device, uint32_t* featureLevel, void** context) {
+  if (device) *device=nullptr; if (featureLevel) *featureLevel=0; if (context) *context=nullptr;
+  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","D3D11CreateDevice intercepted for native Vulkan startup");
+  return (int32_t)0x80004001u;
+}
+extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSwapChain(
+    void*, uint32_t, void*, uint32_t, const uint32_t*, uint32_t, uint32_t, const void*,
+    void** swapchain, void** device, uint32_t* featureLevel, void** context) {
+  if (swapchain) *swapchain=nullptr; if (device) *device=nullptr;
+  if (featureLevel) *featureLevel=0; if (context) *context=nullptr;
+  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","D3D11CreateDeviceAndSwapChain intercepted for native Vulkan startup");
+  return (int32_t)0x80004001u;
+}
+
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
 static Runtime g;
