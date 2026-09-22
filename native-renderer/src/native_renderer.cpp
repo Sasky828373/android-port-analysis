@@ -86,6 +86,15 @@ static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
   if (index != 0) { *out=nullptr; return (int32_t)0x887A0002u; } // DXGI_ERROR_NOT_FOUND
   *out=&gCompatAdapter; return 0;
 }
+static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
+  gtavdiag::checkpoint("compat-dxgi-enum-outputs");
+  if (!out) return (int32_t)0x80004003u;
+  // Android owns presentation/surface selection. The D3D11 adapter bootstrap
+  // only needs enumeration to terminate cleanly when no desktop DXGI outputs exist.
+  *out=nullptr;
+  (void)index;
+  return (int32_t)0x887A0002u; // DXGI_ERROR_NOT_FOUND
+}
 static int32_t compatGetDesc(void*, void* desc) {
   gtavdiag::checkpoint("compat-dxgi-get-desc");
   if (!desc) return (int32_t)0x80004003u;
@@ -103,8 +112,10 @@ static void initCompatDXGI() {
   gFactoryVtable[2]=(void*)compatRelease;
   gFactoryVtable[7]=(void*)compatEnumAdapters;
   gCompatFactory.vtbl=gFactoryVtable;
-  // Adapter slots observed by grcAdapterD3D11 path: Release @ +0x10, GetDesc @ +0x40.
+  // Adapter slots observed by grcAdapterD3D11:
+  // Release @ +0x10, EnumOutputs @ +0x38, GetDesc @ +0x40.
   gAdapterVtable[2]=(void*)compatRelease;
+  gAdapterVtable[7]=(void*)compatEnumOutputs;
   gAdapterVtable[8]=(void*)compatGetDesc;
   gCompatAdapter.vtbl=gAdapterVtable;
 }
