@@ -741,6 +741,8 @@ jobs:
           grep -E 'grVulkanRuntime|grVulkanRenderGraph|grVulkanResourceStateTracker|grVulkanNativeDeviceAdapter|RageDirect3DDeviceContext11|SwapChain|Present|Acquire|Descriptor|Pipeline|CommandBuffer|RenderTarget|ShaderResource|ConstantBuffer|VertexBuffer|IndexBuffer'             "$OUT/all-symbols.txt" > "$OUT/migration-symbols.txt" || true
 
           cat > "$OUT/ranges.txt" <<'EOF'
+          0x6157c28 0x615995c grc-device-initclass
+          0x622f884 0x622fa70 vulkan-runtime-init
           0x618c200 0x618d400 native-runtime-init
           0x61d2300 0x61d3650 rage-d3d11-context
           0x6232800 0x6234300 vulkan-runtime-resource-pipeline
@@ -1049,6 +1051,8 @@ jobs:
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
             hybrid-report/rage-d3d11-symbols.txt
             hybrid-report/rage-d3d11-migration-targets.txt
+            hybrid-report/full-native/grc-device-initclass.disasm.txt
+            hybrid-report/full-native/vulkan-runtime-init.disasm.txt
             hybrid-report/full-native/key-addresses.txt
             hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
           compression-level: 0
