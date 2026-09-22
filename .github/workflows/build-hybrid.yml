@@ -835,11 +835,36 @@ jobs:
           test -s hybrid-report/native-adapter/native-device-adapter.disasm.txt
           # IsRequested() references four literal strings; dump them and the complete Initialize tail.
           "$OBJDUMP" -d --demangle --start-address=0x622f0b8 --stop-address=0x622f640 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
-          "$OBJDUMP" -s --start-address=0x21212a0 --stop-address=0x21212d0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-env1.txt
-          "$OBJDUMP" -s --start-address=0x2285ec0 --stop-address=0x2285f00 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-value1.txt
-          "$OBJDUMP" -s --start-address=0x218d920 --stop-address=0x218d970 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-value2.txt
-          "$OBJDUMP" -s --start-address=0x2484d50 --stop-address=0x2484da0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-env2.txt
-          "$OBJDUMP" -s --start-address=0x23892a0 --stop-address=0x23892e0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-config-default.txt
+          # llvm-objdump -s can ignore the intended tiny VA window on this ELF and create huge files.
+          # Read exact bytes from the ELF by converting VAs to file offsets with pyelftools.
+          python3 - <<'PY'
+          from elftools.elf.elffile import ELFFile
+          p='XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so'
+          req={
+            'isrequested-env1.txt':(0x21212a6,96),
+            'isrequested-value1.txt':(0x2285eda,64),
+            'isrequested-value2.txt':(0x218d945,64),
+            'isrequested-env2.txt':(0x2484d74,96),
+            'isrequested-config-default.txt':(0x23892bc,96),
+          }
+          with open(p,'rb') as f:
+            e=ELFFile(f)
+            for name,(va,n) in req.items():
+              for seg in e.iter_segments():
+                lo=seg['p_vaddr']; hi=lo+seg['p_filesz']
+                if lo <= va < hi:
+                  off=seg['p_offset']+(va-lo); f.seek(off); b=f.read(n)
+                  printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
+                  strings=[s.decode('utf-8','replace') for s in b.split(b'\0') if s]
+                  with open('hybrid-report/native-adapter/'+name,'w') as o:
+                    o.write(f'VA=0x{va:x} file_off=0x{off:x} len={len(b)}\\n')
+                    o.write('hex='+b.hex()+'\\n')
+                    o.write('ascii='+printable+'\\n')
+                    o.write('strings='+repr(strings)+'\\n')
+                  break
+              else: raise RuntimeError(f'VA 0x{va:x} not mapped')
+          PY
+          du -h hybrid-report/native-adapter/isrequested-*.txt
 
       - name: Extract RAGE D3D11 migration targets
         shell: bash
