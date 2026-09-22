@@ -231,9 +231,9 @@ jobs:
           strings -a "$D" | grep -q 'Presenter: Recreating Android surface after lifecycle change'
 
           # The native runtime must expose the surface lifecycle ABI GOLD expects.
-          readelf -Ws "$V" | grep -q 'gtav_android_surface_state'
-          readelf -Ws "$V" | grep -q 'gtav_android_lock_surface'
-          readelf -Ws "$V" | grep -q 'gtav_android_unlock_surface'
+          readelf -Ws "$V" | grep 'gtav_android_surface_state' >/dev/null
+          readelf -Ws "$V" | grep 'gtav_android_lock_surface' >/dev/null
+          readelf -Ws "$V" | grep 'gtav_android_unlock_surface' >/dev/null
 
           # Record the exact ABI for later native bridge work.
           mkdir -p hybrid-report
