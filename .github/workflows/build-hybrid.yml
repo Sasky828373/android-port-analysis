@@ -82,35 +82,51 @@ jobs:
             } > "hybrid-report/$b.txt"
           done
 
-      - name: Repack APK
+      - name: Patch original APK without rebuilding package structure
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf apkstage out
-          mkdir -p apkstage out
-          cp -a XHYN_V017_UNPACKED/. apkstage/
-          rm -rf apkstage/libgtav_parts
-          rm -rf apkstage/META-INF
-          rm -f apkstage/HYBRID-libgtav.sha256
+          rm -rf patchstage out
+          mkdir -p patchstage out
+          cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk
+
+          # Strip the old signature only. Keep the original manifest/resources/ZIP layout.
+          zip -q -d out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk 'META-INF/*' || true
+
+          # Only files intentionally changed by the hybrid are replaced.
+          mkdir -p patchstage/assets patchstage/lib/arm64-v8a
+          cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
+          cp XHYN_V017_UNPACKED/assets/dxvk.conf patchstage/assets/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so patchstage/lib/arm64-v8a/
+          if [ -f XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so ]; then
+            cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so patchstage/lib/arm64-v8a/
+          fi
+
+          # Replace native libraries uncompressed; this is required by many modern Android APKs.
           (
-            cd apkstage
-            zip -q -r -0 ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk . -x 'resources.arsc' '*.dex'
-          )
-          # Re-add compressible assets/classes normally; duplicate names replace stored entries.
-          (
-            cd apkstage
-            zip -q -r -9 ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk .               -x 'lib/*' 'lib/*/*'
+            cd patchstage
+            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk lib/arm64-v8a/*.so
+            zip -q -9 -u ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk assets/default-android.ini assets/dxvk.conf
           )
 
-      - name: Align and sign
+      - name: Align sign and validate install package
         shell: bash
         run: |
           set -euo pipefail
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          "$BT/zipalign" -f -p 4 out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+
+          "$BT/zipalign" -f -p 4             out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk             out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+          "$BT/zipalign" -c -p 4 out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+
           keytool -genkeypair -noprompt             -keystore out/hybrid.keystore -storepass android -keypass android             -alias hybrid -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=XHYN Hybrid,O=Android,C=DE"
-          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
-          "$BT/apksigner" verify --verbose out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
+
+          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk             out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+
+          "$BT/apksigner" verify --verbose --print-certs out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
+          "$BT/aapt" dump badging out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk | tee out/aapt-badging.txt
+          "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk AndroidManifest.xml >/dev/null
+          unzip -t out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk > out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk.sha256
 
       - uses: actions/upload-artifact@v4
