@@ -211,7 +211,8 @@ static void hOMRT(void* c,uint32_t n,void* const* r,void* d){{std::lock_guard<st
 
 
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
-static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
+using OrigDispatch=void(*)(void*,uint32_t,uint32_t,uint32_t);
+static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{}; static OrigDispatch origDispatch{};
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
 static OrigSubmissionBegin origSubmissionBegin{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
@@ -283,6 +284,7 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
 
 static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
+static void hookDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){if(!gtav_native_renderer_rage_dispatch(c,x,y,z)&&origDispatch)origDispatch(c,x,y,z);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","HOOKS libgtav-not-found");return false;}
  static constexpr uint32_t expectDraw[4]={0xf9400400u,0xf9400008u,0xf9403503u,0xd61f0060u};
@@ -292,6 +294,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  uint32_t a[4]{},b[4]{}; void *ta=nullptr,*tb=nullptr;
  bool x=patchJump(gtavBase+0x61d254c,(void*)hookDraw,a,&ta); if(x)origDraw=(OrigDraw)ta;
  bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
+ uint32_t dc[4]{};void* tdc=nullptr;bool sd=patchJump(gtavBase+0x61d2da8,(void*)hookDispatch,dc,&tdc);if(sd)origDispatch=(OrigDispatch)tdc;
  static constexpr uint32_t expectSubmissionBegin[4]={0xd10283ffu,0xa9047bfdu,0xf9002bfbu,0xa90667fau};
  bool z=false; void* ts=nullptr; uint32_t s[4]{};
  if(std::memcmp((void*)(gtavBase+0x623526c),expectSubmissionBegin,16)==0){
@@ -577,7 +580,30 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDispatch(s.command_buffer,x,y,z);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
+ if(!ctx||!x||!y||!z||!g.device)return false;
+ RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ if(!m.cs)return false;
+ VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);if(!cb)return false;
+ uint64_t cs=resolveMapped(m.cs,NR_CS);if(!cs)return false;
+ uint64_t key=hashMix((uint64_t)(uintptr_t)m.cs,0x43534e4154495645ull);
+ uint64_t pipe=gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE);
+ uint64_t layout=gtav_native_renderer_resolve_resource(key,NR_PIPELINE_LAYOUT);
+ uint64_t desc=gtav_native_renderer_resolve_resource(key,NR_DESCRIPTOR_SET);
+ if(!pipe||!layout||!desc)return false;
+ for(unsigned i=0;i<16;i++){
+  if(m.csCB[i]&&!resolveMapped(m.csCB[i],NR_CBUFFER))return false;
+  if(m.csSampler[i]&&!resolveMapped(m.csSampler[i],NR_SAMPLER))return false;
+  if(m.csUAV[i]&&!resolveMapped(m.csUAV[i],NR_UAV))return false;
+ }
+ for(unsigned i=0;i<32;i++)if(m.csSRV[i]){
+  if(!mapWrappedImage(m.csSRV[i],NR_SRV,false))return false;
+  if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.csSRV[i]))return false;
+ }
+ vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_COMPUTE,(VkPipeline)(uintptr_t)pipe);
+ vkCmdBindDescriptorSets(cb,VK_PIPELINE_BIND_POINT_COMPUTE,(VkPipelineLayout)(uintptr_t)layout,0,1,(VkDescriptorSet*)&desc,0,nullptr);
+ vkCmdDispatch(cb,x,y,z);return true;
+}
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){if(!g.device)attachFromGtavRuntime();return g.device&&g.queue&&g.commands&&g.descriptors;}
