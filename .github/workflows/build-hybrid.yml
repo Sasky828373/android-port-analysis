@@ -250,6 +250,37 @@ jobs:
           Path("hybrid-report/gold-vulkan-xrefs.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Map GOLD Vulkan loader dispatch table
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          names=["vkQueuePresentKHR","vkQueueSubmit","vkQueueSubmit2","vkWaitForFences",
+                 "vkWaitSemaphores","vkAcquireNextImageKHR","vkUpdateDescriptorSets",
+                 "vkUpdateDescriptorSetWithTemplate"]
+          data=lib.read_bytes()
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace")
+          # Vulkan proc names are loader data, not code xrefs. Locate the loader routine instead:
+          # search disassembly around calls to dlsym/dlopen/vkGet*ProcAddr PLT and indirect BLR clusters.
+          lines=dis.splitlines()
+          out=[]
+          keys=("dlsym@plt","dlopen@plt","vkGetInstanceProcAddr","vkGetDeviceProcAddr")
+          for i,line in enumerate(lines):
+            if any(k in line for k in keys):
+              out.append("=== loader/proc resolver call ===")
+              out.extend(lines[max(0,i-18):min(len(lines),i+28)])
+          # Also record all proc-name file offsets in one compact table.
+          out.append("=== Vulkan proc-name offsets ===")
+          for n in names:
+            off=data.find(n.encode())
+            out.append(f"{n}: file_off=0x{off:x}" if off>=0 else f"{n}: missing")
+          Path("hybrid-report/gold-vulkan-loader-map.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
