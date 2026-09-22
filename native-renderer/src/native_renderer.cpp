@@ -27,10 +27,11 @@ static uintptr_t gtavBase{};
 static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
 static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
  void* m=mmap(nullptr,4096,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0); if(m==MAP_FAILED)return nullptr;
- std::memcpy(m,original,16); auto* q=(uint32_t*)((uint8_t*)m+16);
- uintptr_t back=target+16, pc=(uintptr_t)q; intptr_t delta=(intptr_t)back-(intptr_t)pc;
- if((delta&3)||delta<-(1ll<<27)||delta>=(1ll<<27)){munmap(m,4096);return nullptr;}
- *q=0x14000000u|((uint32_t)(delta>>2)&0x03ffffffu); __builtin___clear_cache((char*)m,(char*)m+20); return m;
+ std::memcpy(m,original,16);
+ uint32_t veneer[4]={0x58000050u,0xd61f0200u,0,0};
+ uint64_t back=(uint64_t)(target+16); std::memcpy(&veneer[2],&back,sizeof(back));
+ std::memcpy((uint8_t*)m+16,veneer,sizeof(veneer));
+ __builtin___clear_cache((char*)m,(char*)m+32); return m;
 }
 static bool patchJump(uintptr_t target,void* replacement,uint32_t original[4],void** trampoline){
  std::memcpy(original,(void*)target,16); *trampoline=makeTrampoline(target,original); if(!*trampoline)return false;
@@ -113,6 +114,10 @@ static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rag
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase)return false;
+ static constexpr uint32_t expectDraw[4]={0xf9400400u,0xf9400008u,0xf9403503u,0xd61f0060u};
+ static constexpr uint32_t expectDrawIndexed[4]={0xf9400400u,0xf9400008u,0xf9403104u,0xd61f0080u};
+ if(std::memcmp((void*)(gtavBase+0x61d254c),expectDraw,16)!=0) return false;
+ if(std::memcmp((void*)(gtavBase+0x61d253c),expectDrawIndexed,16)!=0) return false;
  uint32_t a[4]{},b[4]{}; void *ta=nullptr,*tb=nullptr;
  bool x=patchJump(gtavBase+0x61d254c,(void*)hookDraw,a,&ta); if(x)origDraw=(OrigDraw)ta;
  bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
