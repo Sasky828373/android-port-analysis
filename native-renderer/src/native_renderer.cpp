@@ -105,134 +105,21 @@ static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
 static int32_t compatGetDesc(void*, void* desc) {
   gtavdiag::checkpoint("compat-dxgi-get-desc");
   if (!desc) return (int32_t)0x80004003u;
-  // This Android build uses 4-byte wchar_t in its DXGI-compatible ABI.
-  // grcAdapterD3D11 reads VendorId at +0x200 and memory fields at
-  // +0x210/+0x218/+0x220, proving a 0x230-byte descriptor layout.
-  __builtin_memset(desc, 0, 0x230);
+  // Android ABI observed in grcAdapterD3D11: the descriptor uses 4-byte
+  // wchar_t and is read through +0x220, not the 312-byte Windows layout.
+  memset(desc,0,0x230);
   auto* p=(uint8_t*)desc;
-  *(uint32_t*)(p+0x200)=0;              // unknown/native Vulkan vendor class
-  *(uint64_t*)(p+0x210)=0x20000000ull;  // 512 MiB dedicated video memory
+  *(uint32_t*)(p+0x200)=0;
+  *(uint64_t*)(p+0x210)=0x20000000ull;
   *(uint64_t*)(p+0x218)=0;
-  *(uint64_t*)(p+0x220)=0x20000000ull;  // 512 MiB shared system memory
-  return 0;
-}include <vulkan/vulkan.h>
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <mutex>
-#include <unordered_map>
-#include <cstring>
-#include <unistd.h>
-#include <sys/mman.h>
-#include <link.h>
-#include "native_dispatch.h"
-#include <dlfcn.h>
-#include <android/log.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <ucontext.h>
-#include <cstdio>
-#include <cstdlib>
-
-
-
-namespace gtavdiag {
-static const char* kPath="/storage/emulated/0/Games/GTAV/Config/gtav-native-crash.txt";
-static std::atomic<uint32_t> seq{0};
-static std::atomic<const char*> last{"native-renderer-loaded"};
-static void ensureDir(){ mkdir("/storage/emulated/0/Games",0775); mkdir("/storage/emulated/0/Games/GTAV",0775); mkdir("/storage/emulated/0/Games/GTAV/Config",0775); }
-static void append(const char* s){ ensureDir(); int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664); if(fd>=0){write(fd,s,strlen(s));close(fd);} }
-static void checkpoint(const char* name,const char* detail=nullptr){
- last.store(name,std::memory_order_relaxed); char b[768];
- int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s\n",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
- if(n>0) append(b); __android_log_print(ANDROID_LOG_INFO,"GTAV-DIAG","%s%s%s",name,detail?" ":"",detail?detail:"");
-}
-static char* puthex(char* p,uint64_t v){static const char h[]="0123456789abcdef";*p++='0';*p++='x';bool s=false;for(int i=15;i>=0;--i){unsigned d=(v>>(i*4))&15;if(d||s||i==0){*p++=h[d];s=true;}}return p;}
-static char* putdec(char* p,unsigned v){char t[16];int n=0;do{t[n++]=char('0'+v%10);v/=10;}while(v);while(n)*p++=t[--n];return p;}
-static void crashHandler(int sig,siginfo_t* si,void* ctx){
- char b[512],*p=b; const char* a="\n=== GTAV NATIVE CRASH ===\nsignal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
- const char* q=" fault=";memcpy(p,q,strlen(q));p+=strlen(q);p=puthex(p,(uint64_t)(uintptr_t)(si?si->si_addr:nullptr));
-#if defined(__aarch64__)
- ucontext_t* uc=(ucontext_t*)ctx;const char* r=" pc=";memcpy(p,r,strlen(r));p+=strlen(r);p=puthex(p,(uint64_t)uc->uc_mcontext.pc);
- const char* s=" sp=";memcpy(p,s,strlen(s));p+=strlen(s);p=puthex(p,(uint64_t)uc->uc_mcontext.sp);
- const char* l=" lr=";memcpy(p,l,strlen(l));p+=strlen(l);p=puthex(p,(uint64_t)uc->uc_mcontext.regs[30]);
-#endif
- const char* x=" last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=last.load(std::memory_order_relaxed);size_t zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='\n';
- int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664);if(fd>=0){write(fd,b,p-b);close(fd);}
- signal(sig,SIG_DFL);syscall(SYS_tgkill,getpid(),syscall(SYS_gettid),sig);
-}
-__attribute__((constructor)) static void install(){
- ensureDir();int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v1\n";write(fd,h,strlen(h));close(fd);}
- struct sigaction sa{};sa.sa_sigaction=crashHandler;sigemptyset(&sa.sa_mask);sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
- int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGTRAP};for(int s:sigs)sigaction(s,&sa,nullptr);checkpoint("diagnostic-installed");
-}
-}
-
-// Legacy import symbols remain exported only so Android's loader can resolve libgtav.so.
-// DXVK is intentionally not packaged. These guards are NOT a fake D3D implementation:
-// returning fabricated COM objects would crash later and hide the real migration gap.
-// Native Vulkan attaches to the engine runtime only after that runtime has valid handles.
-static int32_t legacyD3DLeak(const char* name) {
-  gtavdiag::checkpoint("legacy-d3d-entry",name);
-  // A DXGI/D3D11 entry here means the engine is still taking its legacy bootstrap.
-  // Do not return E_NOTIMPL: the caller treats device creation failure as fatal before
-  // grVulkanRuntime can become available. Abort this path deterministically and leave
-  // a unique marker instead of returning null COM objects that crash later.
-  __android_log_print(ANDROID_LOG_FATAL,"GTAV-NATIVE","FATAL legacy graphics bootstrap reached: %s",name);
-  __builtin_trap();
-}
-// CreateDXGIFactory is reached before D3D11CreateDeviceAndSwapChain in the real
-// engine bootstrap. Do not trap here: InitClass uses the factory only as an
-// optional adapter-enumeration path and can fall back to the default adapter.
-// Returning a normal failure with a null output lets that fallback execute and
-// moves diagnostics to the actual device-creation boundary.
-namespace {
-struct CompatDXGIFactory { void** vtbl; };
-struct CompatDXGIAdapter { void** vtbl; };
-static CompatDXGIFactory gCompatFactory{};
-static CompatDXGIAdapter gCompatAdapter{};
-static void* gFactoryVtable[8]{};
-static void* gAdapterVtable[9]{};
-
-static int32_t compatQueryInterface(void* self, const void*, void** out) {
-  gtavdiag::checkpoint("compat-dxgi-query-interface");
-  if (!out) return (int32_t)0x80004003u;
-  *out=self;
-  return 0;
-}
-static uint32_t compatAddRef(void*) { return 2; }
-static uint32_t compatRelease(void*) { return 1; }
-static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
-  gtavdiag::checkpoint("compat-dxgi-enum-adapters");
-  if (!out) return (int32_t)0x80004003u;
-  if (index != 0) { *out=nullptr; return (int32_t)0x887A0002u; } // DXGI_ERROR_NOT_FOUND
-  *out=&gCompatAdapter; return 0;
-}
-static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
-  gtavdiag::checkpoint("compat-dxgi-enum-outputs");
-  if (!out) return (int32_t)0x80004003u;
-  // Android owns presentation/surface selection. The D3D11 adapter bootstrap
-  // only needs enumeration to terminate cleanly when no desktop DXGI outputs exist.
-  *out=nullptr;
-  (void)index;
-  return (int32_t)0x887A0002u; // DXGI_ERROR_NOT_FOUND
-}
-static int32_t compatGetDesc(void*, void* desc) {
-  gtavdiag::checkpoint("compat-dxgi-get-desc");
-  if (!desc) return (int32_t)0x80004003u;
-  // DXGI_ADAPTER_DESC is 312 bytes on Windows. The engine only consumes the
-  // fields populated below during enumeration; zero is a safe baseline.
-  memset(desc,0,312);
-  // DedicatedVideoMemory offset 272. Report 512 MiB, matching the engine's
-  // own failure fallback at grcAdapterManagerD3D11::Enumerate +0x18c.
-  *(uint64_t*)((uint8_t*)desc+272)=0x20000000ull;
+  *(uint64_t*)(p+0x220)=0x20000000ull;
   return 0;
 }
 static void initCompatDXGI() {
   static bool once=false; if(once)return; once=true;
   // Factory slots observed by disassembly: Release @ +0x10, EnumAdapters @ +0x38.
+  gFactoryVtable[0]=(void*)compatQueryInterface;
+  gFactoryVtable[1]=(void*)compatAddRef;
   gFactoryVtable[2]=(void*)compatRelease;
   gFactoryVtable[7]=(void*)compatEnumAdapters;
   gCompatFactory.vtbl=gFactoryVtable;
