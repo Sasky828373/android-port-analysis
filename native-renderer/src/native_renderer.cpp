@@ -17,7 +17,37 @@ bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out) {
  VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
  ai.commandPool=g.commands; ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount=1;
  return vkAllocateCommandBuffers(g.device,&ai,out)==VK_SUCCESS;
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_bind_pipeline(VkCommandBuffer cmd,VkPipelineBindPoint point,VkPipeline pipeline) {
+ if(cmd&&pipeline) vkCmdBindPipeline(cmd,point,pipeline);
 }
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_bind_descriptors(VkCommandBuffer cmd,VkPipelineBindPoint point,VkPipelineLayout layout,
+ uint32_t firstSet,uint32_t count,const VkDescriptorSet* sets) {
+ if(cmd&&layout&&count&&sets) vkCmdBindDescriptorSets(cmd,point,layout,firstSet,count,sets,0,nullptr);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_update_uniform_buffer(VkDescriptorSet set,uint32_t binding,VkBuffer buffer,VkDeviceSize offset,VkDeviceSize range) {
+ if(!g.device||!set||!buffer) return;
+ VkDescriptorBufferInfo bi{buffer,offset,range};
+ VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+ w.dstSet=set; w.dstBinding=binding; w.descriptorCount=1; w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; w.pBufferInfo=&bi;
+ vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_update_sampled_image(VkDescriptorSet set,uint32_t binding,VkImageView view,VkSampler sampler,VkImageLayout layout) {
+ if(!g.device||!set||!view||!sampler) return;
+ VkDescriptorImageInfo ii{sampler,view,layout};
+ VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+ w.dstSet=set; w.dstBinding=binding; w.descriptorCount=1; w.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo=&ii;
+ vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_dispatch(VkCommandBuffer cmd,uint32_t x,uint32_t y,uint32_t z) {
+ if(cmd&&x&&y&&z) vkCmdDispatch(cmd,x,y,z);
+}
+}
+
 extern "C" __attribute__((visibility("default")))
 void gtav_native_renderer_bind_vertex_buffer(VkCommandBuffer cmd,VkBuffer buffer,VkDeviceSize offset) {
  if(!cmd||!buffer) return; vkCmdBindVertexBuffers(cmd,0,1,&buffer,&offset);
