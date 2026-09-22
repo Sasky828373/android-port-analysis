@@ -141,6 +141,26 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  return vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors)==VK_SUCCESS;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ingest_spirv_shader(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
+ if(!rageShader||!data||bytes<20||(bytes&3))return false;
+ VkShaderModule module=VK_NULL_HANDLE;
+ VkResult r=gtav_native_renderer_create_shader_module(reinterpret_cast<const uint32_t*>(data),bytes,&module);
+ if(r!=VK_SUCCESS||!module)return false;
+ if(!gtav_native_renderer_register_shader(rageShader,module,stage)){vkDestroyShaderModule(g.device,module,nullptr);return false;}
+ return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_update_buffer_descriptor(VkDescriptorSet set,uint32_t binding,VkDescriptorType type,VkBuffer buffer,VkDeviceSize offset,VkDeviceSize range){
+ if(!g.device||!set||!buffer)return false;
+ VkDescriptorBufferInfo bi{buffer,offset,range};
+ VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=type;w.pBufferInfo=&bi;
+ vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_update_image_descriptor(VkDescriptorSet set,uint32_t binding,VkDescriptorType type,VkImageView view,VkSampler sampler,VkImageLayout layout){
+ if(!g.device||!set)return false;
+ VkDescriptorImageInfo ii{sampler,view,layout};
+ VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=type;w.pImageInfo=&ii;
+ vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);return true;
+}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader_module(const uint32_t* spirv,size_t bytes,VkShaderModule* out){
  if(!g.device||!spirv||bytes<20||(bytes&3)||!out)return VK_ERROR_INITIALIZATION_FAILED;
  if(spirv[0]!=0x07230203u)return VK_ERROR_INVALID_SHADER_NV;
