@@ -951,7 +951,7 @@ jobs:
           test -s lib/arm64-v8a/libgtavvk.so
           test -s lib/arm64-v8a/libgtav_native_renderer.so
 
-      - name: Patch launcher graphics recovery for native Vulkan
+      - name: Disable obsolete graphics recovery for native Vulkan
         shell: bash
         run: |
           set -euo pipefail
@@ -964,42 +964,43 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           smalis=list(Path("/tmp/xhyn-launcher").glob("smali*/**/*.smali"))
+          needles=("Invalid graphics recovery value","Invalid graphics recovery file")
           hits=[]
           for p in smalis:
               s=p.read_text(errors="ignore")
-              if "Invalid graphics recovery value" in s: hits.append(p)
-          if len(hits)!=1:
-              raise SystemExit(f"expected one recovery validator, found {len(hits)}: {hits}")
-          p=hits[0]; lines=p.read_text().splitlines()
-          msg=next(i for i,l in enumerate(lines) if "Invalid graphics recovery value" in l)
-          # Find the IOException object created for this exact message.
-          newi=None
-          for i in range(msg-1,max(-1,msg-16),-1):
-              if "new-instance" in lines[i] and "Ljava/io/IOException;" in lines[i]:
-                  newi=i; break
-          if newi is None: raise SystemExit("recovery IOException block not found")
-          # Find the throw belonging to this block.
-          throwi=None
-          for i in range(msg+1,min(len(lines),msg+16)):
-              if lines[i].strip().startswith("throw "):
-                  throwi=i; break
-          if throwi is None: raise SystemExit("recovery throw not found")
-          # Replace the entire error construction/throw with a fall-through. This is stronger
-          # than changing the validator branch and guarantees this exact recovery error cannot fire.
-          indent="    "
-          replacement=[indent+"# native Vulkan: obsolete DXVK graphics-recovery error removed",indent+"nop"]
-          lines[newi:throwi+1]=replacement
-          p.write_text("\n".join(lines)+"\n")
-          print("removed recovery throw:",p,"lines",newi+1,"-",throwi+1)
+              if any(n in s for n in needles): hits.append(p)
+          if not hits: raise SystemExit("graphics recovery implementation not found")
+          patched=0
+          for p in hits:
+              lines=p.read_text().splitlines()
+              changed=False
+              for needle in needles:
+                  while True:
+                      try: msg=next(i for i,l in enumerate(lines) if needle in l)
+                      except StopIteration: break
+                      newi=None; throwi=None
+                      for i in range(msg-1,max(-1,msg-20),-1):
+                          if "new-instance" in lines[i] and "Ljava/io/IOException;" in lines[i]:
+                              newi=i; break
+                      for i in range(msg+1,min(len(lines),msg+20)):
+                          if lines[i].strip().startswith("throw "):
+                              throwi=i; break
+                      if newi is None or throwi is None:
+                          raise SystemExit(f"cannot isolate recovery exception {needle} in {p}")
+                      lines[newi:throwi+1]=["    # native Vulkan: obsolete graphics recovery exception removed","    nop"]
+                      changed=True
+              if changed:
+                  p.write_text("\n".join(lines)+"\n"); patched+=1
+          print("recovery implementations patched:",patched)
           PY
           apktool b /tmp/xhyn-launcher -o /tmp/xhyn-launcher-built.apk >/dev/null
           unzip -p /tmp/xhyn-launcher-built.apk classes.dex > /tmp/patched-classes.dex
           test -s /tmp/patched-classes.dex
-          # Hard gate: the exact error string must no longer exist in rebuilt bytecode.
-          if strings /tmp/patched-classes.dex | grep -Fq "Invalid graphics recovery value"; then
-            echo "recovery error still present in rebuilt classes.dex" >&2
-            exit 1
-          fi
+          for s in "Invalid graphics recovery value" "Invalid graphics recovery file"; do
+            if strings /tmp/patched-classes.dex | grep -Fq "$s"; then
+              echo "obsolete recovery error remains: $s" >&2; exit 1
+            fi
+          done
           unzip -p "XHYN V_0.17custom.apk" classes.dex > /tmp/original-classes.dex
           ! cmp -s /tmp/original-classes.dex /tmp/patched-classes.dex
 
