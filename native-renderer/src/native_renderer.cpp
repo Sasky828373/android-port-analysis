@@ -512,6 +512,18 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){if(!g.device)attachFromGtavRuntime();return g.device&&g.queue&&g.commands&&g.descriptors;}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){if(!g.device)return;vkDeviceWaitIdle(g.device);if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){
+ if(!g.device)return;
+ vkDeviceWaitIdle(g.device);
+ // Image views are owned by this renderer even though the VkImages are GTA-owned.
+ // Destroy views before dropping the VkDevice and clear all cached metadata.
+ {std::lock_guard<std::mutex> l(imageMetaMutex);
+  for(auto& it:imageViews)if(it.second)vkDestroyImageView(g.device,it.second,nullptr);
+  imageViews.clear();imageMeta.clear();}
+ {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();}
+ if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);
+ if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);
+ g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;
+}
 extern "C" __attribute__((visibility("default"))) const GtavNativeDispatch* gtav_native_renderer_get_dispatch(){static const GtavNativeDispatch d{2,gtav_native_renderer_ready,gtav_native_renderer_begin_frame,gtav_native_renderer_register_resource,gtav_native_renderer_resolve_resource,gtav_native_renderer_unregister_resource,gtav_native_renderer_bind_vertex_buffer,gtav_native_renderer_bind_index_buffer,gtav_native_renderer_set_viewport,gtav_native_renderer_set_scissor,gtav_native_renderer_draw,gtav_native_renderer_draw_indexed,gtav_native_renderer_dispatch,gtav_native_renderer_set_draw_state_provider,gtav_native_renderer_rage_draw,gtav_native_renderer_rage_draw_indexed,gtav_native_renderer_rage_dispatch};return &d;}
 }
