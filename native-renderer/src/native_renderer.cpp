@@ -385,7 +385,14 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
  VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};ci.image=m.image;ci.viewType=VK_IMAGE_VIEW_TYPE_2D;ci.format=m.format;
  ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=0;ci.subresourceRange.levelCount=1;ci.subresourceRange.baseArrayLayer=0;ci.subresourceRange.layerCount=1;
  VkImageView view=VK_NULL_HANDLE;if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);return it->second;}}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);view=it->second;}}
+ // Publish the renderer-owned view into every image-backed role already known
+ // for this RAGE object. This lets the native descriptor/rendering path resolve
+ // an actual VkImageView instead of only the wrapped VkImage handle.
+ for(uint32_t kind: {NR_RTV,NR_DSV,NR_SRV,NR_UAV}){
+   if(gtav_native_renderer_resolve_resource(rageResource,kind))
+     gtav_native_renderer_register_image_view(rageResource,view,kind);
+ }
  return view;
 }
 
