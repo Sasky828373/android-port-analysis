@@ -88,6 +88,26 @@ struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void*
 static uintptr_t gtavBase{};
  static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
 static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
+ // Do not blindly relocate arbitrary AArch64 instructions. The copied prologue may
+ // contain ADR/ADRP, literal LDR, B/BL or conditional branches whose PC-relative
+ // target changes when moved into an mmap trampoline. Only accept the tiny leaf
+ // veneers we have verified to be position-independent; reject everything else
+ // instead of producing a latent SIGSEGV.
+ auto pcRelative=[](uint32_t insn){
+   if((insn&0x9f000000u)==0x10000000u) return true; // ADR/ADRP
+   if((insn&0x7c000000u)==0x14000000u) return true; // B/BL
+   if((insn&0xff000010u)==0x54000000u) return true; // B.cond
+   if((insn&0x7e000000u)==0x34000000u) return true; // CBZ/CBNZ
+   if((insn&0x7e000000u)==0x36000000u) return true; // TBZ/TBNZ
+   if((insn&0x3b000000u)==0x18000000u) return true; // literal LDR/PRFM
+   return false;
+ };
+ for(unsigned i=0;i<4;i++) if(pcRelative(original[i])){
+   __android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP",
+     "HOOK reject unsafe PC-relative prologue target=%p insn[%u]=0x%08x",
+     (void*)target,i,original[i]);
+   return nullptr;
+ }
  void* m=mmap(nullptr,4096,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0); if(m==MAP_FAILED)return nullptr;
  std::memcpy(m,original,16);
  uint32_t veneer[4]={0x58000050u,0xd61f0200u,0,0};
