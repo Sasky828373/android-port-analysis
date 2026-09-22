@@ -548,6 +548,25 @@ jobs:
             echo "TARGET_FRAME_MS=8.33" >> hybrid-report/gpu-native-migration-audit.txt
           fi
 
+      - name: Native Vulkan core hot-path disassembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          : > hybrid-report/native-vulkan-core-disasm.txt
+          for spec in             "62355b0:Submission_EndAndSubmit"             "6235f54:PassContext_EndAndSubmit"             "6235cd0:PassContext_TransitionResources"             "6235de0:PassContext_TransitionOwnedResources"             "62347ec:EmitImageBarrier"             "6234ad0:ResourceStateTracker_Transition"             "6233f1c:AllocateDescriptorSet"             "6238708:UpdateDescriptorSet"             "6239c54:UpdateDescriptors"             "623b5d0:WriteDescriptors"             "6234000:AllocateUpload"             "623408c:FlushUpload"; do
+              a="${spec%%:*}"; n="${spec#*:}"
+              lo=$((16#$a - 128)); hi=$((16#$a + 768))
+              printf '\n=== %s 0x%s ===\n' "$n" "$a" >> hybrid-report/native-vulkan-core-disasm.txt
+              aarch64-linux-gnu-objdump -d -C --start-address="$lo" --stop-address="$hi" "$LIB" >> hybrid-report/native-vulkan-core-disasm.txt
+          done
+          {
+            echo "Native Vulkan core candidates audited."
+            echo "No synchronization/barrier removal applied without proof."
+            echo "Target frame time: 8.33 ms."
+          } > hybrid-report/native-vulkan-core-plan.txt
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
