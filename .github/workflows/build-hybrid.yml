@@ -1113,6 +1113,19 @@ jobs:
             --title "XHYN Native Capture ${GITHUB_RUN_NUMBER}" \
             --notes "Direct APK download. Built from ${GITHUB_SHA} and validated with zipalign, apksigner and unzip -t."
 
+      - name: Upload tiny Vulkan switch evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-vulkan-switch-${{ github.run_number }}
+          compression-level: 9
+          path: |
+            hybrid-report/native-adapter/isrequested-env1.txt
+            hybrid-report/native-adapter/isrequested-value1.txt
+            hybrid-report/native-adapter/isrequested-value2.txt
+            hybrid-report/native-adapter/isrequested-env2.txt
+            hybrid-report/native-adapter/isrequested-config-default.txt
+            hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+
       - name: Upload APK and native migration evidence
         uses: actions/upload-artifact@v4
         with:
