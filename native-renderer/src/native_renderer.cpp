@@ -331,6 +331,7 @@ enum NativeResourceKind : uint32_t {
 struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; VkImageAspectFlags aspect{}; };
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
+static std::unordered_map<uint64_t,VkImageView> imageViews;
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;
@@ -343,14 +344,12 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_get_
 extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_renderer_create_image_view(uint64_t rageResource){
  if(!g.device||!rageResource)return VK_NULL_HANDLE;
  NativeImageMeta m{};
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return VK_NULL_HANDLE;m=it->second;}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto v=imageViews.find(rageResource);if(v!=imageViews.end())return v->second;auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return VK_NULL_HANDLE;m=it->second;}
  if(!m.image||m.format==VK_FORMAT_UNDEFINED||!m.aspect)return VK_NULL_HANDLE;
- VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
- ci.image=m.image;ci.viewType=VK_IMAGE_VIEW_TYPE_2D;ci.format=m.format;
- ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=0;ci.subresourceRange.levelCount=1;
- ci.subresourceRange.baseArrayLayer=0;ci.subresourceRange.layerCount=1;
- VkImageView view=VK_NULL_HANDLE;
- if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
+ VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};ci.image=m.image;ci.viewType=VK_IMAGE_VIEW_TYPE_2D;ci.format=m.format;
+ ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=0;ci.subresourceRange.levelCount=1;ci.subresourceRange.baseArrayLayer=0;ci.subresourceRange.layerCount=1;
+ VkImageView view=VK_NULL_HANDLE;if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);return it->second;}}
  return view;
 }
 static uint64_t resolveMapped(void* rage,uint32_t kind){
