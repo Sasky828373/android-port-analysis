@@ -1,0 +1,97 @@
+name: Build XHYN Vulkan Hybrid
+
+on:
+  push:
+    branches: [hybrid-apk-unpacked]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Reconstruct libgtav
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd XHYN_V017_UNPACKED
+          cat libgtav_parts/libgtav.so.part.* > lib/arm64-v8a/libgtav.so
+          test "$(stat -c%s lib/arm64-v8a/libgtav.so)" = "154327768"
+          sha256sum lib/arm64-v8a/libgtav.so > HYBRID-libgtav.sha256
+
+      - name: Verify hybrid native stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd XHYN_V017_UNPACKED
+          grep -q '^interop_native=true' assets/default-android.ini
+          test -s lib/arm64-v8a/libgtav.so
+          test -s lib/arm64-v8a/libgtav_vulkan.so
+          test -s lib/arm64-v8a/libgtavvk.so
+          test -s lib/arm64-v8a/libdxvk_d3d11.so
+          test -s lib/arm64-v8a/libdxvk_dxgi.so
+
+      - name: Native hybrid report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          for f in XHYN_V017_UNPACKED/lib/arm64-v8a/{libgtav.so,libgtav_vulkan.so,libgtavvk.so,libdxvk_d3d11.so,libdxvk_dxgi.so}; do
+            b="$(basename "$f")"
+            {
+              echo "===== $b ====="
+              file "$f"
+              sha256sum "$f"
+              readelf -h "$f" || true
+              echo "--- NEEDED/DYNAMIC ---"
+              readelf -d "$f" || true
+              echo "--- HYBRID STRINGS ---"
+              strings -a "$f" | grep -Ei 'GTAV_VULKAN|gtav_android|swapchain|surface|interop|skin|luminance|refract|present|vulkan' | head -n 500 || true
+            } > "hybrid-report/$b.txt"
+          done
+
+      - name: Repack APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf apkstage out
+          mkdir -p apkstage out
+          cp -a XHYN_V017_UNPACKED/. apkstage/
+          rm -rf apkstage/libgtav_parts
+          rm -rf apkstage/META-INF
+          rm -f apkstage/HYBRID-libgtav.sha256
+          (
+            cd apkstage
+            zip -q -r -0 ../out/XHYN_V0.17_HYBRID_UNSIGNED.apk . -x 'resources.arsc' '*.dex'
+          )
+          # Re-add compressible assets/classes normally; duplicate names replace stored entries.
+          (
+            cd apkstage
+            zip -q -r -9 ../out/XHYN_V0.17_HYBRID_UNSIGNED.apk .               -x 'lib/*' 'lib/*/*'
+          )
+
+      - name: Align and sign
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BT/zipalign" -f -p 4 out/XHYN_V0.17_HYBRID_UNSIGNED.apk out/XHYN_V0.17_HYBRID_ALIGNED.apk
+          keytool -genkeypair -noprompt             -keystore out/hybrid.keystore -storepass android -keypass android             -alias hybrid -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=XHYN Hybrid,O=Android,C=DE"
+          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_SIGNED.apk out/XHYN_V0.17_HYBRID_ALIGNED.apk
+          "$BT/apksigner" verify --verbose out/XHYN_V0.17_HYBRID_SIGNED.apk
+          sha256sum out/XHYN_V0.17_HYBRID_SIGNED.apk > out/XHYN_V0.17_HYBRID_SIGNED.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V0.17-HYBRID
+          path: |
+            out/XHYN_V0.17_HYBRID_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_SIGNED.apk.sha256
+            hybrid-report/
+          compression-level: 0
