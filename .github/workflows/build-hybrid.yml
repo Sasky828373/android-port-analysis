@@ -912,48 +912,16 @@ jobs:
           PY
           test -s hybrid-report/rage-d3d11-migration-targets.txt
 
-      - name: Force engine native Vulkan startup
+      - name: Keep verified bootable engine startup
         shell: bash
         run: |
           set -euo pipefail
+          # Do not force the unverified native selector here. This libgtav does not
+          # export grVulkanNativeDeviceAdapter::IsRequested in its symbol table, and
+          # the previous hard-coded address froze startup. Keep the engine bytes intact.
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
-          python3 - <<'PY'
-          from pathlib import Path
-          import re, subprocess
-
-          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
-          # Resolve the symbol from THIS reconstructed ELF. The previous hard-coded
-          # 0x618c270 was inside another routine (mov w1,wzr; mov w3,wzr), which
-          # explains the startup freeze.
-          nm=subprocess.check_output(["nm","-C","-n",lib],text=True,errors="replace")
-          hits=[]
-          for line in nm.splitlines():
-              if "grVulkanNativeDeviceAdapter::IsRequested" in line:
-                  m=re.match(r"^([0-9a-fA-F]+)\\s+([A-Za-z])\\s+(.+)$",line)
-                  if m: hits.append((int(m.group(1),16),m.group(3)))
-          if len(hits)!=1:
-              raise SystemExit(f"expected exactly one IsRequested symbol, got {hits}")
-          va,name=hits[0]
-          b=bytearray(Path(lib).read_bytes())
-          off=va-0x4000
-          if off<0 or off+8>len(b):
-              raise SystemExit(f"resolved IsRequested outside ELF: {va:#x}")
-          old=bytes(b[off:off+8])
-          patch=bytes.fromhex("20008052c0035fd6") # mov w0,#1 ; ret
-          if old in (b"\\0"*8, bytes.fromhex("e1031f2ae3031f2a")):
-              raise SystemExit(f"resolved symbol looks invalid/mid-function: VA={va:#x} bytes={old.hex()}")
-          b[off:off+8]=patch
-          Path(lib).write_bytes(b)
-          print(f"native selector resolved from ELF: {name} VA={va:#x} {old.hex()} -> {patch.hex()}")
-          Path("/tmp/native-selector-va").write_text(hex(va))
-          PY
-          python3 - <<'PY'
-          from pathlib import Path
-          va=int(Path("/tmp/native-selector-va").read_text(),16)
-          b=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so").read_bytes()
-          assert b[va-0x4000:va-0x4000+8] == bytes.fromhex("20008052c0035fd6")
-          print("native Vulkan selector exact-symbol gate: OK")
-          PY
+          test -s "$LIB"
+          echo "engine startup left intact; native renderer will attach only after runtime exists"
 
       - name: Build native Vulkan compatibility renderer
         shell: bash
