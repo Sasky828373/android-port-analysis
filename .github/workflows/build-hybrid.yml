@@ -916,44 +916,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
           python3 - <<'PY'
           from pathlib import Path
-          import struct
+          import re, subprocess
 
-          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
-          b=bytearray(p.read_bytes())
-          BASE_DELTA=0x4000
-
-          # grVulkanNativeDeviceAdapter::IsRequested() is the engine's own renderer selector.
-          # Force only this selector to true. Do not trampoline grVulkanRuntime::Init(): its
-          # entry contains PC-relative AArch64 instructions.
-          va=0x618c270
-          off=va-BASE_DELTA
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          # Resolve the symbol from THIS reconstructed ELF. The previous hard-coded
+          # 0x618c270 was inside another routine (mov w1,wzr; mov w3,wzr), which
+          # explains the startup freeze.
+          nm=subprocess.check_output(["nm","-C","-n",lib],text=True,errors="replace")
+          hits=[]
+          for line in nm.splitlines():
+              if "grVulkanNativeDeviceAdapter::IsRequested" in line:
+                  m=re.match(r"^([0-9a-fA-F]+)\\s+([A-Za-z])\\s+(.+)$",line)
+                  if m: hits.append((int(m.group(1),16),m.group(3)))
+          if len(hits)!=1:
+              raise SystemExit(f"expected exactly one IsRequested symbol, got {hits}")
+          va,name=hits[0]
+          b=bytearray(Path(lib).read_bytes())
+          off=va-0x4000
+          if off<0 or off+8>len(b):
+              raise SystemExit(f"resolved IsRequested outside ELF: {va:#x}")
           old=bytes(b[off:off+8])
-          # mov w0,#1 ; ret
-          patch=bytes.fromhex("20008052c0035fd6")
-          # Exact-build safety: reject blank/already-corrupt locations. Re-running is OK.
-          if old != patch:
-              first=int.from_bytes(old[:4],"little")
-              # Exact bytes observed for this libgtav build:
-              #   2a1f03e1  mov w1, wzr
-              #   2a1f03e3  mov w3, wzr
-              # This is a tiny leaf selector, not a stack-frame prologue.
-              expected=bytes.fromhex("e1031f2ae3031f2a")
-              if old != expected:
-                  raise SystemExit(f"IsRequested unexpected bytes {old.hex()} at {off:#x}")
-              b[off:off+8]=patch
-          p.write_bytes(b)
-          print(f"native Vulkan selector forced at VA={va:#x}: {old.hex()} -> {patch.hex()}")
+          patch=bytes.fromhex("20008052c0035fd6") # mov w0,#1 ; ret
+          if old in (b"\\0"*8, bytes.fromhex("e1031f2ae3031f2a")):
+              raise SystemExit(f"resolved symbol looks invalid/mid-function: VA={va:#x} bytes={old.hex()}")
+          b[off:off+8]=patch
+          Path(lib).write_bytes(b)
+          print(f"native selector resolved from ELF: {name} VA={va:#x} {old.hex()} -> {patch.hex()}")
+          Path("/tmp/native-selector-va").write_text(hex(va))
           PY
-
-          # Gate the exact selector patch before compiling/packaging anything else.
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so").read_bytes()
-          off=0x618c270-0x4000
-          assert p[off:off+8] == bytes.fromhex("20008052c0035fd6")
-          print("native Vulkan startup gate: OK")
+          va=int(Path("/tmp/native-selector-va").read_text(),16)
+          b=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so").read_bytes()
+          assert b[va-0x4000:va-0x4000+8] == bytes.fromhex("20008052c0035fd6")
+          print("native Vulkan selector exact-symbol gate: OK")
           PY
 
       - name: Build native Vulkan compatibility renderer
