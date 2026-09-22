@@ -34,6 +34,11 @@ struct RageMirrorState {
  void* vs{}; void* ps{}; void* cs{};
  uint32_t viewportCount{}; uint8_t viewports[256]{};
  uint32_t scissorCount{}; uint8_t scissors[256]{};
+ void* vsCB[16]{}; void* psCB[16]{}; void* csCB[16]{};
+ void* vsSRV[32]{}; void* psSRV[32]{}; void* csSRV[32]{};
+ void* vsSampler[16]{}; void* psSampler[16]{}; void* csSampler[16]{};
+ void* csUAV[16]{};
+ void* rtv[8]{}; uint32_t rtvCount{}; void* dsv{};
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
@@ -167,6 +172,20 @@ static void hookPSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std:
 static void hookCSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).cs=sh;}if(origCSSetShader)origCSSetShader(ctx,sh,ci,n);}
 static void hookRSSetViewports(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.viewportCount=n>4?4:n;if(p)std::memcpy(s.viewports,p,s.viewportCount*24);}if(origRSSetViewports)origRSSetViewports(ctx,n,p);}
 static void hookRSSetScissorRects(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.scissorCount=n>16?16:n;if(p)std::memcpy(s.scissors,p,s.scissorCount*16);}if(origRSSetScissorRects)origRSSetScissorRects(ctx,n,p);}
+using OrigSetObjects=void(*)(void*,uint32_t,uint32_t,void* const*);
+using OrigSetUAV=void(*)(void*,uint32_t,uint32_t,void* const*,const uint32_t*);
+using OrigOMRT=void(*)(void*,uint32_t,void* const*,void*);
+static OrigSetObjects oVSCB{},oPSCB{},oCSCB{},oVSSRV{},oPSSRV{},oCSSRV{},oVSSamp{},oPSSamp{},oCSSamp{};
+static OrigSetUAV oCSUAV{}; static OrigOMRT oOMRT{};
+static void mirrorObjs(void** dst,uint32_t cap,uint32_t first,uint32_t n,void* const* src){for(uint32_t i=0;i<n&&first+i<cap;i++)dst[first+i]=src?src[i]:nullptr;}
+#define OBJHOOK(name,field,cap,orig) static void name(void* c,uint32_t f,uint32_t n,void* const* v){{std::lock_guard<std::mutex> l(mirrorMutex);mirrorObjs(mirror(c).field,cap,f,n,v);}if(orig)orig(c,f,n,v);}
+OBJHOOK(hVSCB,vsCB,16,oVSCB) OBJHOOK(hPSCB,psCB,16,oPSCB) OBJHOOK(hCSCB,csCB,16,oCSCB)
+OBJHOOK(hVSSRV,vsSRV,32,oVSSRV) OBJHOOK(hPSSRV,psSRV,32,oPSSRV) OBJHOOK(hCSSRV,csSRV,32,oCSSRV)
+OBJHOOK(hVSSamp,vsSampler,16,oVSSamp) OBJHOOK(hPSSamp,psSampler,16,oPSSamp) OBJHOOK(hCSSamp,csSampler,16,oCSSamp)
+#undef OBJHOOK
+static void hCSUAV(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* counts){{std::lock_guard<std::mutex> l(mirrorMutex);mirrorObjs(mirror(c).csUAV,16,f,n,v);}if(oCSUAV)oCSUAV(c,f,n,v,counts);}
+static void hOMRT(void* c,uint32_t n,void* const* r,void* d){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;}if(oOMRT)oOMRT(c,n,r,d);}
+
 
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
 static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
@@ -210,7 +229,12 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  bool scs=install(0x61d3134,(void*)hookCSSetShader,(void**)&origCSSetShader);
  bool svp=install(0x61d2e0c,(void*)hookRSSetViewports,(void**)&origRSSetViewports);
  bool ssr=install(0x61d2e1c,(void*)hookRSSetScissorRects,(void**)&origRSSetScissorRects);
- bool ok=x&&y&&z&&sil&&svb&&sib&&stop&&svs&&sps&&scs&&svp&&ssr; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
+ bool extra=true;
+ extra&=install(0x61d23ac,(void*)hVSCB,(void**)&oVSCB); extra&=install(0x61d257c,(void*)hPSCB,(void**)&oPSCB); extra&=install(0x61d3154,(void*)hCSCB,(void**)&oCSCB);
+ extra&=install(0x61d29ac,(void*)hVSSRV,(void**)&oVSSRV); extra&=install(0x61d2484,(void*)hPSSRV,(void**)&oPSSRV); extra&=install(0x61d3114,(void*)hCSSRV,(void**)&oCSSRV);
+ extra&=install(0x61d2a60,(void*)hVSSamp,(void**)&oVSSamp); extra&=install(0x61d24a4,(void*)hPSSamp,(void**)&oPSSamp); extra&=install(0x61d3144,(void*)hCSSamp,(void**)&oCSSamp);
+ extra&=install(0x61d3124,(void*)hCSUAV,(void**)&oCSUAV); extra&=install(0x61d2b48,(void*)hOMRT,(void**)&oOMRT);
+ bool ok=x&&y&&z&&sil&&svb&&sib&&stop&&svs&&sps&&scs&&svp&&ssr&&extra; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
