@@ -404,9 +404,10 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
  uint64_t vs=resolveMapped(m.vs,NR_VS), ps=resolveMapped(m.ps,NR_PS);
  uint64_t rt=resolveMapped(m.rtv[0],NR_RTV);
- uint64_t pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
- uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
- uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ uint64_t stateKey=graphicsStateKey(m);
+ uint64_t pipe=gtav_native_renderer_resolve_resource(stateKey,NR_GRAPHICS_PIPELINE);
+ uint64_t layout=gtav_native_renderer_resolve_resource(stateKey,NR_PIPELINE_LAYOUT);
+ uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
  // Do not enter native draw until every GPU object required by that draw has a real Vulkan mapping.
  // This deliberately prevents raw RAGE/D3D pointers from ever reaching vkCmd*.
  if(!vb || !vs || !ps || !rt || !pipe || !layout || !desc) return false;
