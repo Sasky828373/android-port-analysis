@@ -1004,6 +1004,35 @@ jobs:
           "$OBJDUMP" -d --demangle --start-address=0x6cbeb40 --stop-address=0x6cbec00 "$LIB" > hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
           readelf -W -r "$LIB" | grep -Ei 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory|8a74050|8a74058|6f31998|6f319a8' > hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt || true
 
+      - name: Resolve native grcDevice candidates and exact D3D out objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+
+          {
+            echo "=== exact D3D11CreateDeviceAndSwapChain call reconstruction ==="
+            echo "GOT 0x6f319a8 -> rage::g_D3D11CreateDeviceAndSwapChain @ 0x8a74050"
+            echo "InitClass loads x25 from GOT 0x6f319a8; [x25] is the function pointer used by blr x8 @ 0x615843c"
+            echo "stack args at call: [sp+0]=x24 ppSwapChain, [sp+8]=x23 ppDevice, [sp+16]=x10 pFeatureLevel, [sp+24]=x9 ppImmediateContext"
+            echo "x24 comes from GOT 0x6f31a58 -> rage::grcDevice::sm_pSwapChain @ 0x8a735d8"
+            echo "x23 = 0x8aa7860; x9 = 0x8aa7868"
+          } > hybrid-report/grc-device-bootstrap/d3d-call-reconstruction.txt
+
+          "$NM" -n -C "$LIB" | awk '
+            BEGIN { lo=strtonum("0x8aa7600"); hi=strtonum("0x8aa7a80") }
+            /^[0-9a-fA-F]+ / {
+              a=strtonum("0x"$1);
+              if (a>=lo && a<=hi) print
+            }' > hybrid-report/grc-device-bootstrap/d3d-out-object-symbols.txt || true
+
+          "$NM" -n -C "$LIB" | grep -Ei 'grcDevice.*(Vulkan|Vk)|grVulkan.*Device|vtable for .*Vulkan|Vulkan.*vtable|grVulkanNativeDeviceAdapter|grVulkanRuntime|AllocateSwapChain|GetCurrentInner'             > hybrid-report/grc-device-bootstrap/native-device-candidates.txt || true
+
+          "$OBJDUMP" -d --demangle --start-address=0x6158120 --stop-address=0x61584b0 "$LIB"             > hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
+
       - name: Upload tiny grcDevice bootstrap evidence
         uses: actions/upload-artifact@v4
         with:
