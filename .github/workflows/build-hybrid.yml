@@ -767,9 +767,15 @@ jobs:
           cp -f native-renderer/build/libgtav_native_renderer.so XHYN_V017_UNPACKED/lib/arm64-v8a/
           sudo apt-get install -y patchelf
           BRIDGE=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          GTAV=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
           patchelf --add-needed libgtav_native_renderer.so "$BRIDGE"
           patchelf --print-needed "$BRIDGE" | grep -Fx libgtav_native_renderer.so
           readelf -d "$BRIDGE" | grep -F 'libgtav_native_renderer.so'
+          # libgtav_vulkan is not guaranteed to load on every launcher path.
+          # Make the renderer a direct dependency of the always-loaded game library too.
+          patchelf --add-needed libgtav_native_renderer.so "$GTAV"
+          patchelf --print-needed "$GTAV" | grep -Fx libgtav_native_renderer.so
+          readelf -d "$GTAV" | grep -F 'libgtav_native_renderer.so'
           file XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so | tee hybrid-report/native-renderer-build.txt
           readelf -Ws XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so | \
             grep -E 'gtav_native_renderer_(attach|get_dispatch|register_resource|draw|draw_indexed|dispatch|submit)' \
@@ -863,6 +869,7 @@ jobs:
           unzip -t out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk >/dev/null
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav.so | strings | grep -F 'libgtav_native_renderer.so'
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
