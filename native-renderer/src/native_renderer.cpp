@@ -140,11 +140,54 @@ extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(cons
   *out=&gCompatFactory;
   return 0;
 }
+namespace {
+struct CompatD3D11Object { void** vtbl; };
+static CompatD3D11Object gCompatD3DDevice{};
+static CompatD3D11Object gCompatD3DContext{};
+static void* gD3DDeviceVtable[64]{};
+static void* gD3DContextVtable[128]{};
+
+static int32_t compatD3DQueryInterface(void* self,const void*,void** out) {
+  gtavdiag::checkpoint("compat-d3d11-query-interface");
+  if(!out) return (int32_t)0x80004003u;
+  *out=self; return 0;
+}
+static uint32_t compatD3DAddRef(void*) { return 2; }
+static uint32_t compatD3DRelease(void*) { return 1; }
+static uint32_t compatD3DGetFeatureLevel(void*) {
+  gtavdiag::checkpoint("compat-d3d11-get-feature-level");
+  return 0xb000u;
+}
+static int32_t compatD3DUnsupported(void*) {
+  gtavdiag::checkpoint("compat-d3d11-unsupported-method");
+  return (int32_t)0x80004001u;
+}
+static void initCompatD3D11() {
+  static bool once=false; if(once)return; once=true;
+  for(void*& p:gD3DDeviceVtable) p=(void*)compatD3DUnsupported;
+  for(void*& p:gD3DContextVtable) p=(void*)compatD3DUnsupported;
+  gD3DDeviceVtable[0]=(void*)compatD3DQueryInterface;
+  gD3DDeviceVtable[1]=(void*)compatD3DAddRef;
+  gD3DDeviceVtable[2]=(void*)compatD3DRelease;
+  // ID3D11Device::GetFeatureLevel is slot 37 / byte offset 0x128.
+  // libgtav's grcDevice::GetDXFeatureLevelSupported consumes this exact slot.
+  gD3DDeviceVtable[37]=(void*)compatD3DGetFeatureLevel;
+  gD3DContextVtable[0]=(void*)compatD3DQueryInterface;
+  gD3DContextVtable[1]=(void*)compatD3DAddRef;
+  gD3DContextVtable[2]=(void*)compatD3DRelease;
+  gCompatD3DDevice.vtbl=gD3DDeviceVtable;
+  gCompatD3DContext.vtbl=gD3DContextVtable;
+}
+}
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,
     void** device,uint32_t* featureLevel,void** context) {
-  if(device)*device=nullptr; if(featureLevel)*featureLevel=0; if(context)*context=nullptr;
-  return legacyD3DLeak("D3D11CreateDevice");
+  gtavdiag::checkpoint("compat-d3d11-create-device");
+  initCompatD3D11();
+  if(device)*device=&gCompatD3DDevice;
+  if(featureLevel)*featureLevel=0xb000u;
+  if(context)*context=&gCompatD3DContext;
+  return 0;
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSwapChain(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,const void*,
