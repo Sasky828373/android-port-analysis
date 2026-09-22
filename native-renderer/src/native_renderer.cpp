@@ -20,7 +20,43 @@ bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out) {
 extern "C" __attribute__((visibility("default")))
 void gtav_native_renderer_bind_pipeline(VkCommandBuffer cmd,VkPipelineBindPoint point,VkPipeline pipeline) {
  if(cmd&&pipeline) vkCmdBindPipeline(cmd,point,pipeline);
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_begin_rendering(VkCommandBuffer cmd,VkRect2D area,uint32_t colorCount,const VkRenderingAttachmentInfo* colors,const VkRenderingAttachmentInfo* depth) {
+ if(!cmd) return; VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO}; ri.renderArea=area; ri.layerCount=1; ri.colorAttachmentCount=colorCount; ri.pColorAttachments=colors; ri.pDepthAttachment=depth; vkCmdBeginRendering(cmd,&ri);
 }
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_end_rendering(VkCommandBuffer cmd){if(cmd)vkCmdEndRendering(cmd);}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_copy_buffer(VkCommandBuffer cmd,VkBuffer src,VkBuffer dst,VkDeviceSize size) {
+ if(!cmd||!src||!dst||!size)return; VkBufferCopy r{0,0,size}; vkCmdCopyBuffer(cmd,src,dst,1,&r);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_copy_image(VkCommandBuffer cmd,VkImage src,VkImageLayout sl,VkImage dst,VkImageLayout dl,const VkImageCopy* regions,uint32_t count) {
+ if(cmd&&src&&dst&&regions&&count)vkCmdCopyImage(cmd,src,sl,dst,dl,count,regions);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_blit_image(VkCommandBuffer cmd,VkImage src,VkImageLayout sl,VkImage dst,VkImageLayout dl,const VkImageBlit* regions,uint32_t count,VkFilter filter) {
+ if(cmd&&src&&dst&&regions&&count)vkCmdBlitImage(cmd,src,sl,dst,dl,count,regions,filter);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_clear_color(VkCommandBuffer cmd,VkImage image,VkImageLayout layout,const VkClearColorValue* value,const VkImageSubresourceRange* range) {
+ if(cmd&&image&&value&&range)vkCmdClearColorImage(cmd,image,layout,value,1,range);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_clear_depth(VkCommandBuffer cmd,VkImage image,VkImageLayout layout,const VkClearDepthStencilValue* value,const VkImageSubresourceRange* range) {
+ if(cmd&&image&&value&&range)vkCmdClearDepthStencilImage(cmd,image,layout,value,1,range);
+}
+extern "C" __attribute__((visibility("default")))
+VkResult gtav_native_renderer_create_shader(const uint32_t* spirv,size_t bytes,VkShaderModule* out) {
+ if(!g.device||!spirv||!bytes||!out)return VK_ERROR_INITIALIZATION_FAILED; VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=bytes;ci.pCode=spirv;return vkCreateShaderModule(g.device,&ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default")))
+void gtav_native_renderer_barrier2(VkCommandBuffer cmd,const VkDependencyInfo* info){if(cmd&&info)vkCmdPipelineBarrier2(cmd,info);}
+extern "C" __attribute__((visibility("default")))
+VkResult gtav_native_renderer_submit(VkCommandBuffer cmd,VkFence fence){
+ if(!g.queue||!cmd)return VK_ERROR_INITIALIZATION_FAILED; VkCommandBufferSubmitInfo cb{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};cb.commandBuffer=cmd;VkSubmitInfo2 si{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};si.commandBufferInfoCount=1;si.pCommandBufferInfos=&cb;return vkQueueSubmit2(g.queue,1,&si,fence);
+}
+}
+
 extern "C" __attribute__((visibility("default")))
 void gtav_native_renderer_bind_descriptors(VkCommandBuffer cmd,VkPipelineBindPoint point,VkPipelineLayout layout,
  uint32_t firstSet,uint32_t count,const VkDescriptorSet* sets) {
