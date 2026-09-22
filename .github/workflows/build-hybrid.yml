@@ -948,8 +948,11 @@ jobs:
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
 
-          # DXVK-free final package: remove translation runtime and its config.
-          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so'             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' || true
+          # DXVK-free final package: remove DXVK from both native libs and every asset path.
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
+            'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
+            'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
+            'assets/*dxvk*' 'assets/dxvk/*' 'assets/dxvk/**' || true
           (
             cd patchstage
             zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk               lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
@@ -976,7 +979,7 @@ jobs:
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
           ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
-          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\\.so|assets/dxvk\\.conf'
+          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -Ei '(^|/)[^/]*dxvk[^/]*($|/)|libdxvk_.*\\.so'
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
