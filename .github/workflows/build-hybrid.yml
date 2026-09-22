@@ -137,7 +137,8 @@ jobs:
           mkdir -p patchstage/assets patchstage/lib/arm64-v8a
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
           cp XHYN_V017_UNPACKED/assets/dxvk.conf patchstage/assets/
-          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/\n          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so patchstage/lib/arm64-v8a/
           if [ -f XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so ]; then
             cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so patchstage/lib/arm64-v8a/
