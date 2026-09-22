@@ -1043,31 +1043,9 @@ jobs:
           patchelf --remove-needed libdxvk_d3d10core.so patchstage/lib/arm64-v8a/libgtav.so || true
           patchelf --add-needed libgtav_native_renderer.so patchstage/lib/arm64-v8a/libgtav.so
 
-          # libgtav.so still has undefined D3D/DXGI symbols after the DXVK DT_NEEDED
-          # entries are removed. Android's linker resolves undefined symbols through the
-          # dependency graph, but --add-needed appends the renderer after the existing
-          # libraries. Promote it to the first DT_NEEDED entry so our exported
-          # CreateDXGIFactory/D3D11CreateDevice* bootstrap symbols are actually visible
-          # when libgtav is relocated. This fixes package-level linkage rather than only
-          # loading the renderer indirectly through libgtav_vulkan.so.
-          python3 - <<'PY'
-          import subprocess
-          lib="patchstage/lib/arm64-v8a/libgtav.so"
-          needed=subprocess.check_output(["patchelf","--print-needed",lib],text=True).splitlines()
-          if "libgtav_native_renderer.so" not in needed:
-              raise SystemExit("native renderer DT_NEEDED missing")
-          # Rebuild the DT_NEEDED order deterministically, renderer first.
-          for dep in needed:
-              subprocess.run(["patchelf","--remove-needed",dep,lib],check=True)
-          ordered=["libgtav_native_renderer.so"]+[x for x in needed if x!="libgtav_native_renderer.so"]
-          # patchelf appends in call order on this runner.
-          for dep in ordered:
-              subprocess.run(["patchelf","--add-needed",dep,lib],check=True)
-          final=subprocess.check_output(["patchelf","--print-needed",lib],text=True).splitlines()
-          if not final or final[0]!="libgtav_native_renderer.so":
-              raise SystemExit("native renderer is not first DT_NEEDED: "+repr(final))
-          print("libgtav DT_NEEDED order:", final)
-          PY
+          # Keep the renderer as a direct dependency. Android resolves undefined symbols
+          # across the dependency graph; DT_NEEDED order is not a supported patchelf
+          # priority mechanism, so do not rewrite every dependency just to reorder it.
           patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so > /tmp/libgtav-needed.txt
           if grep -q '^libdxvk_' /tmp/libgtav-needed.txt; then echo "DXVK dependency remains" >&2; exit 1; fi
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' 'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' 'assets/*dxvk*' 'assets/dxvk/*' || true
