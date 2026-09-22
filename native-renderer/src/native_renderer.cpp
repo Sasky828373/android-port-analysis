@@ -370,14 +370,8 @@ static void captureMappedState(void* ctx,const RageMirrorState& m){
  for(unsigned i=0;i<16;i++){reg("MAP-VSCB",m.vsCB[i],NR_CBUFFER);reg("MAP-PSCB",m.psCB[i],NR_CBUFFER);reg("MAP-CSCB",m.csCB[i],NR_CBUFFER);}
  for(unsigned i=0;i<32;i++){reg("MAP-VSSRV",m.vsSRV[i],NR_SRV);reg("MAP-PSSRV",m.psSRV[i],NR_SRV);reg("MAP-CSSRV",m.csSRV[i],NR_SRV);}
  for(unsigned i=0;i<16;i++){reg("MAP-VSSAMP",m.vsSampler[i],NR_SAMPLER);reg("MAP-PSSAMP",m.psSampler[i],NR_SAMPLER);reg("MAP-CSSAMP",m.csSampler[i],NR_SAMPLER);reg("MAP-CSUAV",m.csUAV[i],NR_UAV);}
- uint64_t stateKey=graphicsStateKey(m);
- uint64_t pipe=gtav_native_renderer_resolve_resource(stateKey,NR_GRAPHICS_PIPELINE);
- uint64_t layout=gtav_native_renderer_resolve_resource(stateKey,NR_PIPELINE_LAYOUT);
- uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
- // Compatibility fallback for already-registered context keyed state.
- if(!pipe)pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
- if(!layout)layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
- if(!desc)desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ uint64_t pipe=0,layout=0,desc=0;
+ if(!resolveCachedGraphicsState(ctx,m,pipe,layout,desc)) return false;
  if(pipe)capture("MAP-PIPE",ctx,pipe); if(layout)capture("MAP-LAYOUT",ctx,layout); if(desc)capture("MAP-DESC",ctx,desc);
 }
 
@@ -386,6 +380,31 @@ static bool mirroredStateComplete(void* ctx){
  auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false;
  const auto& m=it->second;
  return m.inputLayout && m.vertexBuffers[0] && m.vs && m.ps && m.rtvCount>0 && m.rtv[0];
+}
+static bool resolveCachedGraphicsState(void* ctx,const RageMirrorState& m,uint64_t& pipe,uint64_t& layout,uint64_t& desc){
+ uint64_t key=graphicsStateKey(m);
+ {
+   std::lock_guard<std::mutex> l(pipelineCacheMutex);
+   auto it=pipelineCache.find(key);
+   if(it!=pipelineCache.end()){
+     pipe=(uint64_t)(uintptr_t)it->second.pipeline;
+     layout=(uint64_t)(uintptr_t)it->second.layout;
+     desc=(uint64_t)(uintptr_t)it->second.descriptor;
+     if(pipe&&layout&&desc)return true;
+   }
+ }
+ pipe=gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE);
+ layout=gtav_native_renderer_resolve_resource(key,NR_PIPELINE_LAYOUT);
+ desc=gtav_native_renderer_resolve_resource(key,NR_DESCRIPTOR_SET);
+ if(!pipe)pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
+ if(!layout)layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
+ if(!desc)desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ if(!(pipe&&layout&&desc))return false;
+ {
+   std::lock_guard<std::mutex> l(pipelineCacheMutex);
+   pipelineCache[key]={(VkPipeline)(uintptr_t)pipe,(VkPipelineLayout)(uintptr_t)layout,(VkDescriptorSet)(uintptr_t)desc};
+ }
+ return true;
 }
 static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!s || !g.device || !g.queue) return false;
@@ -469,6 +488,6 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){if(!g.device)attachFromGtavRuntime();return g.device&&g.queue&&g.commands&&g.descriptors;}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){if(!g.device)return;vkDeviceWaitIdle(g.device);if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){if(!g.device)return;vkDeviceWaitIdle(g.device);{std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();}if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;}
 extern "C" __attribute__((visibility("default"))) const GtavNativeDispatch* gtav_native_renderer_get_dispatch(){static const GtavNativeDispatch d{2,gtav_native_renderer_ready,gtav_native_renderer_begin_frame,gtav_native_renderer_register_resource,gtav_native_renderer_resolve_resource,gtav_native_renderer_unregister_resource,gtav_native_renderer_bind_vertex_buffer,gtav_native_renderer_bind_index_buffer,gtav_native_renderer_set_viewport,gtav_native_renderer_set_scissor,gtav_native_renderer_draw,gtav_native_renderer_draw_indexed,gtav_native_renderer_dispatch,gtav_native_renderer_set_draw_state_provider,gtav_native_renderer_rage_draw,gtav_native_renderer_rage_draw_indexed,gtav_native_renderer_rage_dispatch};return &d;}
 }
