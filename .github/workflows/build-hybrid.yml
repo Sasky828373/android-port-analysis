@@ -183,6 +183,23 @@ jobs:
           Path("hybrid-report/gold-vulkan-dispatch-audit.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Disassemble GOLD Vulkan dispatch call sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+          for f in XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so; do
+            b="$(basename "$f")"
+            aarch64-linux-gnu-objdump -d -C "$f" > "hybrid-report/$b.disasm.txt"
+            strings -a -t x "$f" | grep -Ei 'Failed to wait for WSI fence|Failed to wait for semaphore|Frame pace:|vkWaitForFences|vkWaitSemaphores|vkQueueSubmit|vkQueuePresentKHR|vkAcquireNextImageKHR|vkUpdateDescriptorSets|vkUpdateDescriptorSetWithTemplate' > "hybrid-report/$b.sync-string-offsets.txt" || true
+          done
+          {
+            echo "GOLD uses an internal Vulkan dispatch table; empty ELF imports/relocations are expected."
+            echo "The disassembly and string offsets are the inputs for mapping indirect BLR calls to Presenter/submit/wait code."
+          } > hybrid-report/gold-dispatch-note.txt
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
