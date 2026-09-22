@@ -374,10 +374,7 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);return it->second;}}
  return view;
 }
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_image_resource(uint64_t rage,uint32_t kind){
- gtav_native_renderer_unregister_resource(rage,kind);
- if(kind==NR_RTV||kind==NR_DSV||kind==NR_SRV||kind==NR_UAV)invalidateImageResource(rage);
-}
+
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
