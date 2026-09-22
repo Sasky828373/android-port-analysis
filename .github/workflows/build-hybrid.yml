@@ -1097,7 +1097,9 @@ jobs:
                   o=e_phoff+i*e_phentsize
                   p_type=struct.unpack_from("<I",data,o)[0]
                   if p_type != 1: continue
-                  p_offset,p_vaddr,p_filesz=struct.unpack_from("<QQQ",data,o+0x08)
+                  p_offset=struct.unpack_from("<Q",data,o+0x08)[0]
+                  p_vaddr=struct.unpack_from("<Q",data,o+0x10)[0]
+                  p_filesz=struct.unpack_from("<Q",data,o+0x20)[0]
                   if p_vaddr <= va < p_vaddr+p_filesz:
                       return p_offset+(va-p_vaddr)
               raise RuntimeError(hex(va))
