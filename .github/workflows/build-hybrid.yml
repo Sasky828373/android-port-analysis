@@ -621,6 +621,27 @@ jobs:
           )
           PY
 
+      - name: Extract native Vulkan runtime accessors
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          nm -C -n "$LIB" | grep -E 'rage::grVulkanRuntime::(GetDevice|GetQueue|GetQueueFamilyIndex|GetInstance|GetPhysicalDevice)\(' | tee hybrid-report/gr-vulkan-runtime-accessors.txt
+          python3 - <<'PY'
+          import re, pathlib
+          p=pathlib.Path("hybrid-report/gr-vulkan-runtime-accessors.txt")
+          s=p.read_text()
+          wanted=["GetDevice","GetQueue","GetQueueFamilyIndex","GetInstance","GetPhysicalDevice"]
+          out=[]
+          for n in wanted:
+            m=re.search(r"^([0-9a-fA-F]+)\s+\S+\s+.*grVulkanRuntime::"+n+r"\(",s,re.M)
+            if not m: raise SystemExit("Missing grVulkanRuntime::"+n)
+            out.append(f"{n}=0x{int(m.group(1),16):x}")
+          pathlib.Path("hybrid-report/gr-vulkan-runtime-va.txt").write_text("\n".join(out)+"\n")
+          print("\n".join(out))
+          PY
+
       - name: Extract RAGE D3D11 migration targets
         shell: bash
         run: |
