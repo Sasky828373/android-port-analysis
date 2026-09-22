@@ -115,6 +115,40 @@ jobs:
             done
           } > hybrid-report/native-efficiency-audit.txt
 
+          # Locate actual AArch64 call sites that reference the Vulkan wait/submit symbols.
+          # Report only: no synchronization semantics are changed until a caller is verified.
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          libs = [
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"),
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so"),
+          ]
+          needles = ("vkWaitForFences","vkWaitSemaphores","vkQueueSubmit","vkQueuePresentKHR",
+                     "vkAcquireNextImageKHR","vkUpdateDescriptorSets","vkUpdateDescriptorSetWithTemplate")
+          out=[]
+          for lib in libs:
+            out.append(f"=== {lib.name} dynamic Vulkan imports ===")
+            try:
+              syms=subprocess.check_output(["readelf","-Ws",str(lib)],text=True,errors="replace")
+            except subprocess.CalledProcessError as e:
+              syms=e.output or ""
+            for line in syms.splitlines():
+              if any(n in line for n in needles):
+                out.append(line)
+            out.append("")
+            out.append("=== relocation references ===")
+            try:
+              rel=subprocess.check_output(["readelf","-rW",str(lib)],text=True,errors="replace")
+            except subprocess.CalledProcessError as e:
+              rel=e.output or ""
+            for line in rel.splitlines():
+              if any(n in line for n in needles):
+                out.append(line)
+            out.append("")
+          Path("hybrid-report/vulkan-sync-relocations.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
