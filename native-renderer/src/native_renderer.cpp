@@ -66,8 +66,15 @@ static int32_t legacyD3DLeak(const char* name) {
   __android_log_print(ANDROID_LOG_FATAL,"GTAV-NATIVE","FATAL legacy graphics bootstrap reached: %s",name);
   __builtin_trap();
 }
+// CreateDXGIFactory is reached before D3D11CreateDeviceAndSwapChain in the real
+// engine bootstrap. Do not trap here: InitClass uses the factory only as an
+// optional adapter-enumeration path and can fall back to the default adapter.
+// Returning a normal failure with a null output lets that fallback execute and
+// moves diagnostics to the actual device-creation boundary.
 extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
-  if(out)*out=nullptr; return legacyD3DLeak("CreateDXGIFactory");
+  if(out)*out=nullptr;
+  gtavdiag::checkpoint("dxgi-factory-bypassed");
+  return (int32_t)0x80004005u; // E_FAIL
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,
