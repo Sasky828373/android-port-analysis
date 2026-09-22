@@ -372,6 +372,46 @@ jobs:
           wc -c "$OUT/wrappers.disasm.txt"
           cat "$OUT/resolved-addresses.txt"
 
+      - name: Extract GOLD resource and pipeline Vulkan calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/gold-native-map
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,subprocess
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"
+          data=Path(lib).read_bytes()
+          wanted=[
+            "vkCmdBindVertexBuffers","vkCmdBindIndexBuffer","vkCmdBindPipeline","vkCmdBindDescriptorSets",
+            "vkCreateBuffer","vkCreateImage","vkCreateImageView","vkCreateSampler",
+            "vkCreateShaderModule","vkCreateGraphicsPipelines","vkCreateComputePipelines",
+            "vkCreateDescriptorSetLayout","vkCreatePipelineLayout","vkAllocateDescriptorSets",
+            "vkUpdateDescriptorSets","vkCmdBeginRendering","vkCmdEndRendering"
+          ]
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",lib],text=True,errors="replace").splitlines()
+          out=[]
+          for name in wanted:
+            b=name.encode()+b"\0"; off=data.find(b)
+            out.append(f"=== {name} string_off=0x{off:x} ===")
+            if off<0: continue
+            page=off&~0xfff; lo=off&0xfff
+            hits=0
+            for i,line in enumerate(dis):
+              m=re.search(r'adrp\s+x(\d+),\s*([0-9a-fA-F]+)',line)
+              if not m or int(m.group(2),16)!=page: continue
+              r=m.group(1)
+              for j in range(i+1,min(i+10,len(dis))):
+                if re.search(rf'(add|ldr)\s+x{r},.*#(?:0x)?{lo:x}\b',dis[j]):
+                  out.extend(dis[max(0,i-12):min(len(dis),j+24)])
+                  out.append("---"); hits+=1; break
+            out.append(f"hits={hits}")
+          Path("hybrid-report/gold-native-map/resource-pipeline-xrefs.txt").write_text("\n".join(out)+"\n")
+          PY
+          test -s hybrid-report/gold-native-map/resource-pipeline-xrefs.txt
+          wc -c hybrid-report/gold-native-map/resource-pipeline-xrefs.txt
+
       - name: Extract GOLD Vulkan dispatch slot map
         shell: bash
         run: |
