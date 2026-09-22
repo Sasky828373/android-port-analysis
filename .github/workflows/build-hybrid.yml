@@ -954,9 +954,10 @@ jobs:
           for dep in libdxvk_d3d11.so libdxvk_dxgi.so libdxvk_d3d10core.so; do
             patchelf --remove-needed "$dep" patchstage/lib/arm64-v8a/libgtav.so 2>/dev/null || true
           done
-          remaining="$(patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so | grep '^libdxvk_' || true)"
-          if [ -n "$remaining" ]; then
-            echo "DXVK DT_NEEDED remains in libgtav.so: $remaining" >&2
+          patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so > /tmp/libgtav-needed.txt
+          if grep -q '^libdxvk_' /tmp/libgtav-needed.txt; then
+            echo "DXVK DT_NEEDED remains in libgtav.so" >&2
+            cat /tmp/libgtav-needed.txt >&2
             exit 1
           fi
 
@@ -991,9 +992,19 @@ jobs:
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
           ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
-          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -Ei '(^|/)[^/]*dxvk[^/]*($|/)|libdxvk_.*\\.so'
+          unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > /tmp/apk-list.txt
+          if grep -Eiq 'dxvk' /tmp/apk-list.txt; then
+            echo "DXVK payload remains in final APK" >&2
+            grep -Ei 'dxvk' /tmp/apk-list.txt >&2
+            exit 1
+          fi
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav.so > /tmp/final-libgtav.so
-          ! patchelf --print-needed /tmp/final-libgtav.so | grep -E '^libdxvk_'
+          patchelf --print-needed /tmp/final-libgtav.so > /tmp/final-needed.txt
+          if grep -q '^libdxvk_' /tmp/final-needed.txt; then
+            echo "DXVK dependency remains in packaged libgtav.so" >&2
+            cat /tmp/final-needed.txt >&2
+            exit 1
+          fi
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
