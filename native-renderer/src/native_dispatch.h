@@ -2,10 +2,15 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 extern "C" {
+enum GtavNativeResourceKind : uint32_t { GTAV_NATIVE_BUFFER=1, GTAV_NATIVE_IMAGE_VIEW=2, GTAV_NATIVE_SAMPLER=3 };
+struct GtavNativeResourceHandle { uint64_t rage_handle; uint64_t vk_handle; uint32_t kind; uint32_t generation; };
 struct GtavNativeDispatch {
  uint32_t abi_version;
  bool (*ready)();
  void (*begin_frame)();
+ bool (*register_resource)(uint64_t,uint64_t,uint32_t,uint32_t);
+ uint64_t (*resolve_resource)(uint64_t,uint32_t);
+ void (*unregister_resource)(uint64_t,uint32_t);
  void (*bind_vertex)(VkCommandBuffer,VkBuffer,VkDeviceSize);
  void (*bind_index)(VkCommandBuffer,VkBuffer,VkDeviceSize,VkIndexType);
  void (*viewport)(VkCommandBuffer,float,float,float,float,float,float);
