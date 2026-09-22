@@ -833,6 +833,13 @@ jobs:
           "$OBJDUMP" -s --start-address=0x622ef80 --stop-address=0x622f300 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter.bytes.txt
           grep -n -E 'grVulkanNativeDeviceAdapter|sysParam|Get@plt|IsRequested|Initialize|Driver|Vulkan' hybrid-report/native-adapter/native-device-adapter.disasm.txt > hybrid-report/native-adapter/native-device-adapter-highlights.txt || true
           test -s hybrid-report/native-adapter/native-device-adapter.disasm.txt
+          # IsRequested() references four literal strings; dump them and the complete Initialize tail.
+          "$OBJDUMP" -d --demangle --start-address=0x622f0b8 --stop-address=0x622f640 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+          "$OBJDUMP" -s --start-address=0x21212a0 --stop-address=0x21212d0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-env1.txt
+          "$OBJDUMP" -s --start-address=0x2285ec0 --stop-address=0x2285f00 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-value1.txt
+          "$OBJDUMP" -s --start-address=0x218d920 --stop-address=0x218d970 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-value2.txt
+          "$OBJDUMP" -s --start-address=0x2484d50 --stop-address=0x2484da0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-env2.txt
+          "$OBJDUMP" -s --start-address=0x23892a0 --stop-address=0x23892e0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/isrequested-config-default.txt
 
       - name: Extract RAGE D3D11 migration targets
         shell: bash
@@ -1096,6 +1103,12 @@ jobs:
             hybrid-report/native-adapter/native-device-adapter.disasm.txt
             hybrid-report/native-adapter/native-device-adapter.bytes.txt
             hybrid-report/native-adapter/native-device-adapter-highlights.txt
+            hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+            hybrid-report/native-adapter/isrequested-env1.txt
+            hybrid-report/native-adapter/isrequested-value1.txt
+            hybrid-report/native-adapter/isrequested-value2.txt
+            hybrid-report/native-adapter/isrequested-env2.txt
+            hybrid-report/native-adapter/isrequested-config-default.txt
             hybrid-report/full-native/key-addresses.txt
             hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
           compression-level: 0
