@@ -828,6 +828,8 @@ jobs:
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
           cp XHYN_V017_UNPACKED/assets/dxvk.conf patchstage/assets/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so patchstage/lib/arm64-v8a/
           if [ -f XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so ]; then
@@ -837,7 +839,7 @@ jobs:
           # Replace native libraries uncompressed; this is required by many modern Android APKs.
           (
             cd patchstage
-            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk lib/arm64-v8a/libdxvk_d3d11.so lib/arm64-v8a/libdxvk_dxgi.so lib/arm64-v8a/libgtav.so $(test -f lib/arm64-v8a/libdxvk_d3d10core.so && echo lib/arm64-v8a/libdxvk_d3d10core.so || true)
+            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk lib/arm64-v8a/libdxvk_d3d11.so lib/arm64-v8a/libdxvk_dxgi.so lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so $(test -f lib/arm64-v8a/libdxvk_d3d10core.so && echo lib/arm64-v8a/libdxvk_d3d10core.so || true)
             zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini assets/dxvk.conf
           )
 
@@ -858,6 +860,10 @@ jobs:
           "$BT/aapt" dump badging out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | tee out/aapt-badging.txt
           "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk AndroidManifest.xml >/dev/null
           unzip -t out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk >/dev/null
+          unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
+          cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
+          unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
 
       - uses: actions/upload-artifact@v4
