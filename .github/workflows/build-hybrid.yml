@@ -1036,22 +1036,19 @@ jobs:
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
           sudo apt-get update -q
           sudo apt-get install -y patchelf
-          patchelf --remove-needed libdxvk_d3d11.so patchstage/lib/arm64-v8a/libgtav.so || true
+          # Playable cutover: preserve the proven GOLD startup provider while the native
+          # renderer attaches after the Vulkan runtime exists. Removing these DT_NEEDED
+          # entries caused the black-screen crash because the native bridge intentionally
+          # does not fabricate D3D COM device/context/swapchain objects.
           patchelf --add-needed libgtav_native_renderer.so patchstage/lib/arm64-v8a/libgtav.so
-          for sym in CreateDXGIFactory D3D11CreateDevice D3D11CreateDeviceAndSwapChain; do
-            readelf -Ws patchstage/lib/arm64-v8a/libgtav_native_renderer.so | grep -q " $sym$" || { echo "missing native startup export: $sym" >&2; exit 1; }
-          done
-          patchelf --remove-needed libdxvk_dxgi.so patchstage/lib/arm64-v8a/libgtav.so || true
-          patchelf --remove-needed libdxvk_d3d10core.so patchstage/lib/arm64-v8a/libgtav.so || true
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so patchstage/lib/arm64-v8a/
           patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so > /tmp/libgtav-needed.txt
-          if grep -q '^libdxvk_' /tmp/libgtav-needed.txt; then exit 1; fi
+          grep -Fxq 'libdxvk_d3d11.so' /tmp/libgtav-needed.txt || { echo "missing proven D3D11 startup provider" >&2; exit 1; }
 
-          # Known remaining imports after DXVK removal are handled by the native cutover work.
-          readelf -Ws patchstage/lib/arm64-v8a/libgtav.so | awk '$7 == "UND" { print $8 }' | sort -u > /tmp/libgtav-undefined.txt
-          grep -E '^(CreateDXGIFactory|D3D11CreateDevice|D3D11CreateDeviceAndSwapChain)$' /tmp/libgtav-undefined.txt || true
-          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' 'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' 'assets/*dxvk*' 'assets/dxvk/*' || true
           cd patchstage
-          zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
+          zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so lib/arm64-v8a/libdxvk_d3d11.so lib/arm64-v8a/libdxvk_dxgi.so lib/arm64-v8a/libdxvk_d3d10core.so
           zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini
           cd ..
 
@@ -1073,7 +1070,9 @@ jobs:
           "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk AndroidManifest.xml >/dev/null
           unzip -t out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk >/dev/null
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
-          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
+          for f in libdxvk_d3d11.so libdxvk_dxgi.so libdxvk_d3d10core.so; do
+            unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F "lib/arm64-v8a/$f" >/dev/null || { echo "missing $f" >&2; exit 1; }
+          done
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > /tmp/apk-list.txt
           if grep -Eiq 'dxvk' /tmp/apk-list.txt; then
