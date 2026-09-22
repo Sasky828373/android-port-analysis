@@ -101,18 +101,6 @@ jobs:
           PY
           sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
 
-      - name: Strip native debug metadata safely
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Remove ELF debug/comment metadata only. Keep symbols needed by dynamic linking intact.
-          for f in XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so; do
-            cp "$f" "$f.prestrip"
-            llvm-strip --strip-debug "$f" || strip --strip-debug "$f"
-            readelf -h "$f" >/dev/null
-            readelf -d "$f" >/dev/null
-          done
-
       - name: Verify hybrid native stack
         shell: bash
         run: |
