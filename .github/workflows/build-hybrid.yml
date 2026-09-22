@@ -567,6 +567,33 @@ jobs:
             echo "Target frame time: 8.33 ms."
           } > hybrid-report/native-vulkan-core-plan.txt
 
+      - name: Native Vulkan instrumentation cleanup V11
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes())
+          delta=0x4000
+          # PassContext::EndAndSubmit contains an unconditional Displayf after every native submission.
+          # Bypass only the formatting/log call block; submission, resource transitions and cleanup stay intact.
+          start=0x6235f98; target=0x6235fc0
+          off=start-delta
+          # encode AArch64 B target
+          imm=(target-start)>>2
+          insn=0x14000000 | (imm & 0x03ffffff)
+          b[off:off+4]=insn.to_bytes(4,"little")
+          p.write_bytes(b)
+          Path("hybrid-report/native-v11-gpu-patch.txt").write_text(
+            "V11 native GPU patch\n"
+            "PassContext::EndAndSubmit: bypass per-submit Displayf block 0x6235f98 -> 0x6235fc0\n"
+            "Preserved: Submission::EndAndSubmit, transitions, deferred destruction, barriers, synchronization\n"
+            "Target frame time: 8.33 ms\n"
+          )
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
