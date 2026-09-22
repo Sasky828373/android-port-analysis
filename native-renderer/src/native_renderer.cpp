@@ -47,9 +47,13 @@ static bool patchJump(uintptr_t target,void* replacement,uint32_t original[4],vo
 }
 static void load13(VkDevice d){
  pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRendering"));
+ if(!pBeginRendering)pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRenderingKHR"));
  pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(d,"vkCmdEndRendering"));
+ if(!pEndRendering)pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(d,"vkCmdEndRenderingKHR"));
  pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(d,"vkCmdPipelineBarrier2"));
+ if(!pBarrier2)pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(d,"vkCmdPipelineBarrier2KHR"));
  pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(d,"vkQueueSubmit2"));
+ if(!pSubmit2)pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(d,"vkQueueSubmit2KHR"));
 }
 static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3)^uint64_t(kind); }
 
@@ -75,7 +79,10 @@ static bool attachFromGtavRuntime(){
  return i&&p&&d&&q&&gtav_native_renderer_attach(i,p,d,q,family);
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance i,VkPhysicalDevice p,VkDevice d,VkQueue q,uint32_t family){
- if(!i||!p||!d||!q)return false;g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
+ if(!i||!p||!d||!q)return false;
+ if(g.device==d&&g.queue==q&&g.commands&&g.descriptors)return true;
+ if(g.device&&g.device!=d)return false;
+ g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
  if(vkCreateCommandPool(d,&ci,nullptr,&g.commands)!=VK_SUCCESS)return false;
  VkDescriptorPoolSize s[]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,4096},{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,8192},{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,2048},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,2048}};
@@ -110,6 +117,18 @@ extern "C" bool gtav_native_renderer_rage_dispatch(void*,uint32_t,uint32_t,uint3
 extern "C" bool gtav_native_renderer_install_draw_hooks();
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
 static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
+using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
+static OrigSubmissionBegin origSubmissionBegin{};
+static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
+static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
+ VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
+ observedNativeCommandBuffer.store(cb,std::memory_order_release);
+ return cb;
+}
+extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_renderer_observed_command_buffer(){
+ return observedNativeCommandBuffer.load(std::memory_order_acquire);
+}
+
 static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
@@ -121,7 +140,13 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  uint32_t a[4]{},b[4]{}; void *ta=nullptr,*tb=nullptr;
  bool x=patchJump(gtavBase+0x61d254c,(void*)hookDraw,a,&ta); if(x)origDraw=(OrigDraw)ta;
  bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
- bool ok=x&&y; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
+ static constexpr uint32_t expectSubmissionBegin[4]={0xd10283ffu,0xa9047bfdu,0xf9002bfbu,0xa90667fau};
+ bool z=false; void* ts=nullptr; uint32_t s[4]{};
+ if(std::memcmp((void*)(gtavBase+0x623526c),expectSubmissionBegin,16)==0){
+   z=patchJump(gtavBase+0x623526c,(void*)hookSubmissionBegin,s,&ts);
+   if(z)origSubmissionBegin=(OrigSubmissionBegin)ts;
+ }
+ bool ok=x&&y&&z; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
