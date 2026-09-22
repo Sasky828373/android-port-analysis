@@ -281,6 +281,34 @@ jobs:
           Path("hybrid-report/gold-vulkan-loader-map.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Extract GOLD Vulkan dispatch slot map
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          # The loader map shows a real dlsym-populated function-pointer object around 0x345048.
+          # Dump the whole constructor and every indirect call through that object's slots.
+          aarch64-linux-gnu-objdump -d -C \
+            --start-address=0x345048 --stop-address=0x345700 \
+            XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so \
+            > hybrid-report/gold-vulkan-dispatch-constructor.txt
+          aarch64-linux-gnu-objdump -d -C XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so \
+            | grep -E -B6 -A10 'blr[[:space:]]+x[0-9]+' \
+            > hybrid-report/gold-indirect-call-sites.txt || true
+          {
+            echo "Known constructor stores:"
+            echo "object+0x10 <- dlsym result"
+            echo "object+0x18 <- dlsym result"
+            echo "object+0x20 <- dlsym result"
+            echo "object+0x28 <- dlsym result"
+            echo "object+0x30 <- dlsym result"
+            echo "object+0x38 <- dlsym result"
+            echo "object+0x40 <- dlsym result"
+            echo
+            echo "Next step: resolve each ADRP+ADD name address in constructor to the actual string,"
+            echo "then map LDR [object,#slot] + BLR call sites."
+          } > hybrid-report/gold-dispatch-slots.txt
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
