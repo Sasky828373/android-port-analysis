@@ -967,6 +967,17 @@ jobs:
           mkdir -p patchstage/assets
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini > /tmp/original-default-android.ini 2>/dev/null || true
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
+          # Pure-native package must not advertise renderer payloads that are deliberately absent.
+          cat > patchstage/assets/xhyn-renderers.json <<'JSON'
+          [
+            {
+              "id": "bundled",
+              "name": "Native Vulkan",
+              "experimental": false,
+              "files": {}
+            }
+          ]
+          JSON
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
@@ -988,7 +999,7 @@ jobs:
 
           cd patchstage
           zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
-          zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini
+          zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini assets/xhyn-renderers.json
           cd ..
 
       - name: Align sign and validate install package
