@@ -295,24 +295,42 @@ __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
+enum NativeResourceKind : uint32_t {
+ NR_VERTEX_BUFFER=1, NR_INDEX_BUFFER=2, NR_VS=3, NR_PS=4, NR_CS=5,
+ NR_RTV=6, NR_DSV=7, NR_CBUFFER=8, NR_SRV=9, NR_SAMPLER=10, NR_UAV=11,
+ NR_GRAPHICS_PIPELINE=12, NR_PIPELINE_LAYOUT=13, NR_DESCRIPTOR_SET=14
+};
+static uint64_t resolveMapped(void* rage,uint32_t kind){
+ return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
+}
 static bool mirroredStateComplete(void* ctx){
  std::lock_guard<std::mutex> l(mirrorMutex);
  auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false;
  const auto& m=it->second;
- // Native draw is gated until the core graphics state exists. Resource/pipeline handle
- // translation is still required before GOLD fallback can be bypassed safely.
  return m.inputLayout && m.vertexBuffers[0] && m.vs && m.ps && m.rtvCount>0 && m.rtv[0];
+}
+static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
+ if(!s || !g.device || !g.queue) return false;
+ RageMirrorState m{};
+ { std::lock_guard<std::mutex> l(mirrorMutex);
+   auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false; m=it->second; }
+ if(!m.inputLayout || !m.vertexBuffers[0] || !m.vs || !m.ps || !m.rtvCount || !m.rtv[0]) return false;
+ VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
+ if(cb==VK_NULL_HANDLE) return false;
+ uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
+ uint64_t vs=resolveMapped(m.vs,NR_VS), ps=resolveMapped(m.ps,NR_PS);
+ uint64_t rt=resolveMapped(m.rtv[0],NR_RTV);
+ uint64_t pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
+ uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
+ uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ if(!vb || !vs || !ps || !rt || !pipe || !layout || !desc) return false;
+ std::memset(s,0,sizeof(*s)); s->command_buffer=cb;
+ return true;
 }
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){
  if(!s || !g.device || !g.queue) return false;
  if(drawStateProvider && drawStateProvider(ctx,s) && s->command_buffer!=VK_NULL_HANDLE) return true;
- VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
- if(cb==VK_NULL_HANDLE || !mirroredStateComplete(ctx)) return false;
- // Connect the verified GTA Vulkan submission command buffer to the mirrored RAGE state.
- // Do not claim the draw yet: pipeline/descriptors/resources must be resolved first.
- std::memset(s,0,sizeof(*s));
- s->command_buffer=cb;
- return false;
+ return buildMappedDrawState(ctx,s);
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
