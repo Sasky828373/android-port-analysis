@@ -388,7 +388,21 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  uint64_t pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
  uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
  uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ // Do not enter native draw until every GPU object required by that draw has a real Vulkan mapping.
+ // This deliberately prevents raw RAGE/D3D pointers from ever reaching vkCmd*.
  if(!vb || !vs || !ps || !rt || !pipe || !layout || !desc) return false;
+ if(m.indexBuffer && !resolveMapped(m.indexBuffer,NR_INDEX_BUFFER)) return false;
+ for(unsigned i=0;i<16;i++) if(m.vertexBuffers[i] && !resolveMapped(m.vertexBuffers[i],NR_VERTEX_BUFFER)) return false;
+ for(unsigned i=0;i<16;i++) {
+   if(m.vsCB[i]&&!resolveMapped(m.vsCB[i],NR_CBUFFER))return false;
+   if(m.psCB[i]&&!resolveMapped(m.psCB[i],NR_CBUFFER))return false;
+   if(m.vsSampler[i]&&!resolveMapped(m.vsSampler[i],NR_SAMPLER))return false;
+   if(m.psSampler[i]&&!resolveMapped(m.psSampler[i],NR_SAMPLER))return false;
+ }
+ for(unsigned i=0;i<32;i++) {
+   if(m.vsSRV[i]&&!resolveMapped(m.vsSRV[i],NR_SRV))return false;
+   if(m.psSRV[i]&&!resolveMapped(m.psSRV[i],NR_SRV))return false;
+ }
  std::memset(s,0,sizeof(*s));
  s->command_buffer=cb;
  s->pipeline=(VkPipeline)(uintptr_t)pipe;
