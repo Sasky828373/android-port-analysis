@@ -401,9 +401,22 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false; m=it->second; }
  if(!m.inputLayout || !m.vertexBuffers[0] || !m.vs || !m.ps || !m.rtvCount || !m.rtv[0]) return false;
- // Use GTA's own native wrappers to obtain real VkImage handles instead of pointer casts.
- mapWrappedImage(m.rtv[0],NR_RTV,true);
- for(unsigned i=0;i<32;i++){ if(m.vsSRV[i])mapWrappedImage(m.vsSRV[i],NR_SRV,false); if(m.psSRV[i])mapWrappedImage(m.psSRV[i],NR_SRV,false); if(m.csSRV[i])mapWrappedImage(m.csSRV[i],NR_SRV,false); }
+ // Use GTA's own native wrappers to obtain real Vulkan images and materialize
+ // reusable views for every active render target / depth target / sampled image.
+ for(unsigned i=0;i<m.rtvCount&&i<8;i++){
+   if(!m.rtv[i])continue;
+   if(!mapWrappedImage(m.rtv[i],NR_RTV,true))return false;
+   if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]))return false;
+ }
+ if(m.dsv){
+   if(!mapWrappedImage(m.dsv,NR_DSV,true))return false;
+   if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv))return false;
+ }
+ for(unsigned i=0;i<32;i++){
+   if(m.vsSRV[i]){if(!mapWrappedImage(m.vsSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.vsSRV[i]))return false;}
+   if(m.psSRV[i]){if(!mapWrappedImage(m.psSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.psSRV[i]))return false;}
+   if(m.csSRV[i]){if(!mapWrappedImage(m.csSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.csSRV[i]))return false;}
+ }
  captureMappedState(ctx,m);
  VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
  if(cb==VK_NULL_HANDLE) return false;
