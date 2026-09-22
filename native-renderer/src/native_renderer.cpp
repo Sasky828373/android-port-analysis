@@ -242,6 +242,7 @@ static void resolveNativeMappingFns(){
  rageAllocateDescriptorSet=(AllocateDescriptorSetFn)(gtavBase+0x6233f1c);
  rageGetOrCreateShaderModule=(GetOrCreateShaderModuleFn)(gtavBase+0x62334b0);
 }
+static void registerImageMeta(void* rage,const NativeWrappedImage& w);
 static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  if(!rage)return false;
  uint64_t existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
