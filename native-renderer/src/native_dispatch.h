@@ -4,7 +4,18 @@
 extern "C" {
 enum GtavNativeResourceKind : uint32_t { GTAV_NATIVE_BUFFER=1, GTAV_NATIVE_IMAGE_VIEW=2, GTAV_NATIVE_SAMPLER=3 };
 struct GtavNativeResourceHandle { uint64_t rage_handle; uint64_t vk_handle; uint32_t kind; uint32_t generation; };
-struct GtavNativeDrawState { VkCommandBuffer command_buffer; uint32_t flags; };
+struct GtavNativeDrawState {
+ VkCommandBuffer command_buffer;
+ VkPipeline pipeline;
+ VkPipelineLayout pipeline_layout;
+ VkDescriptorSet descriptor_set;
+ VkBuffer vertex_buffer;
+ VkDeviceSize vertex_offset;
+ VkBuffer index_buffer;
+ VkDeviceSize index_offset;
+ VkIndexType index_type;
+ uint32_t flags;
+};
 using GtavNativeGetDrawState = bool(*)(void*,GtavNativeDrawState*);
 struct GtavNativeDispatch {
  uint32_t abi_version;
