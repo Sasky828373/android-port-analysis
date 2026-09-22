@@ -146,7 +146,7 @@ jobs:
           # Replace native libraries uncompressed; this is required by many modern Android APKs.
           (
             cd patchstage
-            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk lib/arm64-v8a/*.so
+            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk lib/arm64-v8a/libdxvk_d3d11.so lib/arm64-v8a/libdxvk_dxgi.so lib/arm64-v8a/libgtav.so $(test -f lib/arm64-v8a/libdxvk_d3d10core.so && echo lib/arm64-v8a/libdxvk_d3d10core.so || true)
             zip -q -9 -u ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk assets/default-android.ini assets/dxvk.conf
           )
 
