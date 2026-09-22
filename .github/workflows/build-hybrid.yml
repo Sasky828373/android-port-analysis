@@ -640,6 +640,58 @@ jobs:
             echo 'Goal: identify VkCommandBuffer field offset without guessing'
           } > hybrid-report/gr-vulkan-submission-layout.txt
 
+      - name: Full native migration extraction pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/full-native
+          mkdir -p "$OUT"
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          test -x "$OBJDUMP"; test -x "$NM"
+
+          "$NM" -C -n "$LIB" > "$OUT/all-symbols.txt"
+          grep -E 'grVulkanRuntime|grVulkanRenderGraph|grVulkanResourceStateTracker|grVulkanNativeDeviceAdapter|RageDirect3DDeviceContext11|SwapChain|Present|Acquire|Descriptor|Pipeline|CommandBuffer|RenderTarget|ShaderResource|ConstantBuffer|VertexBuffer|IndexBuffer'             "$OUT/all-symbols.txt" > "$OUT/migration-symbols.txt" || true
+
+          cat > "$OUT/ranges.txt" <<'EOF'
+          0x618c200 0x618d400 native-runtime-init
+          0x61d2300 0x61d3650 rage-d3d11-context
+          0x6232800 0x6234300 vulkan-runtime-resource-pipeline
+          0x6234700 0x6235100 vulkan-barriers-rendergraph
+          0x6235200 0x6236100 vulkan-submission-passcontext
+          EOF
+          while read -r A B N; do
+            "$OBJDUMP" -d --start-address="$A" --stop-address="$B" "$LIB" > "$OUT/$N.disasm.txt"
+          done < "$OUT/ranges.txt"
+
+          readelf -Ws "$LIB" > "$OUT/dynsym.txt"
+          readelf -d "$LIB" > "$OUT/dynamic.txt"
+          strings -a "$LIB" | grep -Ei 'vulkan|swapchain|present|descriptor|pipeline|render.?target|command.?buffer|d3d11|dxgi' > "$OUT/relevant-strings.txt" || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          out=Path("hybrid-report/full-native")
+          sy=(out/"all-symbols.txt").read_text(errors="replace")
+          names=[
+           "GetInstance","GetPhysicalDevice","GetDevice","GetQueue","GetQueueFamilyIndex",
+           "Submission::Begin","Submission::EndAndSubmit","PassContext::EndAndSubmit",
+           "PassContext::TransitionResources","CreateGraphicsPipelines","CreateComputePipelines",
+           "AllocateDescriptorSet","GetOrCreateShaderModule","EmitImageBarrier"
+          ]
+          lines=[]
+          for n in names:
+            m=next((x for x in sy.splitlines() if n in x),None)
+            lines.append((m or ("MISSING "+n)))
+          (out/"key-addresses.txt").write_text("\n".join(lines)+"\n")
+          PY
+
+          tar -czf hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz -C hybrid-report full-native
+          sha256sum hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz | tee hybrid-report/FULL-NATIVE-EXTRACTION.sha256
+          echo "Full native extraction complete"
+
       - name: Extract native Vulkan runtime accessors
         shell: bash
         run: |
