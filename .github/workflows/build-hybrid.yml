@@ -629,7 +629,7 @@ jobs:
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
           nm -C -n "$LIB" 2>/dev/null | grep 'RageDirect3DDeviceContext11::' > hybrid-report/rage-d3d11-symbols.txt || true
           python3 - <<'PY'
-          import re,subprocess,pathlib
+          import re,subprocess,pathlib,os
           lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
           txt=pathlib.Path("hybrid-report/rage-d3d11-symbols.txt").read_text(errors="ignore")
           wanted=("Draw(","DrawIndexed(","DrawInstanced(","DrawIndexedInstanced(","RSSetViewports(","RSSetScissorRects(",
@@ -645,7 +645,11 @@ jobs:
           out=[]
           for addr,name in rows:
             start=f"0x{addr:x}"; stop=f"0x{addr+0x80:x}"
-            p=subprocess.run(["objdump","-d","--start-address="+start,"--stop-address="+stop,lib],text=True,capture_output=True)
+            ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
+            objdump=(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump") if ndk else pathlib.Path("llvm-objdump")
+            p=subprocess.run([str(objdump),"-d","--start-address="+start,"--stop-address="+stop,lib],text=True,capture_output=True)
+            if p.returncode or not re.search(r"^[0-9a-f]+:",p.stdout,re.M):
+              raise SystemExit(f"Disassembly failed for {name}: {p.stderr}")
             out += [f"===== {name} @ {start} =====",p.stdout]
           pathlib.Path("hybrid-report/rage-d3d11-migration-targets.txt").write_text("\n".join(out))
           print("migration targets:",len(rows))
