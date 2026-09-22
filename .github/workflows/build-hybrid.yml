@@ -1053,6 +1053,10 @@ jobs:
             hybrid-report/grc-device-bootstrap/device-pointer-flow.disasm.txt
             hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
             hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt
+            hybrid-report/grc-device-bootstrap/d3d-call-reconstruction.txt
+            hybrid-report/grc-device-bootstrap/d3d-out-object-symbols.txt
+            hybrid-report/grc-device-bootstrap/native-device-candidates.txt
+            hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
 
 
 
