@@ -993,6 +993,17 @@ jobs:
             Path("hybrid-report/grc-device-bootstrap/"+name+".txt").write_text(f"VA=0x{va:x}\nRAW={x.hex()}\nSTRINGS="+repr([s.decode("utf-8","replace") for s in re.findall(rb"[ -~]{4,}",x)]))
           PY
 
+      - name: Trace D3D11 bootstrap pointer initialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$OBJDUMP" -d --demangle --start-address=0x6157df0 --stop-address=0x6158450 "$LIB" > hybrid-report/grc-device-bootstrap/device-pointer-flow.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6cbeb40 --stop-address=0x6cbec00 "$LIB" > hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
+          readelf -W -r "$LIB" | grep -Ei 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory|8a74050|8a74058|6f31998|6f319a8' > hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt || true
+
       - name: Upload tiny grcDevice bootstrap evidence
         uses: actions/upload-artifact@v4
         with:
@@ -1015,16 +1026,6 @@ jobs:
             hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt
 
 
-      - name: Trace D3D11 bootstrap pointer initialization
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p hybrid-report/grc-device-bootstrap
-          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
-          OBJDUMP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
-          "$OBJDUMP" -d --demangle --start-address=0x6157df0 --stop-address=0x6158450 "$LIB" > hybrid-report/grc-device-bootstrap/device-pointer-flow.disasm.txt
-          "$OBJDUMP" -d --demangle --start-address=0x6cbeb40 --stop-address=0x6cbec00 "$LIB" > hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
-          readelf -W -r "$LIB" | grep -Ei 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory|8a74050|8a74058|6f31998|6f319a8' > hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt || true
 
       - name: Keep verified bootable engine startup
         shell: bash
