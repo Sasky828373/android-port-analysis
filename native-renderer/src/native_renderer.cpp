@@ -22,6 +22,19 @@ static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
 static std::atomic<bool> drawHooksInstalled{false};
 static GtavNativeGetDrawState drawStateProvider{};
+struct RageMirrorState {
+ void* inputLayout{};
+ void* vertexBuffers[16]{};
+ uint32_t strides[16]{};
+ uint32_t offsets[16]{};
+ void* indexBuffer{};
+ uint32_t indexFormat{};
+ uint32_t indexOffset{};
+};
+static std::mutex mirrorMutex;
+static std::unordered_map<void*,RageMirrorState> mirrorStates;
+static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
+
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
 static uintptr_t gtavBase{};
 static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
@@ -115,6 +128,24 @@ extern "C" bool gtav_native_renderer_rage_draw(void*,uint32_t,uint32_t);
 extern "C" bool gtav_native_renderer_rage_draw_indexed(void*,uint32_t,uint32_t,int32_t);
 extern "C" bool gtav_native_renderer_rage_dispatch(void*,uint32_t,uint32_t,uint32_t);
 extern "C" bool gtav_native_renderer_install_draw_hooks();
+using OrigIASetInputLayout=void(*)(void*,void*);
+using OrigIASetVertexBuffers=void(*)(void*,uint32_t,uint32_t,void* const*,const uint32_t*,const uint32_t*);
+using OrigIASetIndexBuffer=void(*)(void*,void*,uint32_t,uint32_t);
+static OrigIASetInputLayout origIASetInputLayout{};
+static OrigIASetVertexBuffers origIASetVertexBuffers{};
+static OrigIASetIndexBuffer origIASetIndexBuffer{};
+static void hookIASetInputLayout(void* ctx,void* layout){
+ {std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).inputLayout=layout;}
+ if(origIASetInputLayout)origIASetInputLayout(ctx,layout);
+}
+static void hookIASetVertexBuffers(void* ctx,uint32_t first,uint32_t count,void* const* bufs,const uint32_t* strides,const uint32_t* offsets){
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);for(uint32_t i=0;i<count&&first+i<16;i++){s.vertexBuffers[first+i]=bufs?bufs[i]:nullptr;s.strides[first+i]=strides?strides[i]:0;s.offsets[first+i]=offsets?offsets[i]:0;}}
+ if(origIASetVertexBuffers)origIASetVertexBuffers(ctx,first,count,bufs,strides,offsets);
+}
+static void hookIASetIndexBuffer(void* ctx,void* buf,uint32_t format,uint32_t offset){
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.indexBuffer=buf;s.indexFormat=format;s.indexOffset=offset;}
+ if(origIASetIndexBuffer)origIASetIndexBuffer(ctx,buf,format,offset);
+}
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
 static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
@@ -146,7 +177,11 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
    z=patchJump(gtavBase+0x623526c,(void*)hookSubmissionBegin,s,&ts);
    if(z)origSubmissionBegin=(OrigSubmissionBegin)ts;
  }
- bool ok=x&&y&&z; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
+ uint32_t il[4]{},vb[4]{},ib[4]{}; void *til=nullptr,*tvb=nullptr,*tib=nullptr;
+ bool sil=patchJump(gtavBase+0x61d2654,(void*)hookIASetInputLayout,il,&til); if(sil)origIASetInputLayout=(OrigIASetInputLayout)til;
+ bool svb=patchJump(gtavBase+0x61d2698,(void*)hookIASetVertexBuffers,vb,&tvb); if(svb)origIASetVertexBuffers=(OrigIASetVertexBuffers)tvb;
+ bool sib=patchJump(gtavBase+0x61d27fc,(void*)hookIASetIndexBuffer,ib,&tib); if(sib)origIASetIndexBuffer=(OrigIASetIndexBuffer)tib;
+ bool ok=x&&y&&z&&sil&&svb&&sib; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
