@@ -334,8 +334,17 @@ static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static std::unordered_map<uint64_t,VkImageView> imageViews;
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
+ const uint64_t key=(uint64_t)(uintptr_t)rage;
  NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;
- std::lock_guard<std::mutex> l(imageMetaMutex);imageMeta[(uint64_t)(uintptr_t)rage]=m;
+ std::lock_guard<std::mutex> l(imageMetaMutex);
+ auto it=imageMeta.find(key);
+ // If GTA reuses a RAGE object for a different native image/format, an old
+ // cached view is no longer valid. Destroy it before publishing new metadata.
+ if(it!=imageMeta.end()&&(it->second.image!=m.image||it->second.format!=m.format||it->second.aspect!=m.aspect)){
+   auto v=imageViews.find(key);
+   if(v!=imageViews.end()){if(v->second&&g.device)vkDestroyImageView(g.device,v->second,nullptr);imageViews.erase(v);}
+ }
+ imageMeta[key]=m;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_get_image_meta(uint64_t rageResource,VkImage* image,VkFormat* format,VkImageAspectFlags* aspect){
  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return false;
