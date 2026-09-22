@@ -421,48 +421,55 @@ jobs:
           from pathlib import Path
           import re,subprocess
           lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"
-          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",lib],text=True,errors="replace").splitlines()
-          # Verified dispatch-object offsets from the loader table. Trace indirect calls
-          # through these slots, not merely the dlsym loader that populated them.
+          lines=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",lib],text=True,errors="replace").splitlines()
           slots={
-            "vkCreateBuffer":0x160,
-            "vkCreateImage":0x180,
-            "vkCreateImageView":0x198,
-            "vkCreateShaderModule":0x1a8,
-            "vkCreateGraphicsPipelines":0x1d8,
-            "vkCreateComputePipelines":0x1e0,
-            "vkCreateSampler":0x200,
-            "vkCreateDescriptorSetLayout":0x210,
-            "vkCreatePipelineLayout":0x218,
-            "vkAllocateDescriptorSets":0x238,
-            "vkUpdateDescriptorSets":0x248,
-            "vkCmdBindPipeline":0x300,
-            "vkCmdBindDescriptorSets":0x3c0,
-            "vkCmdBindIndexBuffer":0x3c8,
-            "vkCmdBindVertexBuffers":0x3d0,
+            "vkCreateBuffer":0x160,"vkCreateImage":0x180,"vkCreateImageView":0x198,
+            "vkCreateShaderModule":0x1a8,"vkCreateGraphicsPipelines":0x1d8,
+            "vkCreateComputePipelines":0x1e0,"vkCreateSampler":0x200,
+            "vkCreateDescriptorSetLayout":0x210,"vkCreatePipelineLayout":0x218,
+            "vkAllocateDescriptorSets":0x238,"vkUpdateDescriptorSets":0x248,
+            "vkCmdBindPipeline":0x300,"vkCmdBindDescriptorSets":0x3c0,
+            "vkCmdBindIndexBuffer":0x3c8,"vkCmdBindVertexBuffers":0x3d0,
           }
-          out=[]
+          ins=[]
+          for idx,line in enumerate(lines):
+            m=re.match(r'\s*([0-9a-fA-F]+):\s+[0-9a-fA-F]+\s+(.+)$',line)
+            if m: ins.append((idx,int(m.group(1),16),m.group(2)))
+          out=[]; summary=[]
           for name,slot in slots.items():
-            out.append(f"===== {name} slot=0x{slot:x} =====")
-            hits=0
-            # Match LDR/LDUR of the function pointer followed shortly by BLR of that register.
-            for i,line in enumerate(dis):
-              m=re.search(r'\b(?:ldr|ldur)\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?([0-9a-fA-F]+)\]',line)
-              if not m or int(m.group(3),16)!=slot: continue
-              fn=m.group(1)
-              win=dis[i:min(i+14,len(dis))]
-              if not any(re.search(rf'\bblr\s+x{fn}\b',x) for x in win): continue
-              out.append("\n".join(dis[max(0,i-28):min(len(dis),i+34)]))
-              out.append("---"); hits+=1
-            out.append(f"hits={hits}\n")
+            hits=[]
+            for k,(li,addr,op) in enumerate(ins):
+              # Accept direct [base,#slot] loads and split address formation:
+              # add tmp,base,#imm ; ldr fn,[tmp,#rem]. Track a short register window.
+              regs={}
+              fnreg=None
+              for q in range(max(0,k-12),k+1):
+                _,_,x=ins[q]
+                m=re.search(r'\b(?:ldr|ldur)\s+x(\d+),\s*\[x\d+,\s*#(?:0x)?([0-9a-fA-F]+)\]',x)
+                if m and int(m.group(2),16)==slot: fnreg=m.group(1)
+                m=re.search(r'\badd\s+x(\d+),\s*x(\d+),\s*#(?:0x)?([0-9a-fA-F]+)',x)
+                if m: regs[m.group(1)]=(m.group(2),int(m.group(3),16))
+                m=re.search(r'\b(?:ldr|ldur)\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?([0-9a-fA-F]+)\]',x)
+                if m and m.group(2) in regs and regs[m.group(2)][1]+int(m.group(3),16)==slot: fnreg=m.group(1)
+              if fnreg and re.search(rf'\bblr\s+x{fnreg}\b',op):
+                hits.append((li,addr))
+            # Fallback: capture any BLR and nearby immediate equal to slot. This exposes
+            # alternate table-walk patterns for manual correlation without inventing handles.
+            if not hits:
+              for k,(li,addr,op) in enumerate(ins):
+                if not op.startswith("blr "): continue
+                window="\n".join(x[2] for x in ins[max(0,k-18):k+1])
+                if re.search(rf'#(?:0x)?{slot:x}\b',window): hits.append((li,addr))
+            out.append(f"===== {name} slot=0x{slot:x} hits={len(hits)} =====")
+            for li,addr in hits:
+              out.extend(lines[max(0,li-36):min(len(lines),li+40)])
+              out.append("---")
+            summary.append(f"{name} slot=0x{slot:x} hits={len(hits)}")
           Path("hybrid-report/gold-native-map/resource-producer-call-sites.txt").write_text("\n".join(out)+"\n")
-          # Also retain function headers around every hit so addresses can be correlated
-          # with RAGE/D3D wrapper objects in the next patch.
-          Path("hybrid-report/gold-native-map/resource-producer-summary.txt").write_text(
-            "\n".join(x for x in out if x.startswith("=====") or x.startswith("hits="))+"\n")
+          Path("hybrid-report/gold-native-map/resource-producer-summary.txt").write_text("\n".join(summary)+"\n")
           PY
-          test -s hybrid-report/gold-native-map/resource-producer-call-sites.txt
           cat hybrid-report/gold-native-map/resource-producer-summary.txt
+          test -s hybrid-report/gold-native-map/resource-producer-call-sites.txt
 
       - name: Extract GOLD Vulkan dispatch slot map
         shell: bash
