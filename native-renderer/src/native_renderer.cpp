@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>
+#include <cstring>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <link.h>
 #include "native_dispatch.h"
 #include <dlfcn.h>
 
@@ -17,6 +21,23 @@ static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
 static GtavNativeGetDrawState drawStateProvider{};
+struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
+static uintptr_t gtavBase{};
+static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
+static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
+ void* m=mmap(nullptr,4096,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0); if(m==MAP_FAILED)return nullptr;
+ std::memcpy(m,original,16); auto* q=(uint32_t*)((uint8_t*)m+16);
+ uintptr_t back=target+16, pc=(uintptr_t)q; intptr_t delta=(intptr_t)back-(intptr_t)pc;
+ if((delta&3)||delta<-(1ll<<27)||delta>=(1ll<<27)){munmap(m,4096);return nullptr;}
+ *q=0x14000000u|((uint32_t)(delta>>2)&0x03ffffffu); __builtin___clear_cache((char*)m,(char*)m+20); return m;
+}
+static bool patchJump(uintptr_t target,void* replacement,uint32_t original[4],void** trampoline){
+ std::memcpy(original,(void*)target,16); *trampoline=makeTrampoline(target,original); if(!*trampoline)return false;
+ long ps=sysconf(_SC_PAGESIZE); uintptr_t page=target&~((uintptr_t)ps-1); if(mprotect((void*)page,ps,PROT_READ|PROT_WRITE|PROT_EXEC))return false;
+ intptr_t delta=(intptr_t)replacement-(intptr_t)target; if((delta&3)||delta<-(1ll<<27)||delta>=(1ll<<27))return false;
+ uint32_t b=0x14000000u|((uint32_t)(delta>>2)&0x03ffffffu); std::memcpy((void*)target,&b,4);
+ __builtin___clear_cache((char*)target,(char*)target+4); mprotect((void*)page,ps,PROT_READ|PROT_EXEC); return true;
+}
 static void load13(VkDevice d){
  pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRendering"));
  pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(d,"vkCmdEndRendering"));
@@ -59,6 +80,17 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_clea
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader(const uint32_t* s,size_t n,VkShaderModule* o){if(!g.device||!s||!n||!o)return VK_ERROR_INITIALIZATION_FAILED;VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=n;ci.pCode=s;return vkCreateShaderModule(g.device,&ci,nullptr,o);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_barrier2(VkCommandBuffer c,const VkDependencyInfo* i){if(c&&i&&pBarrier2)pBarrier2(c,i);}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_submit(VkCommandBuffer c,VkFence f){if(!g.queue||!c)return VK_ERROR_INITIALIZATION_FAILED;VkCommandBufferSubmitInfo cb{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};cb.commandBuffer=c;VkSubmitInfo2 si{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};si.commandBufferInfoCount=1;si.pCommandBufferInfos=&cb;return pSubmit2?pSubmit2(g.queue,1,&si,f):VK_ERROR_EXTENSION_NOT_PRESENT;}
+using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
+static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
+static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
+static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase)return false;
+ uint32_t a[4]{},b[4]{}; void *ta=nullptr,*tb=nullptr;
+ bool x=patchJump(gtavBase+0x61d254c,(void*)hookDraw,a,&ta); if(x)origDraw=(OrigDraw)ta;
+ bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
+ return x&&y;
+}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){return drawStateProvider&&s&&drawStateProvider(ctx,s)&&s->command_buffer!=VK_NULL_HANDLE;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
