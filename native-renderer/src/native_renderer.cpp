@@ -14,9 +14,9 @@
 
 
 // Legacy import symbols remain exported only so Android's loader can resolve libgtav.so.
-// The engine startup is patched to select its built-in native Vulkan adapter before these
-// legacy factories are reached. If a legacy call leaks through, fail closed instead of
-// manufacturing invalid COM objects.
+// DXVK is intentionally not packaged. These guards are NOT a fake D3D implementation:
+// returning fabricated COM objects would crash later and hide the real migration gap.
+// Native Vulkan attaches to the engine runtime only after that runtime has valid handles.
 static int32_t legacyD3DLeak(const char* name) {
   __android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","unexpected legacy startup call: %s",name);
   return (int32_t)0x80004001u;
