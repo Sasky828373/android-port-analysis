@@ -102,18 +102,7 @@ static uint64_t graphicsStateKey(const RageMirrorState& s){
 
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){if(!rage||!vk||!kind)return false;std::lock_guard<std::mutex> l(resourceMutex);resources[resourceKey(rage,kind)]={rage,vk,kind,generation};capture("REGISTER",(void*)(uintptr_t)rage,vk);return true;}
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_resolve_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);auto i=resources.find(resourceKey(rage,kind));return i==resources.end()?0:i->second.vk_handle;}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){
- if(!rage||!kind)return;
- {std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
- // Image metadata/views are keyed by the RAGE object. Remove renderer-owned
- // views when image-backed mappings die so pointer reuse cannot resurrect stale VkImageViews.
- if(kind==6||kind==7||kind==9||kind==11){
-   std::lock_guard<std::mutex> l(imageMetaMutex);
-   auto v=imageViews.find(rage);
-   if(v!=imageViews.end()){if(v->second&&g.device)vkDestroyImageView(g.device,v->second,nullptr);imageViews.erase(v);}
-   imageMeta.erase(rage);
- }
-}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
 
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance,VkPhysicalDevice,VkDevice,VkQueue,uint32_t);
 using GetInstanceFn=VkInstance(*)();
@@ -356,6 +345,13 @@ static void registerImageMeta(void* rage,const NativeWrappedImage& w){
    if(v!=imageViews.end()){if(v->second&&g.device)vkDestroyImageView(g.device,v->second,nullptr);imageViews.erase(v);}
  }
  imageMeta[key]=m;
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_image_resource(uint64_t rage,uint32_t kind){
+ if(!rage)return;
+ {std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
+ std::lock_guard<std::mutex> l(imageMetaMutex);
+ auto v=imageViews.find(rage);if(v!=imageViews.end()){if(v->second&&g.device)vkDestroyImageView(g.device,v->second,nullptr);imageViews.erase(v);}
+ imageMeta.erase(rage);
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_get_image_meta(uint64_t rageResource,VkImage* image,VkFormat* format,VkImageAspectFlags* aspect){
  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return false;
