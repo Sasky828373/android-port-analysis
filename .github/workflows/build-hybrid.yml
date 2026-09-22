@@ -37,13 +37,13 @@ jobs:
 
           p = Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
           data = bytearray(p.read_bytes())
-          # ELF mapping verified for this libgtav build: file offset = virtual address - 0x4000.
+          # ELF mapping verified for this libgtav build; file offset = virtual address - 0x4000.
           # These are diagnostics/telemetry and PIX instrumentation entry points, not rendering passes.
           targets = {
               "MetricsCapture_Update":       0x4a31e34,
               "MetricsCapture_DrawWindows":  0x4a32660,
               "NetworkDebugTelemetry_Update":0x58fe1bc,
-              # V10 verified micro-patch: skip only the optional BindCompute usage-counter block.
+              # V10 verified micro-patch; skip only the optional BindCompute usage-counter block.
               # 0x619aa5c is inside BindCompute (not a function entry), so patch its conditional
               # branch to jump directly back to the normal loop at 0x619a8b4.
 
@@ -55,7 +55,7 @@ jobs:
               "PIX_marker_6136044":          0x6136044,
           }
           ret = bytes.fromhex("c0035fd6")  # AArch64 RET
-          # Safety gate: every patch must still look like a normal AArch64 function entry.
+          # Safety gate; every patch must still look like a normal AArch64 function entry.
           # This prevents silently patching the wrong build/address.
           allowed_first = {
               0xa9bf7bfd, 0xa9be7bfd, 0xa9bd7bfd, 0xa9bc7bfd, 0xd503201f,
@@ -78,7 +78,7 @@ jobs:
               data[off:off+4] = ret
               report.append(f"{name}: VA={va:#x} file={off:#x} old={old.hex()} new={ret.hex()}")
 
-          # Verified from native-v10-candidate-disasm: the block 0x619aa58..0x619aa94
+          # Verified from native-v10-candidate-disasm; the block 0x619aa58..0x619aa94
           # only gates/increments a per-binding counter after memcpy. Preserve memcpy and all
           # actual compute binding calls; bypass the bookkeeping block with one unconditional B.
           src_va, dst_va = 0x619aa58, 0x619a8b4
@@ -137,7 +137,7 @@ jobs:
           } > hybrid-report/native-efficiency-audit.txt
 
           # Locate actual AArch64 call sites that reference the Vulkan wait/submit symbols.
-          # Report only: no synchronization semantics are changed until a caller is verified.
+          # Report only; no synchronization semantics are changed until a caller is verified.
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
@@ -433,7 +433,7 @@ jobs:
                 if m and m.group(2) in regs and regs[m.group(2)][1]+int(m.group(3),16)==slot: fnreg=m.group(1)
               if fnreg and re.search(rf'\bblr\s+x{fnreg}\b',op):
                 hits.append((li,addr))
-            # Fallback: capture any BLR and nearby immediate equal to slot. This exposes
+            # Fallback; capture any BLR and nearby immediate equal to slot. This exposes
             # alternate table-walk patterns for manual correlation without inventing handles.
             if not hits:
               for k,(li,addr,op) in enumerate(ins):
@@ -688,7 +688,7 @@ jobs:
             echo "=== Native GTA renderer symbols ==="
             nm -C "$GTAV" 2>/dev/null | grep -Ei 'Vulkan|Descriptor|ConstantBuffer|BindCompute|RenderPass|Pipeline|Barrier' | head -n 1000 || true
           } > hybrid-report/gpu-native-migration-audit.txt
-          # Hard truth gate: do not label the APK fully native while DXVK translation remains.
+          # Hard truth gate; do not label the APK fully native while DXVK translation remains.
           if test -s "$D3D" && test -s "$DXGI"; then
             echo "FULL_NATIVE_GPU=NO" >> hybrid-report/gpu-native-migration-audit.txt
             echo "TARGET_FRAME_MS=8.33" >> hybrid-report/gpu-native-migration-audit.txt
@@ -1021,7 +1021,7 @@ jobs:
           compression-level: 0
 
 
-          # DXVK-free final package: remove DXVK from both native libs and every asset path.
+          # DXVK-free final package; remove DXVK from both native libs and every asset path.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
@@ -1087,7 +1087,7 @@ jobs:
             exit 1
           fi
 
-          # DXVK-free final package: remove DXVK from both native libs and every asset path.
+          # DXVK-free final package; remove DXVK from both native libs and every asset path.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
@@ -1150,7 +1150,7 @@ jobs:
           compression-level: 0
 
 
-          # DXVK-free final package: remove DXVK from both native libs and every asset path.
+          # DXVK-free final package; remove DXVK from both native libs and every asset path.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
