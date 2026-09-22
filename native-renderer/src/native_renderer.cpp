@@ -332,6 +332,12 @@ struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; 
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static std::unordered_map<uint64_t,VkImageView> imageViews;
+static void invalidateImageResource(uint64_t rage){
+ std::lock_guard<std::mutex> l(imageMetaMutex);
+ auto v=imageViews.find(rage);
+ if(v!=imageViews.end()){if(v->second&&g.device)vkDestroyImageView(g.device,v->second,nullptr);imageViews.erase(v);}
+ imageMeta.erase(rage);
+}
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  const uint64_t key=(uint64_t)(uintptr_t)rage;
@@ -367,6 +373,10 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
  VkImageView view=VK_NULL_HANDLE;if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);return it->second;}}
  return view;
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_image_resource(uint64_t rage,uint32_t kind){
+ gtav_native_renderer_unregister_resource(rage,kind);
+ if(kind==NR_RTV||kind==NR_DSV||kind==NR_SRV||kind==NR_UAV)invalidateImageResource(rage);
 }
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
