@@ -621,6 +621,25 @@ jobs:
           )
           PY
 
+      - name: Extract native Vulkan submission command-buffer layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          test -x "$OBJDUMP"
+          "$OBJDUMP" -d --start-address=0x623526c --stop-address=0x62355b0 "$LIB" > hybrid-report/gr-vulkan-submission-begin.txt
+          "$OBJDUMP" -d --start-address=0x62355b0 --stop-address=0x6235760 "$LIB" > hybrid-report/gr-vulkan-submission-submit.txt
+          grep -Eq '^\s*623526c:' hybrid-report/gr-vulkan-submission-begin.txt
+          grep -Eq '^\s*62355b0:' hybrid-report/gr-vulkan-submission-submit.txt
+          {
+            echo 'Submission::Begin=0x623526c'
+            echo 'Submission::EndAndSubmit=0x62355b0'
+            echo 'Goal: identify VkCommandBuffer field offset without guessing'
+          } > hybrid-report/gr-vulkan-submission-layout.txt
+
       - name: Extract native Vulkan runtime accessors
         shell: bash
         run: |
