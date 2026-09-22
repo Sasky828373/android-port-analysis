@@ -800,6 +800,21 @@ jobs:
           print("\n".join(out))
           PY
 
+      - name: Extract native Vulkan adapter bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/native-adapter
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$NM" -C -n "$LIB" > hybrid-report/native-adapter/symbols.txt
+          grep -E 'grVulkanNativeDeviceAdapter|IsRequested|Initialize' hybrid-report/native-adapter/symbols.txt > hybrid-report/native-adapter/bootstrap-symbols.txt || true
+          "$OBJDUMP" -d --demangle --disassemble-symbols='_ZN4rage27grVulkanNativeDeviceAdapter11IsRequestedEv,_ZN4rage27grVulkanNativeDeviceAdapter10InitializeEv' "$LIB" > hybrid-report/native-adapter/bootstrap.disasm.txt || true
+          test -s hybrid-report/native-adapter/bootstrap-symbols.txt
+          readelf -Ws "$LIB" | grep -E 'grVulkanNativeDeviceAdapter|IsRequested|Initialize' > hybrid-report/native-adapter/dynsym.txt || true
+
       - name: Extract RAGE D3D11 migration targets
         shell: bash
         run: |
@@ -1053,6 +1068,9 @@ jobs:
             hybrid-report/rage-d3d11-migration-targets.txt
             hybrid-report/full-native/grc-device-initclass.disasm.txt
             hybrid-report/full-native/vulkan-runtime-init.disasm.txt
+            hybrid-report/native-adapter/bootstrap-symbols.txt
+            hybrid-report/native-adapter/bootstrap.disasm.txt
+            hybrid-report/native-adapter/dynsym.txt
             hybrid-report/full-native/key-addresses.txt
             hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
           compression-level: 0
