@@ -1134,6 +1134,28 @@ jobs:
             hybrid-report/dxgi-factory/README.txt
           if-no-files-found: error
 
+      - name: Trace D3D11 adapter manager factory usage
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          OUT=hybrid-report/dxgi-adapter-manager
+          mkdir -p "$OUT"
+          "$OBJDUMP" -d --demangle --start-address=0x61a5d60 --stop-address=0x61a6200 "$LIB" > "$OUT/adapter-manager-flow.txt"
+          {
+            echo "InitSingleton constructs grcAdapterManagerD3D11 at 0x61a5d84."
+            echo "It then calls virtual slot +0x18 with argument 28; symbol map identifies Enumerate(unsigned int) at 0x61a5dbc."
+            echo "Runtime null/E_FAIL factory test SIGBUSes before D3D11CreateDevice*, so this trace captures exact factory output consumption."
+          } > "$OUT/README.txt"
+
+      - name: Upload D3D11 adapter manager trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxgi-adapter-manager-${{ github.run_number }}
+          path: hybrid-report/dxgi-adapter-manager/
+          if-no-files-found: error
+
       - name: Apply first native Vulkan bootstrap patch
         shell: bash
         run: |
