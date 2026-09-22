@@ -389,7 +389,15 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
  uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
  if(!vb || !vs || !ps || !rt || !pipe || !layout || !desc) return false;
- std::memset(s,0,sizeof(*s)); s->command_buffer=cb;
+ std::memset(s,0,sizeof(*s));
+ s->command_buffer=cb;
+ s->pipeline=(VkPipeline)(uintptr_t)pipe;
+ s->pipeline_layout=(VkPipelineLayout)(uintptr_t)layout;
+ s->descriptor_set=(VkDescriptorSet)(uintptr_t)desc;
+ s->vertex_buffer=(VkBuffer)(uintptr_t)vb;
+ s->vertex_offset=m.offsets[0];
+ uint64_t ib=resolveMapped(m.indexBuffer,NR_INDEX_BUFFER);
+ if(ib){s->index_buffer=(VkBuffer)(uintptr_t)ib;s->index_offset=m.indexOffset;s->index_type=(m.indexFormat==57)?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;}
  return true;
 }
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){
@@ -397,8 +405,18 @@ static bool getDrawState(void* ctx,GtavNativeDrawState* s){
  if(drawStateProvider && drawStateProvider(ctx,s) && s->command_buffer!=VK_NULL_HANDLE) return true;
  return buildMappedDrawState(ctx,s);
 }
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
+static bool bindMappedGraphicsState(const GtavNativeDrawState& s,bool indexed){
+ if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
+ if(indexed&&!s.index_buffer)return false;
+ vkCmdBindPipeline(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline);
+ VkBuffer vb=s.vertex_buffer; VkDeviceSize vo=s.vertex_offset;
+ vkCmdBindVertexBuffers(s.command_buffer,0,1,&vb,&vo);
+ if(indexed)vkCmdBindIndexBuffer(s.command_buffer,s.index_buffer,s.index_offset,s.index_type);
+ vkCmdBindDescriptorSets(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline_layout,0,1,&s.descriptor_set,0,nullptr);
+ return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,false))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,true))return false;vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDispatch(s.command_buffer,x,y,z);return true;}
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
