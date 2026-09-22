@@ -17,6 +17,26 @@ jobs:
         with:
           lfs: true
 
+      - name: Install actual GOLD renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf gold-extract
+          mkdir gold-extract
+          unzip -q 2.6.1.zip -d gold-extract
+          D3D11="$(find gold-extract -type f -name 'libdxvk_d3d11*.so' | head -1)"
+          DXGI="$(find gold-extract -type f -name 'libdxvk_dxgi*.so' | head -1)"
+          test -n "$D3D11" && test -n "$DXGI"
+          cp "$D3D11" XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
+          cp "$DXGI" XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so
+          D3D10="$(find gold-extract -type f -name 'libdxvk_d3d10core*.so' | head -1 || true)"
+          if [ -n "$D3D10" ]; then
+            cp "$D3D10" XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so
+          fi
+          echo "GOLD D3D11: $D3D11"
+          echo "GOLD DXGI:  $DXGI"
+          strings -a XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so | grep -E 'GTAV_VULKAN_LIBRARY|gtav_android_surface_state|Android swapchain' || true
+
       - name: Reconstruct libgtav
         shell: bash
         run: |
@@ -32,6 +52,11 @@ jobs:
           set -euo pipefail
           cd XHYN_V017_UNPACKED
           grep -q '^interop_native=true' assets/default-android.ini
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_surface_state'
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_lock_surface'
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_unlock_surface'
+          strings -a lib/arm64-v8a/libdxvk_d3d11.so | grep -q 'GTAV_VULKAN_LIBRARY'
+          strings -a lib/arm64-v8a/libdxvk_d3d11.so | grep -q 'gtav_android_surface_state'
           test -s lib/arm64-v8a/libgtav.so
           test -s lib/arm64-v8a/libgtav_vulkan.so
           test -s lib/arm64-v8a/libgtavvk.so
@@ -69,12 +94,12 @@ jobs:
           rm -f apkstage/HYBRID-libgtav.sha256
           (
             cd apkstage
-            zip -q -r -0 ../out/XHYN_V0.17_HYBRID_UNSIGNED.apk . -x 'resources.arsc' '*.dex'
+            zip -q -r -0 ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk . -x 'resources.arsc' '*.dex'
           )
           # Re-add compressible assets/classes normally; duplicate names replace stored entries.
           (
             cd apkstage
-            zip -q -r -9 ../out/XHYN_V0.17_HYBRID_UNSIGNED.apk .               -x 'lib/*' 'lib/*/*'
+            zip -q -r -9 ../out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk .               -x 'lib/*' 'lib/*/*'
           )
 
       - name: Align and sign
@@ -82,17 +107,17 @@ jobs:
         run: |
           set -euo pipefail
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          "$BT/zipalign" -f -p 4 out/XHYN_V0.17_HYBRID_UNSIGNED.apk out/XHYN_V0.17_HYBRID_ALIGNED.apk
+          "$BT/zipalign" -f -p 4 out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
           keytool -genkeypair -noprompt             -keystore out/hybrid.keystore -storepass android -keypass android             -alias hybrid -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=XHYN Hybrid,O=Android,C=DE"
-          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_SIGNED.apk out/XHYN_V0.17_HYBRID_ALIGNED.apk
-          "$BT/apksigner" verify --verbose out/XHYN_V0.17_HYBRID_SIGNED.apk
-          sha256sum out/XHYN_V0.17_HYBRID_SIGNED.apk > out/XHYN_V0.17_HYBRID_SIGNED.apk.sha256
+          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+          "$BT/apksigner" verify --verbose out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
+          sha256sum out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk > out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: XHYN-V0.17-HYBRID
+          name: XHYN-V0.17-HYBRID-FULL
           path: |
-            out/XHYN_V0.17_HYBRID_SIGNED.apk
-            out/XHYN_V0.17_HYBRID_SIGNED.apk.sha256
+            out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk.sha256
             hybrid-report/
           compression-level: 0
