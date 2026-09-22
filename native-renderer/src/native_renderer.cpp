@@ -402,9 +402,14 @@ __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  // initialized the runtime singleton yet. The verified Submission::Begin hook performs
  // the first attach when the engine is actually entering native Vulkan work.
  bool attached=false;
- bool hooks=gtav_native_renderer_install_draw_hooks();
+ // Do not patch libgtav text from an ELF constructor. At this point the loader may
+ // have mapped libgtav but its C++/graphics runtime is not initialized yet, and the
+ // migration is not complete enough to replace the D3D11 context safely. Constructor-
+ // time hooks were executing before a valid graphics bootstrap existed and are the
+ // remaining deterministic startup-crash vector.
+ bool hooks=false;
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","CTOR initial-attach=%d",attached?1:0);
- __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS deferred=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 enum NativeResourceKind : uint32_t {
