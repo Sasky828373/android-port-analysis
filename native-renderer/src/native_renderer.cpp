@@ -11,7 +11,6 @@
 #include "native_dispatch.h"
 #include <dlfcn.h>
 #include <android/log.h>
-#include <pthread.h>
 
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
@@ -246,26 +245,11 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  extra&=install(0x61d3124,(void*)hCSUAV,(void**)&oCSUAV); extra&=install(0x61d2b48,(void*)hOMRT,(void**)&oOMRT);
  bool ok=x&&y&&z&&sil&&svb&&sib&&stop&&svs&&sps&&scs&&svp&&ssr&&extra; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
-static void* deferredHookInstall(void*){
- // DT_NEEDED constructors may run before libgtav.so itself is visible to dl_iterate_phdr.
- // Wait briefly for the game image, then install exactly once.
- for(int i=0;i<500 && !drawHooksInstalled.load(std::memory_order_acquire);++i){
-   if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
-   if(gtavBase){
-     bool hooks=gtav_native_renderer_install_draw_hooks();
-     __android_log_print(hooks?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP",
-       "HOOKS-DEFERRED installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
-     break;
-   }
-   usleep(10000);
- }
- return nullptr;
-}
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
- __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
- pthread_t t{};
- if(pthread_create(&t,nullptr,deferredHookInstall,nullptr)==0) pthread_detach(t);
- else __android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","HOOK-WATCHER create-failed");
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
+ if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ bool hooks=gtav_native_renderer_install_draw_hooks();
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){return drawStateProvider&&s&&drawStateProvider(ctx,s)&&s->command_buffer!=VK_NULL_HANDLE;}
