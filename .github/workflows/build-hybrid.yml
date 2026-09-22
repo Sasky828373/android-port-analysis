@@ -934,6 +934,22 @@ jobs:
           test -s lib/arm64-v8a/libgtavvk.so
           test -s lib/arm64-v8a/libgtav_native_renderer.so
 
+      - name: Decode launcher and locate graphics recovery validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y apktool
+          rm -rf /tmp/xhyn-launcher
+          apktool d -f -r "XHYN V_0.17custom.apk" -o /tmp/xhyn-launcher >/dev/null
+          hit="$(grep -RIl -m1 'Invalid graphics recovery value' /tmp/xhyn-launcher 2>/dev/null || true)"
+          if [ -z "$hit" ]; then
+            echo "graphics recovery validator string not found in decoded launcher" >&2
+            exit 1
+          fi
+          echo "graphics recovery validator located in $hit"
+          grep -n -B20 -A40 'Invalid graphics recovery value' "$hit"
+
       - name: Patch original APK without rebuilding package structure
         shell: bash
         run: |
