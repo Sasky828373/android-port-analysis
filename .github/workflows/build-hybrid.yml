@@ -977,6 +977,35 @@ jobs:
             hybrid-report/grc-device-bootstrap/relevant-symbols.txt
             hybrid-report/grc-device-bootstrap/control-flow-highlights.txt
 
+      - name: Resolve exact legacy device bootstrap imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          readelf -W -r "$LIB" | grep -Ei '6f319a8|6f31a50|6f31a58|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/device-bootstrap-relocations.txt || true
+          readelf -W -s "$LIB" | grep -E 'g_D3D11CreateDevice|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/device-bootstrap-symbols.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          ph=subprocess.check_output(["readelf","-W","-l",str(p)],text=True)
+          seg=[]
+          for line in ph.splitlines():
+            q=line.split()
+            if q and q[0]=="LOAD":
+              seg.append((int(q[2],16),int(q[5],16),int(q[1],16)))
+          b=p.read_bytes()
+          def readva(va,n=160):
+            for v,sz,o in seg:
+              if v<=va<v+sz: return b[o+va-v:o+va-v+n]
+            return b""
+          # Strings referenced by the fatal D3D creation path and immediate post-create diagnostics.
+          for va,name in [(0x245aff3,"device-create-failure"),(0x20fd3c3,"post-create-display"),(0x24a4b2e,"feature-level-display")]:
+            x=readva(va)
+            Path("hybrid-report/grc-device-bootstrap/"+name+".txt").write_text(f"VA=0x{va:x}\nRAW={x.hex()}\nSTRINGS="+repr([s.decode("utf-8","replace") for s in re.findall(rb"[ -~]{4,}",x)]))
+          PY
+
       - name: Keep verified bootable engine startup
         shell: bash
         run: |
