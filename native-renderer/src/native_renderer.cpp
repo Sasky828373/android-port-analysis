@@ -17,6 +17,9 @@ struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice de
 static Runtime g;
 static std::mutex resourceMutex;
 static std::unordered_map<uint64_t,GtavNativeResourceHandle> resources;
+struct NativePipelineCacheEntry { VkPipeline pipeline{}; VkPipelineLayout layout{}; VkDescriptorSet descriptor{}; };
+static std::mutex pipelineCacheMutex;
+static std::unordered_map<uint64_t,NativePipelineCacheEntry> pipelineCache;
 static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
@@ -95,6 +98,15 @@ static void load13(VkDevice d){
  if(!pSubmit2)pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(d,"vkQueueSubmit2KHR"));
 }
 static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3)^uint64_t(kind); }
+static uint64_t hashMix(uint64_t h,uint64_t v){h^=v+0x9e3779b97f4a7c15ull+(h<<6)+(h>>2);return h;}
+static uint64_t graphicsStateKey(const RageMirrorState& s){
+ uint64_t h=0xcbf29ce484222325ull;
+ h=hashMix(h,(uintptr_t)s.inputLayout); h=hashMix(h,(uintptr_t)s.vs); h=hashMix(h,(uintptr_t)s.ps);
+ h=hashMix(h,s.topology); h=hashMix(h,s.rtvCount); h=hashMix(h,(uintptr_t)s.dsv);
+ for(unsigned i=0;i<s.rtvCount&&i<8;i++)h=hashMix(h,(uintptr_t)s.rtv[i]);
+ for(unsigned i=0;i<16;i++){h=hashMix(h,(uintptr_t)s.vertexBuffers[i]);h=hashMix(h,s.strides[i]);}
+ return h;
+}
 
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){if(!rage||!vk||!kind)return false;std::lock_guard<std::mutex> l(resourceMutex);resources[resourceKey(rage,kind)]={rage,vk,kind,generation};capture("REGISTER",(void*)(uintptr_t)rage,vk);return true;}
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_resolve_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);auto i=resources.find(resourceKey(rage,kind));return i==resources.end()?0:i->second.vk_handle;}
@@ -358,9 +370,14 @@ static void captureMappedState(void* ctx,const RageMirrorState& m){
  for(unsigned i=0;i<16;i++){reg("MAP-VSCB",m.vsCB[i],NR_CBUFFER);reg("MAP-PSCB",m.psCB[i],NR_CBUFFER);reg("MAP-CSCB",m.csCB[i],NR_CBUFFER);}
  for(unsigned i=0;i<32;i++){reg("MAP-VSSRV",m.vsSRV[i],NR_SRV);reg("MAP-PSSRV",m.psSRV[i],NR_SRV);reg("MAP-CSSRV",m.csSRV[i],NR_SRV);}
  for(unsigned i=0;i<16;i++){reg("MAP-VSSAMP",m.vsSampler[i],NR_SAMPLER);reg("MAP-PSSAMP",m.psSampler[i],NR_SAMPLER);reg("MAP-CSSAMP",m.csSampler[i],NR_SAMPLER);reg("MAP-CSUAV",m.csUAV[i],NR_UAV);}
- uint64_t pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
- uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
- uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ uint64_t stateKey=graphicsStateKey(m);
+ uint64_t pipe=gtav_native_renderer_resolve_resource(stateKey,NR_GRAPHICS_PIPELINE);
+ uint64_t layout=gtav_native_renderer_resolve_resource(stateKey,NR_PIPELINE_LAYOUT);
+ uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
+ // Compatibility fallback for already-registered context keyed state.
+ if(!pipe)pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
+ if(!layout)layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
+ if(!desc)desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
  if(pipe)capture("MAP-PIPE",ctx,pipe); if(layout)capture("MAP-LAYOUT",ctx,layout); if(desc)capture("MAP-DESC",ctx,desc);
 }
 
