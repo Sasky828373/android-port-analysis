@@ -1078,6 +1078,62 @@ jobs:
 
 
 
+      - name: Trace exact DXGI factory consumer and adapter calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OUT=hybrid-report/dxgi-factory
+          mkdir -p "$OUT"
+
+          "$NM" -n -C "$LIB" | grep -Ei 'CreateDXGIFactory|g_CreateDXGIFactory|DXGI|Adapter|InitAdapterOrdinal|InitClass' > "$OUT/symbols.txt" || true
+          "$READELF" -Wr "$LIB" | grep -Ei 'CreateDXGIFactory|DXGI|Adapter' > "$OUT/relocations.txt" || true
+
+          python3 - <<'PY'
+          import re,subprocess,os
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          obj=os.environ["ANDROID_NDK_HOME"]+"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          nm=os.environ["ANDROID_NDK_HOME"]+"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          syms=subprocess.check_output([nm,"-n","-C",lib],text=True,errors="replace")
+          out="hybrid-report/dxgi-factory"
+          targets=[]
+          for line in syms.splitlines():
+              if re.search(r'CreateDXGIFactory|InitAdapterOrdinal|grcDevice::InitClass',line,re.I):
+                  m=re.match(r'([0-9a-fA-F]+)\s+\S+\s+(.+)',line)
+                  if m: targets.append((int(m.group(1),16),m.group(2)))
+          with open(out+"/targeted-disassembly.txt","w") as w:
+              for va,name in targets:
+                  start=max(0,va-0x100); stop=va+0x500
+                  w.write("\n===== %s @ 0x%x =====\n"%(name,va))
+                  p=subprocess.run([obj,"-d","--demangle","--start-address=0x%x"%start,"--stop-address=0x%x"%stop,lib],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                  w.write(p.stdout)
+          PY
+
+          # InitClass is already proven to own the graphics bootstrap; capture a
+          # wider exact window so factory result checks and subsequent indirect
+          # vtable calls are visible without another full-lib objdump.
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x6158600 "$LIB" > "$OUT/initclass-factory-flow.txt"
+
+          {
+            echo "Goal: identify CreateDXGIFactory call, HRESULT handling, output object storage, and every indirect call consuming that object."
+            echo "Runtime proof: null/E_FAIL continued to SIGBUS before D3D11CreateDevice*, so factory state is required."
+          } > "$OUT/README.txt"
+
+      - name: Upload DXGI factory consumer trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxgi-factory-trace-${{ github.run_number }}
+          path: |
+            hybrid-report/dxgi-factory/symbols.txt
+            hybrid-report/dxgi-factory/relocations.txt
+            hybrid-report/dxgi-factory/targeted-disassembly.txt
+            hybrid-report/dxgi-factory/initclass-factory-flow.txt
+            hybrid-report/dxgi-factory/README.txt
+          if-no-files-found: error
+
       - name: Apply first native Vulkan bootstrap patch
         shell: bash
         run: |
