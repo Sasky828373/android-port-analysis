@@ -149,6 +149,40 @@ jobs:
           Path("hybrid-report/vulkan-sync-relocations.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: GOLD embedded Vulkan dispatch audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          libs=[
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"),
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so"),
+          ]
+          needles=("vkGetDeviceProcAddr","vkGetInstanceProcAddr","vkWaitForFences","vkWaitSemaphores",
+                   "vkQueueSubmit","vkQueuePresentKHR","vkAcquireNextImageKHR",
+                   "vkUpdateDescriptorSets","vkUpdateDescriptorSetWithTemplate")
+          out=[]
+          for lib in libs:
+            out += [f"=== {lib.name} ==="]
+            for cmd,title in [(["readelf","-Ws",str(lib)],"symbols"),
+                              (["readelf","-rW",str(lib)],"relocations"),
+                              (["readelf","-x",".dynstr",str(lib)],"dynstr")]:
+              out.append(f"-- {title} --")
+              p=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+              hits=[ln for ln in p.stdout.splitlines() if any(n in ln for n in needles)]
+              out.extend(hits or ["(no direct entries)"])
+            # Dynamic dispatch tables often hide direct relocations; retain loader/dispatch strings.
+            s=subprocess.run(["strings","-a","-t","x",str(lib)],text=True,stdout=subprocess.PIPE).stdout
+            out.append("-- string offsets --")
+            hits=[ln for ln in s.splitlines() if any(n in ln for n in needles)]
+            out.extend(hits or ["(no strings)"])
+            out.append("")
+          Path("hybrid-report/gold-vulkan-dispatch-audit.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
