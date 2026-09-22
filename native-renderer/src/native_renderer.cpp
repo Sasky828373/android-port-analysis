@@ -342,6 +342,38 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
  if(kind!=NR_SRV&&kind!=NR_RTV&&kind!=NR_DSV&&kind!=NR_UAV)return false;
  return gtav_native_renderer_register_resource(rageResource,(uint64_t)(uintptr_t)view,kind,0);
 }
+extern "C" __attribute__((visibility("default"))) VkShaderModule gtav_native_renderer_create_shader_module(const uint32_t* code,size_t bytes){
+ if(!g.device||!code||bytes<20||(bytes&3)||code[0]!=0x07230203u)return VK_NULL_HANDLE;
+ VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=bytes;ci.pCode=code;
+ VkShaderModule m=VK_NULL_HANDLE;return vkCreateShaderModule(g.device,&ci,nullptr,&m)==VK_SUCCESS?m:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) VkDescriptorSetLayout gtav_native_renderer_create_descriptor_set_layout(const VkDescriptorSetLayoutBinding* bindings,uint32_t count){
+ if(!g.device)return VK_NULL_HANDLE;VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};ci.bindingCount=count;ci.pBindings=bindings;
+ VkDescriptorSetLayout l=VK_NULL_HANDLE;return vkCreateDescriptorSetLayout(g.device,&ci,nullptr,&l)==VK_SUCCESS?l:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) VkPipelineLayout gtav_native_renderer_create_pipeline_layout(const VkDescriptorSetLayout* sets,uint32_t count){
+ if(!g.device)return VK_NULL_HANDLE;VkPipelineLayoutCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};ci.setLayoutCount=count;ci.pSetLayouts=sets;
+ VkPipelineLayout l=VK_NULL_HANDLE;return vkCreatePipelineLayout(g.device,&ci,nullptr,&l)==VK_SUCCESS?l:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) VkDescriptorSet gtav_native_renderer_alloc_descriptor_set(VkDescriptorSetLayout layout){
+ if(!g.device||!g.descriptors||!layout)return VK_NULL_HANDLE;VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=g.descriptors;ai.descriptorSetCount=1;ai.pSetLayouts=&layout;
+ VkDescriptorSet s=VK_NULL_HANDLE;return vkAllocateDescriptorSets(g.device,&ai,&s)==VK_SUCCESS?s:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_update_descriptors(const VkWriteDescriptorSet* writes,uint32_t count){
+ if(g.device&&writes&&count)vkUpdateDescriptorSets(g.device,count,writes,0,nullptr);
+}
+extern "C" __attribute__((visibility("default"))) VkPipeline gtav_native_renderer_create_graphics_pipeline(const VkGraphicsPipelineCreateInfo* ci){
+ if(!g.device||!ci)return VK_NULL_HANDLE;VkPipeline p=VK_NULL_HANDLE;return vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,ci,nullptr,&p)==VK_SUCCESS?p:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) VkPipeline gtav_native_renderer_create_compute_pipeline(const VkComputePipelineCreateInfo* ci){
+ if(!g.device||!ci)return VK_NULL_HANDLE;VkPipeline p=VK_NULL_HANDLE;return vkCreateComputePipelines(g.device,VK_NULL_HANDLE,1,ci,nullptr,&p)==VK_SUCCESS?p:VK_NULL_HANDLE;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_graphics_state(uint64_t key,VkPipeline p,VkPipelineLayout l,VkDescriptorSet d){
+ if(!key||!p||!l||!d)return false;{std::lock_guard<std::mutex> g2(pipelineCacheMutex);pipelineCache[key]={p,l,d};}
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)p,NR_GRAPHICS_PIPELINE,0);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)l,NR_PIPELINE_LAYOUT,0);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)d,NR_DESCRIPTOR_SET,0);return true;
+}
 struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; VkImageAspectFlags aspect{}; };
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
@@ -414,9 +446,11 @@ static void captureMappedState(void* ctx,const RageMirrorState& m){
  for(unsigned i=0;i<32;i++){reg("MAP-VSSRV",m.vsSRV[i],NR_SRV);reg("MAP-PSSRV",m.psSRV[i],NR_SRV);reg("MAP-CSSRV",m.csSRV[i],NR_SRV);}
  for(unsigned i=0;i<16;i++){reg("MAP-VSSAMP",m.vsSampler[i],NR_SAMPLER);reg("MAP-PSSAMP",m.psSampler[i],NR_SAMPLER);reg("MAP-CSSAMP",m.csSampler[i],NR_SAMPLER);reg("MAP-CSUAV",m.csUAV[i],NR_UAV);}
  uint64_t stateKey=graphicsStateKey(m);
- uint64_t pipe=gtav_native_renderer_resolve_resource(stateKey,NR_GRAPHICS_PIPELINE);
- uint64_t layout=gtav_native_renderer_resolve_resource(stateKey,NR_PIPELINE_LAYOUT);
- uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
+ uint64_t pipe=0,layout=0,desc=0;
+ {std::lock_guard<std::mutex> l(pipelineCacheMutex);auto it=pipelineCache.find(stateKey);if(it!=pipelineCache.end()){pipe=(uint64_t)(uintptr_t)it->second.pipeline;layout=(uint64_t)(uintptr_t)it->second.layout;desc=(uint64_t)(uintptr_t)it->second.descriptor;}}
+ if(!pipe)pipe=gtav_native_renderer_resolve_resource(stateKey,NR_GRAPHICS_PIPELINE);
+ if(!layout)layout=gtav_native_renderer_resolve_resource(stateKey,NR_PIPELINE_LAYOUT);
+ if(!desc)desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
  // Compatibility fallback for already-registered context keyed state.
  if(!pipe)pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
  if(!layout)layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
