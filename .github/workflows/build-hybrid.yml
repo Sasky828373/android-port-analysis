@@ -948,6 +948,12 @@ jobs:
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
 
+          # Remove libgtav's loader-level dependency on the old translator.
+          sudo apt-get update -q
+          sudo apt-get install -y patchelf
+          patchelf --remove-needed libdxvk_d3d11.so patchstage/lib/arm64-v8a/libgtav.so || true
+          ! patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so | grep -Fx libdxvk_d3d11.so
+
           # DXVK-free final package: remove DXVK from both native libs and every asset path.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
@@ -980,6 +986,8 @@ jobs:
           ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
           ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -Ei '(^|/)[^/]*dxvk[^/]*($|/)|libdxvk_.*\\.so'
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav.so > /tmp/final-libgtav.so
+          ! patchelf --print-needed /tmp/final-libgtav.so | grep -E '^libdxvk_'
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
