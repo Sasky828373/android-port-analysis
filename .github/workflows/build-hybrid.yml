@@ -948,13 +948,19 @@ jobs:
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
 
-          # Remove libgtav's loader-level dependency on the old translator.
+          # Remove all loader-level dependencies on the old DXVK translator.
           sudo apt-get update -q
           sudo apt-get install -y patchelf
-          patchelf --remove-needed libdxvk_d3d11.so patchstage/lib/arm64-v8a/libgtav.so || true
-          patchelf --remove-needed libdxvk_dxgi.so patchstage/lib/arm64-v8a/libgtav.so || true
-          patchelf --remove-needed libdxvk_d3d10core.so patchstage/lib/arm64-v8a/libgtav.so || true
-          if patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so | grep -E '^libdxvk_(d3d11|dxgi|d3d10core)\\.so          # DXVK-free final package: remove DXVK from both native libs and every asset path.
+          for dep in libdxvk_d3d11.so libdxvk_dxgi.so libdxvk_d3d10core.so; do
+            patchelf --remove-needed "$dep" patchstage/lib/arm64-v8a/libgtav.so 2>/dev/null || true
+          done
+          remaining="$(patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so | grep '^libdxvk_' || true)"
+          if [ -n "$remaining" ]; then
+            echo "DXVK DT_NEEDED remains in libgtav.so: $remaining" >&2
+            exit 1
+          fi
+
+          # DXVK-free final package: remove DXVK from both native libs and every asset path.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' \
