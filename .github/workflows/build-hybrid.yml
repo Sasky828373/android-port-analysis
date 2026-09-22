@@ -907,6 +907,24 @@ jobs:
           PY
           test -s hybrid-report/rage-d3d11-migration-targets.txt
 
+      - name: Enable built-in native Vulkan backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes())
+          off=0x622efc8
+          expected=bytes.fromhex("fd7bbea9f30b00f9fd030091")
+          assert b[off:off+len(expected)] == expected, (off,b[off:off+len(expected)].hex())
+          # IsRequested(): mov w0,#1 ; ret ; nop
+          b[off:off+12]=bytes.fromhex("20008052c0035fd61f2003d5")
+          p.write_bytes(b)
+          print("Enabled RAGE grVulkanNativeDeviceAdapter::IsRequested()")
+          PY
+          "$OBJDUMP" -d --demangle --start-address=0x622efc8 --stop-address=0x622efe0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so | tee hybrid-report/native-adapter/isrequested-enabled.disasm.txt
+
       - name: Keep verified bootable engine startup
         shell: bash
         run: |
