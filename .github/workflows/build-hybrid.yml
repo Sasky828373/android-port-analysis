@@ -339,6 +339,38 @@ jobs:
           Path("hybrid-report/gold-dispatch-symbol-map.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Locate GOLD Vulkan dispatch objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          data=lib.read_bytes()
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          wanted=[b"vkQueueSubmit",b"vkQueueSubmit2",b"vkQueuePresentKHR",b"vkWaitForFences",
+                  b"vkWaitSemaphores",b"vkAcquireNextImageKHR",b"vkUpdateDescriptorSets",
+                  b"vkUpdateDescriptorSetWithTemplate",b"vkGetDeviceProcAddr",b"vkGetInstanceProcAddr"]
+          out=[]
+          for s in wanted:
+            off=data.find(s)
+            if off<0: continue
+            out.append(f"=== {s.decode()} @ file/VA 0x{off:x} ===")
+            page=off & ~0xfff; lo=off & 0xfff
+            # Find ADRP to page, then nearby ADD/LDR forming exact address.
+            for i,line in enumerate(dis):
+              m=re.search(r'adrp\s+x(\d+),\s*([0-9a-fA-F]+)',line)
+              if not m or int(m.group(2),16)!=page: continue
+              reg=m.group(1)
+              for j in range(i+1,min(i+8,len(dis))):
+                if re.search(rf'add\s+x{reg},\s*x{reg},\s*#0x{lo:x}\b',dis[j]):
+                  out.append("\n".join(dis[max(0,i-10):min(len(dis),j+18)]))
+                  out.append("---")
+                  break
+          Path("hybrid-report/gold-vulkan-proc-xrefs-v2.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
