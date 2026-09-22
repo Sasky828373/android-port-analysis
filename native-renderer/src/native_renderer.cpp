@@ -303,6 +303,26 @@ enum NativeResourceKind : uint32_t {
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
+static void captureMappedState(void* ctx,const RageMirrorState& m){
+ auto reg=[&](const char* tag,void* rage,uint32_t kind){
+   if(!rage)return;
+   uint64_t vk=resolveMapped(rage,kind);
+   if(vk) capture(tag,rage,vk);
+ };
+ for(unsigned i=0;i<16;i++) reg("MAP-VB",m.vertexBuffers[i],NR_VERTEX_BUFFER);
+ reg("MAP-IB",m.indexBuffer,NR_INDEX_BUFFER);
+ reg("MAP-VS",m.vs,NR_VS); reg("MAP-PS",m.ps,NR_PS); reg("MAP-CS",m.cs,NR_CS);
+ for(unsigned i=0;i<m.rtvCount&&i<8;i++) reg("MAP-RTV",m.rtv[i],NR_RTV);
+ reg("MAP-DSV",m.dsv,NR_DSV);
+ for(unsigned i=0;i<16;i++){reg("MAP-VSCB",m.vsCB[i],NR_CBUFFER);reg("MAP-PSCB",m.psCB[i],NR_CBUFFER);reg("MAP-CSCB",m.csCB[i],NR_CBUFFER);}
+ for(unsigned i=0;i<32;i++){reg("MAP-VSSRV",m.vsSRV[i],NR_SRV);reg("MAP-PSSRV",m.psSRV[i],NR_SRV);reg("MAP-CSSRV",m.csSRV[i],NR_SRV);}
+ for(unsigned i=0;i<16;i++){reg("MAP-VSSAMP",m.vsSampler[i],NR_SAMPLER);reg("MAP-PSSAMP",m.psSampler[i],NR_SAMPLER);reg("MAP-CSSAMP",m.csSampler[i],NR_SAMPLER);reg("MAP-CSUAV",m.csUAV[i],NR_UAV);}
+ uint64_t pipe=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_GRAPHICS_PIPELINE);
+ uint64_t layout=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_PIPELINE_LAYOUT);
+ uint64_t desc=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)ctx,NR_DESCRIPTOR_SET);
+ if(pipe)capture("MAP-PIPE",ctx,pipe); if(layout)capture("MAP-LAYOUT",ctx,layout); if(desc)capture("MAP-DESC",ctx,desc);
+}
+
 static bool mirroredStateComplete(void* ctx){
  std::lock_guard<std::mutex> l(mirrorMutex);
  auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false;
@@ -315,6 +335,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false; m=it->second; }
  if(!m.inputLayout || !m.vertexBuffers[0] || !m.vs || !m.ps || !m.rtvCount || !m.rtv[0]) return false;
+ captureMappedState(ctx,m);
  VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
  if(cb==VK_NULL_HANDLE) return false;
  uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
