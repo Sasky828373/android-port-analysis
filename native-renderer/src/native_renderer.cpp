@@ -73,8 +73,11 @@ static int32_t legacyD3DLeak(const char* name) {
 // moves diagnostics to the actual device-creation boundary.
 extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
   if(out)*out=nullptr;
-  gtavdiag::checkpoint("dxgi-factory-bypassed");
-  return (int32_t)0x80004005u; // E_FAIL
+  // The previous E_FAIL/null experiment proved the caller still dereferences
+  // factory state: it continued into an invalid indirect target. Stop before
+  // that dereference and record the exact boundary instead of fabricating COM.
+  gtavdiag::checkpoint("dxgi-factory-required-no-safe-fallback");
+  return legacyD3DLeak("CreateDXGIFactory-required");
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,
