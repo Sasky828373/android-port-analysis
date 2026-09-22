@@ -935,11 +935,12 @@ jobs:
           # Exact-build safety: reject blank/already-corrupt locations. Re-running is OK.
           if old != patch:
               first=int.from_bytes(old[:4],"little")
-              is_prologue=((first & 0xffc003ff)==0xd10003ff or
-                           (first & 0xffc07fff)==0xa9807bfd or
-                           (first & 0x9f000000)==0x90000000 or
-                           (first & 0xfc000000)==0x14000000)
-              if not is_prologue:
+              # Exact bytes observed for this libgtav build:
+              #   2a1f03e1  mov w1, wzr
+              #   2a1f03e3  mov w3, wzr
+              # This is a tiny leaf selector, not a stack-frame prologue.
+              expected=bytes.fromhex("e1031f2ae3031f2a")
+              if old != expected:
                   raise SystemExit(f"IsRequested unexpected bytes {old.hex()} at {off:#x}")
               b[off:off+8]=patch
           p.write_bytes(b)
