@@ -10,6 +10,7 @@
 #include <link.h>
 #include "native_dispatch.h"
 #include <dlfcn.h>
+#include <android/log.h>
 
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
@@ -42,6 +43,14 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
+static std::atomic<uint32_t> captureBudget{4096};
+static void capture(const char* kind,void* rage,uint64_t vk=0){
+ if(!rage)return; uint32_t b=captureBudget.load(std::memory_order_relaxed);
+ while(b&& !captureBudget.compare_exchange_weak(b,b-1,std::memory_order_relaxed)){}
+ if(!b)return;
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","%s rage=%p vk=0x%llx",kind,rage,(unsigned long long)vk);
+}
+
 static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
@@ -79,7 +88,7 @@ static void load13(VkDevice d){
 }
 static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3)^uint64_t(kind); }
 
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){if(!rage||!vk||!kind)return false;std::lock_guard<std::mutex> l(resourceMutex);resources[resourceKey(rage,kind)]={rage,vk,kind,generation};return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){if(!rage||!vk||!kind)return false;std::lock_guard<std::mutex> l(resourceMutex);resources[resourceKey(rage,kind)]={rage,vk,kind,generation};capture("REGISTER",(void*)(uintptr_t)rage,vk);return true;}
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_resolve_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);auto i=resources.find(resourceKey(rage,kind));return i==resources.end()?0:i->second.vk_handle;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
 
@@ -159,17 +168,17 @@ static void hookIASetInputLayout(void* ctx,void* layout){
  if(origIASetInputLayout)origIASetInputLayout(ctx,layout);
 }
 static void hookIASetVertexBuffers(void* ctx,uint32_t first,uint32_t count,void* const* bufs,const uint32_t* strides,const uint32_t* offsets){
- {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);for(uint32_t i=0;i<count&&first+i<16;i++){s.vertexBuffers[first+i]=bufs?bufs[i]:nullptr;s.strides[first+i]=strides?strides[i]:0;s.offsets[first+i]=offsets?offsets[i]:0;}}
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);for(uint32_t i=0;i<count&&first+i<16;i++){s.vertexBuffers[first+i]=bufs?bufs[i]:nullptr;s.strides[first+i]=strides?strides[i]:0;s.offsets[first+i]=offsets?offsets[i]:0;if(s.vertexBuffers[first+i])capture("VB",s.vertexBuffers[first+i]);}}
  if(origIASetVertexBuffers)origIASetVertexBuffers(ctx,first,count,bufs,strides,offsets);
 }
 static void hookIASetIndexBuffer(void* ctx,void* buf,uint32_t format,uint32_t offset){
- {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.indexBuffer=buf;s.indexFormat=format;s.indexOffset=offset;}
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.indexBuffer=buf;s.indexFormat=format;s.indexOffset=offset;capture("IB",buf);}
  if(origIASetIndexBuffer)origIASetIndexBuffer(ctx,buf,format,offset);
 }
 static void hookIASetPrimitiveTopology(void* ctx,uint32_t t){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).topology=t;}if(origIASetPrimitiveTopology)origIASetPrimitiveTopology(ctx,t);}
-static void hookVSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).vs=sh;}if(origVSSetShader)origVSSetShader(ctx,sh,ci,n);}
-static void hookPSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).ps=sh;}if(origPSSetShader)origPSSetShader(ctx,sh,ci,n);}
-static void hookCSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).cs=sh;}if(origCSSetShader)origCSSetShader(ctx,sh,ci,n);}
+static void hookVSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).vs=sh;capture("VS",sh);}if(origVSSetShader)origVSSetShader(ctx,sh,ci,n);}
+static void hookPSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).ps=sh;capture("PS",sh);}if(origPSSetShader)origPSSetShader(ctx,sh,ci,n);}
+static void hookCSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).cs=sh;capture("CS",sh);}if(origCSSetShader)origCSSetShader(ctx,sh,ci,n);}
 static void hookRSSetViewports(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.viewportCount=n>4?4:n;if(p)std::memcpy(s.viewports,p,s.viewportCount*24);}if(origRSSetViewports)origRSSetViewports(ctx,n,p);}
 static void hookRSSetScissorRects(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.scissorCount=n>16?16:n;if(p)std::memcpy(s.scissors,p,s.scissorCount*16);}if(origRSSetScissorRects)origRSSetScissorRects(ctx,n,p);}
 using OrigSetObjects=void(*)(void*,uint32_t,uint32_t,void* const*);
@@ -184,7 +193,7 @@ OBJHOOK(hVSSRV,vsSRV,32,oVSSRV) OBJHOOK(hPSSRV,psSRV,32,oPSSRV) OBJHOOK(hCSSRV,c
 OBJHOOK(hVSSamp,vsSampler,16,oVSSamp) OBJHOOK(hPSSamp,psSampler,16,oPSSamp) OBJHOOK(hCSSamp,csSampler,16,oCSSamp)
 #undef OBJHOOK
 static void hCSUAV(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* counts){{std::lock_guard<std::mutex> l(mirrorMutex);mirrorObjs(mirror(c).csUAV,16,f,n,v);}if(oCSUAV)oCSUAV(c,f,n,v,counts);}
-static void hOMRT(void* c,uint32_t n,void* const* r,void* d){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;}if(oOMRT)oOMRT(c,n,r,d);}
+static void hOMRT(void* c,uint32_t n,void* const* r,void* d){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;for(uint32_t i=0;i<s.rtvCount;i++)capture("RTV",s.rtv[i]);capture("DSV",d);}if(oOMRT)oOMRT(c,n,r,d);}
 
 
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
