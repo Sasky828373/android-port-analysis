@@ -11,13 +11,54 @@
 #include "native_dispatch.h"
 #include <dlfcn.h>
 #include <android/log.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <ucontext.h>
+#include <cstdio>
+#include <cstdlib>
 
+
+
+namespace gtavdiag {
+static const char* kPath="/storage/emulated/0/Games/GTAV/Config/gtav-native-crash.txt";
+static std::atomic<uint32_t> seq{0};
+static std::atomic<const char*> last{"native-renderer-loaded"};
+static void ensureDir(){ mkdir("/storage/emulated/0/Games",0775); mkdir("/storage/emulated/0/Games/GTAV",0775); mkdir("/storage/emulated/0/Games/GTAV/Config",0775); }
+static void append(const char* s){ ensureDir(); int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664); if(fd>=0){write(fd,s,strlen(s));close(fd);} }
+static void checkpoint(const char* name,const char* detail=nullptr){
+ last.store(name,std::memory_order_relaxed); char b[768];
+ int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s\n",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
+ if(n>0) append(b); __android_log_print(ANDROID_LOG_INFO,"GTAV-DIAG","%s%s%s",name,detail?" ":"",detail?detail:"");
+}
+static char* puthex(char* p,uint64_t v){static const char h[]="0123456789abcdef";*p++='0';*p++='x';bool s=false;for(int i=15;i>=0;--i){unsigned d=(v>>(i*4))&15;if(d||s||i==0){*p++=h[d];s=true;}}return p;}
+static char* putdec(char* p,unsigned v){char t[16];int n=0;do{t[n++]=char('0'+v%10);v/=10;}while(v);while(n)*p++=t[--n];return p;}
+static void crashHandler(int sig,siginfo_t* si,void* ctx){
+ char b[512],*p=b; const char* a="\n=== GTAV NATIVE CRASH ===\nsignal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
+ const char* q=" fault=";memcpy(p,q,strlen(q));p+=strlen(q);p=puthex(p,(uint64_t)(uintptr_t)(si?si->si_addr:nullptr));
+#if defined(__aarch64__)
+ ucontext_t* uc=(ucontext_t*)ctx;const char* r=" pc=";memcpy(p,r,strlen(r));p+=strlen(r);p=puthex(p,(uint64_t)uc->uc_mcontext.pc);
+ const char* s=" sp=";memcpy(p,s,strlen(s));p+=strlen(s);p=puthex(p,(uint64_t)uc->uc_mcontext.sp);
+ const char* l=" lr=";memcpy(p,l,strlen(l));p+=strlen(l);p=puthex(p,(uint64_t)uc->uc_mcontext.regs[30]);
+#endif
+ const char* x=" last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=last.load(std::memory_order_relaxed);size_t zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='\n';
+ int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664);if(fd>=0){write(fd,b,p-b);close(fd);}
+ signal(sig,SIG_DFL);syscall(SYS_tgkill,getpid(),syscall(SYS_gettid),sig);
+}
+__attribute__((constructor)) static void install(){
+ ensureDir();int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v1\n";write(fd,h,strlen(h));close(fd);}
+ struct sigaction sa{};sa.sa_sigaction=crashHandler;sigemptyset(&sa.sa_mask);sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
+ int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGTRAP};for(int s:sigs)sigaction(s,&sa,nullptr);checkpoint("diagnostic-installed");
+}
+}
 
 // Legacy import symbols remain exported only so Android's loader can resolve libgtav.so.
 // DXVK is intentionally not packaged. These guards are NOT a fake D3D implementation:
 // returning fabricated COM objects would crash later and hide the real migration gap.
 // Native Vulkan attaches to the engine runtime only after that runtime has valid handles.
 static int32_t legacyD3DLeak(const char* name) {
+  gtavdiag::checkpoint("legacy-d3d-entry",name);
   // A DXGI/D3D11 entry here means the engine is still taking its legacy bootstrap.
   // Do not return E_NOTIMPL: the caller treats device creation failure as fatal before
   // grVulkanRuntime can become available. Abort this path deterministically and leave
@@ -163,6 +204,7 @@ using GetDeviceFn=VkDevice(*)();
 using GetQueueFn=VkQueue(*)();
 using GetQueueFamilyFn=uint32_t(*)();
 static bool attachFromGtavRuntime(){
+ gtavdiag::checkpoint("attach-attempt");
  const uint32_t attempt=attachAttempts.fetch_add(1,std::memory_order_relaxed)+1;
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){ if(attempt<=8) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait: libgtav base unavailable attempt=%u",attempt); return false; }
@@ -172,8 +214,9 @@ static bool attachFromGtavRuntime(){
  auto gq=(GetQueueFn)(gtavBase+0x62328b4);
  auto gf=(GetQueueFamilyFn)(gtavBase+0x62328c0);
  VkInstance i=gi(); VkPhysicalDevice p=gp(); VkDevice d=gd(); VkQueue q=gq(); uint32_t family=gf();
- if(!i||!p||!d||!q){ if(attempt<=32 || (attempt%120)==0) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait attempt=%u i=%p p=%p d=%p q=%p family=%u",attempt,(void*)i,(void*)p,(void*)d,(void*)q,family); return false; }
+ if(!i||!p||!d||!q){ gtavdiag::checkpoint("vulkan-runtime-handles-not-ready"); if(attempt<=32 || (attempt%120)==0) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait attempt=%u i=%p p=%p d=%p q=%p family=%u",attempt,(void*)i,(void*)p,(void*)d,(void*)q,family); return false; }
  const bool ok=gtav_native_renderer_attach(i,p,d,q,family);
+ if(ok) gtavdiag::checkpoint("vulkan-native-attached"); else gtavdiag::checkpoint("vulkan-native-attach-failed");
  if(ok && attachSuccesses.fetch_add(1,std::memory_order_relaxed)==0) __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","ATTACH READY i=%p p=%p d=%p q=%p family=%u",(void*)i,(void*)p,(void*)d,(void*)q,family);
  return ok;
 }
