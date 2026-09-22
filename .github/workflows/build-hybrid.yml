@@ -934,21 +934,31 @@ jobs:
           test -s lib/arm64-v8a/libgtavvk.so
           test -s lib/arm64-v8a/libgtav_native_renderer.so
 
-      - name: Decode launcher and locate graphics recovery validator
+      - name: Patch launcher graphics recovery validator
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -q
           sudo apt-get install -y apktool
-          rm -rf /tmp/xhyn-launcher
+          rm -rf /tmp/xhyn-launcher /tmp/xhyn-launcher-built.apk
           apktool d -f -r "XHYN V_0.17custom.apk" -o /tmp/xhyn-launcher >/dev/null
-          hit="$(grep -RIl -m1 'Invalid graphics recovery value' /tmp/xhyn-launcher 2>/dev/null || true)"
-          if [ -z "$hit" ]; then
-            echo "graphics recovery validator string not found in decoded launcher" >&2
-            exit 1
-          fi
-          echo "graphics recovery validator located in $hit"
-          grep -n -B20 -A40 'Invalid graphics recovery value' "$hit"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("/tmp/xhyn-launcher/smali/com/gtavsource/android/XhynGraphics.smali")
+          s=p.read_text()
+          marker='const-string v1, "Invalid graphics recovery value"'
+          m=s.find(marker)
+          if m < 0: raise SystemExit("graphics recovery validator not found")
+          before=s[:m]
+          gate='    if-eqz v8, :cond_6'
+          g=before.rfind(gate)
+          if g < 0 or m-g > 1200: raise SystemExit("expected recovery value gate not found")
+          s=s[:g]+'    # native build: accept recovery value\n'+s[g+len(gate):]
+          p.write_text(s)
+          PY
+          apktool b /tmp/xhyn-launcher -o /tmp/xhyn-launcher-built.apk >/dev/null
+          unzip -p /tmp/xhyn-launcher-built.apk classes.dex > /tmp/patched-classes.dex
+          test -s /tmp/patched-classes.dex
 
       - name: Patch original APK without rebuilding package structure
         shell: bash
@@ -958,6 +968,8 @@ jobs:
           mkdir -p patchstage/assets patchstage/lib/arm64-v8a out
           cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'META-INF/*' || true
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex || true
+          cp /tmp/patched-classes.dex patchstage/classes.dex
 
           # Reset launcher-side graphics recovery state. This state is stored outside the
           # visible settings UI and can survive renderer/package changes.
@@ -980,7 +992,7 @@ jobs:
           grep -E '^(CreateDXGIFactory|D3D11CreateDevice|D3D11CreateDeviceAndSwapChain)$' /tmp/libgtav-undefined.txt || true
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' 'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' 'assets/*dxvk*' 'assets/dxvk/*' || true
           cd patchstage
-          zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
+          zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
           zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini
           cd ..
 
