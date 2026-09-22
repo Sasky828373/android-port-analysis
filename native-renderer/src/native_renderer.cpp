@@ -71,13 +71,50 @@ static int32_t legacyD3DLeak(const char* name) {
 // optional adapter-enumeration path and can fall back to the default adapter.
 // Returning a normal failure with a null output lets that fallback execute and
 // moves diagnostics to the actual device-creation boundary.
+namespace {
+struct CompatDXGIFactory { void** vtbl; };
+struct CompatDXGIAdapter { void** vtbl; };
+static CompatDXGIFactory gCompatFactory{};
+static CompatDXGIAdapter gCompatAdapter{};
+static void* gFactoryVtable[8]{};
+static void* gAdapterVtable[9]{};
+
+static uint32_t compatRelease(void*) { return 1; }
+static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
+  gtavdiag::checkpoint("compat-dxgi-enum-adapters");
+  if (!out) return (int32_t)0x80004003u;
+  if (index != 0) { *out=nullptr; return (int32_t)0x887A0002u; } // DXGI_ERROR_NOT_FOUND
+  *out=&gCompatAdapter; return 0;
+}
+static int32_t compatGetDesc(void*, void* desc) {
+  gtavdiag::checkpoint("compat-dxgi-get-desc");
+  if (!desc) return (int32_t)0x80004003u;
+  // DXGI_ADAPTER_DESC is 312 bytes on Windows. The engine only consumes the
+  // fields populated below during enumeration; zero is a safe baseline.
+  memset(desc,0,312);
+  // DedicatedVideoMemory offset 272. Report 512 MiB, matching the engine's
+  // own failure fallback at grcAdapterManagerD3D11::Enumerate +0x18c.
+  *(uint64_t*)((uint8_t*)desc+272)=0x20000000ull;
+  return 0;
+}
+static void initCompatDXGI() {
+  static bool once=false; if(once)return; once=true;
+  // Factory slots observed by disassembly: Release @ +0x10, EnumAdapters @ +0x38.
+  gFactoryVtable[2]=(void*)compatRelease;
+  gFactoryVtable[7]=(void*)compatEnumAdapters;
+  gCompatFactory.vtbl=gFactoryVtable;
+  // Adapter slots observed by grcAdapterD3D11 path: Release @ +0x10, GetDesc @ +0x40.
+  gAdapterVtable[2]=(void*)compatRelease;
+  gAdapterVtable[8]=(void*)compatGetDesc;
+  gCompatAdapter.vtbl=gAdapterVtable;
+}
+}
 extern "C" __attribute__((visibility("default"))) int32_t CreateDXGIFactory(const void*, void** out) {
-  if(out)*out=nullptr;
-  // The previous E_FAIL/null experiment proved the caller still dereferences
-  // factory state: it continued into an invalid indirect target. Stop before
-  // that dereference and record the exact boundary instead of fabricating COM.
-  gtavdiag::checkpoint("dxgi-factory-required-no-safe-fallback");
-  return legacyD3DLeak("CreateDXGIFactory-required");
+  gtavdiag::checkpoint("compat-dxgi-factory");
+  if(!out) return (int32_t)0x80004003u;
+  initCompatDXGI();
+  *out=&gCompatFactory;
+  return 0;
 }
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,
