@@ -122,6 +122,26 @@ jobs:
           PY
           sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
 
+      - name: Capture exact Vulkan runtime init prologue
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=p.read_bytes()
+          va=0x618caf8
+          off=va-0x4000
+          raw=b[off:off+32]
+          if len(raw)!=32:
+              raise SystemExit("grVulkanRuntime::Init bytes unavailable")
+          Path("hybrid-report/vulkan-runtime-init-prologue.txt").write_text(
+              f"VA=0x{va:x}\nFILE_OFF=0x{off:x}\nBYTES={raw.hex()}\n"
+          )
+          print("grVulkanRuntime::Init", hex(va), raw.hex())
+          PY
+
       - name: Native Vulkan efficiency audit
         shell: bash
         run: |
