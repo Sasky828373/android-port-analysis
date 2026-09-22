@@ -30,6 +30,10 @@ struct RageMirrorState {
  void* indexBuffer{};
  uint32_t indexFormat{};
  uint32_t indexOffset{};
+ uint32_t topology{};
+ void* vs{}; void* ps{}; void* cs{};
+ uint32_t viewportCount{}; uint8_t viewports[256]{};
+ uint32_t scissorCount{}; uint8_t scissors[256]{};
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
@@ -134,6 +138,17 @@ using OrigIASetIndexBuffer=void(*)(void*,void*,uint32_t,uint32_t);
 static OrigIASetInputLayout origIASetInputLayout{};
 static OrigIASetVertexBuffers origIASetVertexBuffers{};
 static OrigIASetIndexBuffer origIASetIndexBuffer{};
+using OrigRSSetViewports=void(*)(void*,uint32_t,const void*);
+using OrigRSSetScissorRects=void(*)(void*,uint32_t,const void*);
+using OrigIASetPrimitiveTopology=void(*)(void*,uint32_t);
+using OrigPSSetShader=void(*)(void*,void*,void* const*,uint32_t);
+using OrigVSSetShader=void(*)(void*,void*,void* const*,uint32_t);
+using OrigCSSetShader=void(*)(void*,void*,void* const*,uint32_t);
+static OrigRSSetViewports origRSSetViewports{};
+static OrigRSSetScissorRects origRSSetScissorRects{};
+static OrigIASetPrimitiveTopology origIASetPrimitiveTopology{};
+static OrigPSSetShader origPSSetShader{}; static OrigVSSetShader origVSSetShader{}; static OrigCSSetShader origCSSetShader{};
+
 static void hookIASetInputLayout(void* ctx,void* layout){
  {std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).inputLayout=layout;}
  if(origIASetInputLayout)origIASetInputLayout(ctx,layout);
@@ -146,6 +161,13 @@ static void hookIASetIndexBuffer(void* ctx,void* buf,uint32_t format,uint32_t of
  {std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.indexBuffer=buf;s.indexFormat=format;s.indexOffset=offset;}
  if(origIASetIndexBuffer)origIASetIndexBuffer(ctx,buf,format,offset);
 }
+static void hookIASetPrimitiveTopology(void* ctx,uint32_t t){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).topology=t;}if(origIASetPrimitiveTopology)origIASetPrimitiveTopology(ctx,t);}
+static void hookVSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).vs=sh;}if(origVSSetShader)origVSSetShader(ctx,sh,ci,n);}
+static void hookPSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).ps=sh;}if(origPSSetShader)origPSSetShader(ctx,sh,ci,n);}
+static void hookCSSetShader(void* ctx,void* sh,void* const* ci,uint32_t n){{std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).cs=sh;}if(origCSSetShader)origCSSetShader(ctx,sh,ci,n);}
+static void hookRSSetViewports(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.viewportCount=n>4?4:n;if(p)std::memcpy(s.viewports,p,s.viewportCount*24);}if(origRSSetViewports)origRSSetViewports(ctx,n,p);}
+static void hookRSSetScissorRects(void* ctx,uint32_t n,const void* p){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(ctx);s.scissorCount=n>16?16:n;if(p)std::memcpy(s.scissors,p,s.scissorCount*16);}if(origRSSetScissorRects)origRSSetScissorRects(ctx,n,p);}
+
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
 static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
@@ -181,7 +203,14 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  bool sil=patchJump(gtavBase+0x61d2654,(void*)hookIASetInputLayout,il,&til); if(sil)origIASetInputLayout=(OrigIASetInputLayout)til;
  bool svb=patchJump(gtavBase+0x61d2698,(void*)hookIASetVertexBuffers,vb,&tvb); if(svb)origIASetVertexBuffers=(OrigIASetVertexBuffers)tvb;
  bool sib=patchJump(gtavBase+0x61d27fc,(void*)hookIASetIndexBuffer,ib,&tib); if(sib)origIASetIndexBuffer=(OrigIASetIndexBuffer)tib;
- bool ok=x&&y&&z&&sil&&svb&&sib; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
+ auto install=[&](uintptr_t va,void* hook,void** orig){uint32_t o[4]{};void* t=nullptr;bool r=patchJump(gtavBase+va,hook,o,&t);if(r)*orig=t;return r;};
+ bool stop=install(0x61d2968,(void*)hookIASetPrimitiveTopology,(void**)&origIASetPrimitiveTopology);
+ bool svs=install(0x61d252c,(void*)hookVSSetShader,(void**)&origVSSetShader);
+ bool sps=install(0x61d2494,(void*)hookPSSetShader,(void**)&origPSSetShader);
+ bool scs=install(0x61d3134,(void*)hookCSSetShader,(void**)&origCSSetShader);
+ bool svp=install(0x61d2e0c,(void*)hookRSSetViewports,(void**)&origRSSetViewports);
+ bool ssr=install(0x61d2e1c,(void*)hookRSSetScissorRects,(void**)&origRSSetScissorRects);
+ bool ok=x&&y&&z&&sil&&svb&&sib&&stop&&svs&&sps&&scs&&svp&&ssr; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
