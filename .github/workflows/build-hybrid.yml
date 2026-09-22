@@ -1033,6 +1033,21 @@ jobs:
 
           "$OBJDUMP" -d --demangle --start-address=0x6158120 --stop-address=0x61584b0 "$LIB"             > hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
 
+      - name: Trace grcDevice singleton and Vulkan handoff call sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+
+          "$NM" -n -C "$LIB" | grep -Ei 'InitSingleton|theDevice11|s_Device11Wrapper|g_pd3dDevice(Context)?|grcDevice.*(Ctor|Init|AllocateSwapChain|GetCurrentInner)|grVulkanNativeDeviceAdapter|grVulkanRuntime::Init'             > hybrid-report/grc-device-bootstrap/device-singleton-symbols.txt || true
+
+          "$OBJDUMP" -d --demangle --start-address=0x61b1d80 --stop-address=0x61b2050 "$LIB"             > hybrid-report/grc-device-bootstrap/current-inner-swapchain.disasm.txt
+
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B8 -A14 -E '622f884|622f0b8|622efc8|8aa76ce|8aa7998|8aa7860|8aa7868'             > hybrid-report/grc-device-bootstrap/native-handoff-xrefs.txt || true
+
       - name: Upload tiny grcDevice bootstrap evidence
         uses: actions/upload-artifact@v4
         with:
@@ -1057,6 +1072,9 @@ jobs:
             hybrid-report/grc-device-bootstrap/d3d-out-object-symbols.txt
             hybrid-report/grc-device-bootstrap/native-device-candidates.txt
             hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
+            hybrid-report/grc-device-bootstrap/device-singleton-symbols.txt
+            hybrid-report/grc-device-bootstrap/current-inner-swapchain.disasm.txt
+            hybrid-report/grc-device-bootstrap/native-handoff-xrefs.txt
 
 
 
