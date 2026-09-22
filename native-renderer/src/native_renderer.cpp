@@ -252,6 +252,7 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  else {if(!rageWrapTexture)return false;rageWrapTexture(rage,&w);}
  if(!w.image)return false;
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)rage,(uint64_t)(uintptr_t)w.image,kind,1);
+ registerImageMeta(rage,w);
  // WrapTexture/WrapRenderTarget retain the underlying interface in +0x70.
  // This wrapper is temporary, so balance that retained COM-style reference.
  if(w.resource){
@@ -326,6 +327,18 @@ enum NativeResourceKind : uint32_t {
  NR_RTV=6, NR_DSV=7, NR_CBUFFER=8, NR_SRV=9, NR_SAMPLER=10, NR_UAV=11,
  NR_GRAPHICS_PIPELINE=12, NR_PIPELINE_LAYOUT=13, NR_DESCRIPTOR_SET=14
 };
+struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; VkImageAspectFlags aspect{}; };
+static std::mutex imageMetaMutex;
+static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
+static void registerImageMeta(void* rage,const NativeWrappedImage& w){
+ if(!rage||!w.image)return;
+ NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;
+ std::lock_guard<std::mutex> l(imageMetaMutex);imageMeta[(uint64_t)(uintptr_t)rage]=m;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_get_image_meta(uint64_t rageResource,VkImage* image,VkFormat* format,VkImageAspectFlags* aspect){
+ std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return false;
+ if(image)*image=it->second.image;if(format)*format=it->second.format;if(aspect)*aspect=it->second.aspect;return true;
+}
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
