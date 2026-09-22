@@ -184,6 +184,20 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_impo
    return gtav_native_renderer_import_spirv_shader(rageShader,stage,data,bytes);
  return false;
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_shader_blob(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
+ if(!rageShader||!data||bytes<20)return false;
+ const uint8_t* p=reinterpret_cast<const uint8_t*>(data);
+ // Accept raw SPIR-V or locate an embedded SPIR-V module inside a GTA shader container.
+ for(size_t off=0;off+20<=bytes;off+=4){
+   uint32_t magic=0;memcpy(&magic,p+off,sizeof(magic));
+   if(magic!=0x07230203u)continue;
+   size_t remain=bytes-off;
+   if(remain&3)remain&=~size_t(3);
+   if(remain<20)continue;
+   return gtav_native_renderer_import_spirv_shader(rageShader,stage,p+off,remain);
+ }
+ return false;
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_spirv_shader(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
  if(!rageShader||!data||bytes<20||(bytes&3))return false;
  VkShaderModule module=VK_NULL_HANDLE;
