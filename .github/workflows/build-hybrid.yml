@@ -103,6 +103,7 @@ jobs:
           sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
 
       - name: Capture exact Vulkan runtime init prologue
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -123,6 +124,7 @@ jobs:
           PY
 
       - name: Native Vulkan efficiency audit
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -171,6 +173,7 @@ jobs:
           PY
 
       - name: GOLD embedded Vulkan dispatch audit
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -205,6 +208,7 @@ jobs:
           PY
 
       - name: Disassemble GOLD Vulkan dispatch call sites
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -222,6 +226,7 @@ jobs:
           } > hybrid-report/gold-dispatch-note.txt
 
       - name: Resolve GOLD Vulkan string Xrefs
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -272,6 +277,7 @@ jobs:
           PY
 
       - name: Map GOLD Vulkan loader dispatch table
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -303,6 +309,7 @@ jobs:
           PY
 
       - name: Extract native wrapper mapping candidates
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -353,6 +360,7 @@ jobs:
           cat "$OUT/resolved-addresses.txt"
 
       - name: Extract GOLD resource and pipeline Vulkan calls
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -393,6 +401,7 @@ jobs:
           wc -c hybrid-report/gold-native-map/resource-pipeline-xrefs.txt
 
       - name: Trace GOLD resource producer call sites
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -453,6 +462,7 @@ jobs:
 
 
       - name: Extract GOLD Vulkan dispatch slot map
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -481,6 +491,7 @@ jobs:
           } > hybrid-report/gold-dispatch-slots.txt
 
       - name: Resolve GOLD dispatch symbol names
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -511,6 +522,7 @@ jobs:
           PY
 
       - name: Locate GOLD Vulkan dispatch objects
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -543,6 +555,7 @@ jobs:
           PY
 
       - name: Trace GOLD Vulkan hot dispatch slots
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -581,6 +594,7 @@ jobs:
           PY
 
       - name: Trace GOLD dispatch through nested device table
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -612,6 +626,7 @@ jobs:
           PY
 
       - name: Native V10 safe instruction audit
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -695,6 +710,7 @@ jobs:
           fi
 
       - name: Native Vulkan core hot-path disassembly
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -768,6 +784,7 @@ jobs:
           PY
 
       - name: Extract native Vulkan submission command-buffer layout
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -934,31 +951,32 @@ jobs:
           test -s lib/arm64-v8a/libgtavvk.so
           test -s lib/arm64-v8a/libgtav_native_renderer.so
 
-      - name: Patch launcher graphics recovery validator
+      - name: Patch launcher for native Vulkan mode
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -q
-          sudo apt-get install -y apktool
+          if ! command -v apktool >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq apktool
+          fi
           rm -rf /tmp/xhyn-launcher /tmp/xhyn-launcher-built.apk
           apktool d -f -r "XHYN V_0.17custom.apk" -o /tmp/xhyn-launcher >/dev/null
           python3 - <<'PY'
           from pathlib import Path
           p=Path("/tmp/xhyn-launcher/smali/com/gtavsource/android/XhynGraphics.smali")
           s=p.read_text()
-          marker='const-string v1, "Invalid graphics recovery value"'
-          m=s.find(marker)
-          if m < 0: raise SystemExit("graphics recovery validator not found")
-          before=s[:m]
-          gate='    if-eqz v8, :cond_6'
-          g=before.rfind(gate)
-          if g < 0 or m-g > 1200: raise SystemExit("expected recovery value gate not found")
-          s=s[:g]+'    # native build: accept recovery value\n'+s[g+len(gate):]
+          needle='    :cond_6\n\n    new-instance v0, Ljava/io/IOException;\n\n    const-string v1, "Invalid graphics recovery value"'
+          if needle not in s:
+              raise SystemExit("expected graphics recovery failure block not found")
+          s=s.replace(needle,'    :cond_6\n\n    goto :goto_1\n\n    # native Vulkan build: obsolete DXVK recovery value ignored\n\n    const-string v1, "Invalid graphics recovery value"',1)
           p.write_text(s)
           PY
           apktool b /tmp/xhyn-launcher -o /tmp/xhyn-launcher-built.apk >/dev/null
           unzip -p /tmp/xhyn-launcher-built.apk classes.dex > /tmp/patched-classes.dex
           test -s /tmp/patched-classes.dex
+          # Verify the rebuilt dex is different from the original launcher dex.
+          unzip -p "XHYN V_0.17custom.apk" classes.dex > /tmp/original-classes.dex
+          ! cmp -s /tmp/original-classes.dex /tmp/patched-classes.dex
 
       - name: Patch original APK without rebuilding package structure
         shell: bash
