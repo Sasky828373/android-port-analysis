@@ -162,6 +162,13 @@ static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
 }
+static int32_t compatDXGIDeviceGetAdapter(void*, void** out) {
+  gtavdiag::checkpoint("compat-dxgi-device-get-adapter");
+  if(!out) return (int32_t)0x80004003u;
+  initCompatDXGI();
+  *out=&gCompatAdapter;
+  return 0;
+}
 static void initCompatD3D11() {
   static bool once=false; if(once)return; once=true;
   for(void*& p:gD3DDeviceVtable) p=(void*)compatD3DUnsupported;
@@ -169,6 +176,10 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gD3DDeviceVtable[1]=(void*)compatD3DAddRef;
   gD3DDeviceVtable[2]=(void*)compatD3DRelease;
+  // QueryInterface is used to obtain IDXGIDevice during bootstrap. We intentionally
+  // expose the same compatibility object for that interface; IDXGIDevice::GetAdapter
+  // is slot 7 / +0x38 and must return the adapter object, not E_NOTIMPL/null.
+  gD3DDeviceVtable[7]=(void*)compatDXGIDeviceGetAdapter;
   // ID3D11Device::GetFeatureLevel is slot 37 / byte offset 0x128.
   // libgtav's grcDevice::GetDXFeatureLevelSupported consumes this exact slot.
   gD3DDeviceVtable[37]=(void*)compatD3DGetFeatureLevel;
