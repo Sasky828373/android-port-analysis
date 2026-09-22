@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(gtav_native_renderer LANGUAGES CXX)
+add_library(gtav_native_renderer SHARED src/native_renderer.cpp)
+target_compile_features(gtav_native_renderer PRIVATE cxx_std_20)
+target_compile_options(gtav_native_renderer PRIVATE -O3 -fvisibility=hidden -ffunction-sections -fdata-sections)
+target_link_options(gtav_native_renderer PRIVATE -Wl,--gc-sections)
+target_link_libraries(gtav_native_renderer PRIVATE vulkan android log dl)
