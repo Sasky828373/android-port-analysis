@@ -594,6 +594,33 @@ jobs:
           )
           PY
 
+      - name: Native Vulkan instrumentation cleanup V12
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes()); delta=0x4000
+          def branch(start,target):
+              off=start-delta
+              imm=(target-start)>>2
+              insn=0x14000000 | (imm & 0x03ffffff)
+              b[off:off+4]=insn.to_bytes(4,"little")
+          # Submission::Begin has steady_clock/Displayf timing diagnostics before normal state setup.
+          # Skip only the measured diagnostic block, preserving the call preceding it and all state setup.
+          branch(0x623554c,0x623557c)
+          p.write_bytes(b)
+          Path("hybrid-report/native-v12-gpu-patch.txt").write_text(
+            "V12 native GPU hot-path cleanup\n"
+            "Submission::Begin: bypass steady_clock + conditional Displayf timing diagnostics 0x623554c -> 0x623557c\n"
+            "V11 per-submit EndAndSubmit Displayf bypass retained by prior workflow step\n"
+            "No Vulkan waits, barriers, descriptor writes or queue submits removed\n"
+            "Target frame time: 8.33 ms\n"
+          )
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
