@@ -27,80 +27,16 @@ jobs:
           test "$(stat -c%s lib/arm64-v8a/libgtav.so)" = "154327768"
           sha256sum lib/arm64-v8a/libgtav.so > HYBRID-libgtav.sha256
 
-      - name: Native hot-path cleanup
+      - name: Preserve original libgtav code during crash isolation
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib, struct
-
-          p = Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
-          data = bytearray(p.read_bytes())
-          # ELF mapping verified for this libgtav build; file offset = virtual address - 0x4000.
-          # These are diagnostics/telemetry and PIX instrumentation entry points, not rendering passes.
-          targets = {
-              "MetricsCapture_Update":       0x4a31e34,
-              "MetricsCapture_DrawWindows":  0x4a32660,
-              "NetworkDebugTelemetry_Update":0x58fe1bc,
-              # V10 verified micro-patch; skip only the optional BindCompute usage-counter block.
-              # 0x619aa5c is inside BindCompute (not a function entry), so patch its conditional
-              # branch to jump directly back to the normal loop at 0x619a8b4.
-
-              "PIX_marker_61329f8":          0x61329f8,
-              "PIX_marker_611d854":          0x611d854,
-              "PIX_marker_6135ec0":          0x6135ec0,
-              "PIX_marker_612eaf8":          0x612eaf8,
-              "PIX_marker_611d6d4":          0x611d6d4,
-              "PIX_marker_6136044":          0x6136044,
-          }
-          ret = bytes.fromhex("c0035fd6")  # AArch64 RET
-          # Safety gate; every patch must still look like a normal AArch64 function entry.
-          # This prevents silently patching the wrong build/address.
-          allowed_first = {
-              0xa9bf7bfd, 0xa9be7bfd, 0xa9bd7bfd, 0xa9bc7bfd, 0xd503201f,
-          }
-          report = []
-          for name, va in targets.items():
-              off = va - 0x4000
-              if off < 0 or off + 4 > len(data):
-                  raise SystemExit(f"{name}: offset out of range: {off:#x}")
-              old = bytes(data[off:off+4])
-              insn = int.from_bytes(old, "little")
-              # Accept common frame prologues or stack-pointer SUB forms only.
-              is_sub_sp = (insn & 0xffc003ff) == 0xd10003ff
-              is_stp_fp_lr = (insn & 0xffc07fff) == 0xa9807bfd
-              if old == ret:
-                  report.append(f"{name}: already RET at {off:#x}")
-                  continue
-              if old == b"\x00\x00\x00\x00" or not (is_sub_sp or is_stp_fp_lr or insn in allowed_first):
-                  raise SystemExit(f"{name}: unexpected entry instruction {old.hex()} at {off:#x}; refusing unsafe patch")
-              data[off:off+4] = ret
-              report.append(f"{name}: VA={va:#x} file={off:#x} old={old.hex()} new={ret.hex()}")
-
-          # Verified from native-v10-candidate-disasm; the block 0x619aa58..0x619aa94
-          # only gates/increments a per-binding counter after memcpy. Preserve memcpy and all
-          # actual compute binding calls; bypass the bookkeeping block with one unconditional B.
-          src_va, dst_va = 0x619aa58, 0x619a8b4
-          src_off = src_va - 0x4000
-          old = bytes(data[src_off:src_off+4])
-          if old != bytes.fromhex("486a0090"):  # ADRP x8, ... in this exact build
-              raise SystemExit(f"BindCompute counter patch: unexpected {old.hex()} at {src_off:#x}")
-          delta = dst_va - src_va
-          if delta % 4:
-              raise SystemExit("unaligned branch target")
-          imm26 = (delta >> 2) & 0x03ffffff
-          branch = (0x14000000 | imm26).to_bytes(4,"little")
-          data[src_off:src_off+4] = branch
-          report.append(f"BindComputeCounterBypass: VA={src_va:#x}->{dst_va:#x} old={old.hex()} new={branch.hex()}")
-
-          p.write_bytes(data)
-          Path("hybrid-report").mkdir(exist_ok=True)
-          Path("hybrid-report/native-hotpath-patches.txt").write_text(
-              "\n".join(report) + "\nsha256=" + hashlib.sha256(data).hexdigest() + "\n"
-          )
-          PY
+          # Crash-isolation build: do not RET-patch telemetry/PIX functions and do not
+          # rewrite the BindCompute control flow. These binary edits are unrelated to
+          # renderer correctness and must not be present while locating startup failure.
           sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          echo "No libgtav instruction patches applied in crash-isolation build." > hybrid-report/native-hotpath-patches.txt
 
       - name: Capture exact Vulkan runtime init prologue
         if: ${{ false }}
