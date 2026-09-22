@@ -56,6 +56,23 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_resolve_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);auto i=resources.find(resourceKey(rage,kind));return i==resources.end()?0:i->second.vk_handle;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
 
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance,VkPhysicalDevice,VkDevice,VkQueue,uint32_t);
+using GetInstanceFn=VkInstance(*)();
+using GetPhysicalDeviceFn=VkPhysicalDevice(*)();
+using GetDeviceFn=VkDevice(*)();
+using GetQueueFn=VkQueue(*)();
+using GetQueueFamilyFn=uint32_t(*)();
+static bool attachFromGtavRuntime(){
+ if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ if(!gtavBase) return false;
+ auto gi=(GetInstanceFn)(gtavBase+0x6232890);
+ auto gp=(GetPhysicalDeviceFn)(gtavBase+0x623289c);
+ auto gd=(GetDeviceFn)(gtavBase+0x62328a8);
+ auto gq=(GetQueueFn)(gtavBase+0x62328b4);
+ auto gf=(GetQueueFamilyFn)(gtavBase+0x62328c0);
+ VkInstance i=gi(); VkPhysicalDevice p=gp(); VkDevice d=gd(); VkQueue q=gq(); uint32_t family=gf();
+ return i&&p&&d&&q&&gtav_native_renderer_attach(i,p,d,q,family);
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance i,VkPhysicalDevice p,VkDevice d,VkQueue q,uint32_t family){
  if(!i||!p||!d||!q)return false;g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
@@ -101,15 +118,20 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
  bool ok=x&&y; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
-__attribute__((constructor)) static void gtav_native_renderer_ctor(){ gtav_native_renderer_install_draw_hooks(); }
+__attribute__((constructor)) static void gtav_native_renderer_ctor(){
+ if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ // Runtime may not be initialized at ELF constructor time; hook install is safe,
+ // while attach is retried lazily by ready()/begin_frame().
+ gtav_native_renderer_install_draw_hooks();
+}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){return drawStateProvider&&s&&drawStateProvider(ctx,s)&&s->command_buffer!=VK_NULL_HANDLE;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDispatch(s.command_buffer,x,y,z);return true;}
 
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){g.frame.fetch_add(1,std::memory_order_relaxed);}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){return g.device&&g.queue&&g.commands&&g.descriptors;}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){if(!g.device)attachFromGtavRuntime();return g.device&&g.queue&&g.commands&&g.descriptors;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){if(!g.device)return;vkDeviceWaitIdle(g.device);if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;}
 extern "C" __attribute__((visibility("default"))) const GtavNativeDispatch* gtav_native_renderer_get_dispatch(){static const GtavNativeDispatch d{2,gtav_native_renderer_ready,gtav_native_renderer_begin_frame,gtav_native_renderer_register_resource,gtav_native_renderer_resolve_resource,gtav_native_renderer_unregister_resource,gtav_native_renderer_bind_vertex_buffer,gtav_native_renderer_bind_index_buffer,gtav_native_renderer_set_viewport,gtav_native_renderer_set_scissor,gtav_native_renderer_draw,gtav_native_renderer_draw_indexed,gtav_native_renderer_dispatch,gtav_native_renderer_set_draw_state_provider,gtav_native_renderer_rage_draw,gtav_native_renderer_rage_draw_indexed,gtav_native_renderer_rage_dispatch};return &d;}
 }
