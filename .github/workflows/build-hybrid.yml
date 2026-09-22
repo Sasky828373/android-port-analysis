@@ -471,53 +471,6 @@ jobs:
           cat hybrid-report/gold-native-map/resource-producer-summary.txt
           test -s hybrid-report/gold-native-map/resource-producer-call-sites.txt
 
-      - name: Extract GOLD draw command recording paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p hybrid-report/gold-native-map
-          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
-          aarch64-linux-gnu-objdump -d -C "$LIB" > hybrid-report/gold-native-map/gold-full.disasm
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          src=Path("hybrid-report/gold-native-map/gold-full.disasm").read_text(errors="replace").splitlines()
-          # Start from command-recording instructions rather than guessed dispatch-table offsets.
-          # Keep a wide window so object loads, pipeline/descriptor/buffer state and the call are visible together.
-          call_re=re.compile(r'\b(?:blr\s+x\d+|bl\s+[0-9a-fA-F]+)')
-          draw_markers=[
-            "vkCmdDraw","vkCmdDrawIndexed","vkCmdDrawIndirect","vkCmdDrawIndexedIndirect",
-            "vkCmdDispatch","vkCmdDispatchIndirect"
-          ]
-          # First locate loader/name references and function regions containing draw-related strings.
-          text="\n".join(src)
-          out=[]; seen=set()
-          for i,line in enumerate(src):
-            low=line.lower()
-            if any(m.lower() in low for m in draw_markers):
-              lo=max(0,i-120); hi=min(len(src),i+160)
-              key=(lo,hi)
-              if key not in seen:
-                seen.add(key); out.append("\n".join(src[lo:hi])); out.append("---")
-          # Also capture dense indirect-call regions that mention command-buffer/state-like offsets.
-          # These are candidates when Vulkan entry points are resolved once and later called without strings.
-          for i,line in enumerate(src):
-            if not call_re.search(line): continue
-            win=src[max(0,i-24):min(len(src),i+16)]
-            joined="\n".join(win)
-            score=sum(bool(re.search(p,joined)) for p in [
-              r'\bldr\s+x\d+,\s*\[x\d+',
-              r'\bstr\s+x\d+,\s*\[x\d+',
-              r'\bcmp\b',r'\bcbz\b|\bcbnz\b',
-              r'#0x(?:60|68|a0|a8|300|3c0|3c8|3d0)\b'
-            ])
-            if score>=4:
-              addr=re.match(r'\s*([0-9a-fA-F]+):',line)
-              if addr: out.append(f"CANDIDATE_CALL 0x{addr.group(1)}\n"+joined+"\n---")
-          Path("hybrid-report/gold-native-map/draw-command-recording-paths.txt").write_text("\n".join(out)+"\n")
-          PY
-          test -s hybrid-report/gold-native-map/draw-command-recording-paths.txt
-          wc -c hybrid-report/gold-native-map/draw-command-recording-paths.txt
 
       - name: Extract GOLD Vulkan dispatch slot map
         shell: bash
