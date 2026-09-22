@@ -440,6 +440,29 @@ jobs:
           Path("hybrid-report/gold-vulkan-hot-slot-calls-v2.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Native V10 safe instruction audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          # Audit the previously identified renderer-statistics locations without modifying code.
+          # This gives exact function context before any V10 native patch is allowed.
+          addrs=[0x61b0398,0x619aa5c,0x4a331a8]
+          out=[]
+          for a in addrs:
+            lo=max(0,a-0x80); hi=a+0x100
+            cmd=["aarch64-linux-gnu-objdump","-d","-C",
+                 f"--start-address=0x{lo:x}",f"--stop-address=0x{hi:x}",str(p)]
+            q=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            out.append(f"=== target 0x{a:x} ===")
+            out.append(q.stdout)
+          Path("hybrid-report/native-v10-candidate-disasm.txt").write_text("\n".join(out))
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
