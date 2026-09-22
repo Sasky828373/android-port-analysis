@@ -1,10 +1,24 @@
 #include <vulkan/vulkan.h>
 #include <atomic>
+#include <mutex>
+#include <unordered_map>
 #include <cstdint>
 #include "native_dispatch.h"
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
 static Runtime g;
+static std::mutex resourceMutex;
+static std::unordered_map<uint64_t,GtavNativeResourceHandle> resources;
+static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3) ^ uint64_t(kind); }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){
+ if(!rage||!vk||!kind)return false; std::lock_guard<std::mutex> lock(resourceMutex); resources[resourceKey(rage,kind)]={rage,vk,kind,generation}; return true;
+}
+extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_resolve_resource(uint64_t rage,uint32_t kind){
+ std::lock_guard<std::mutex> lock(resourceMutex); auto it=resources.find(resourceKey(rage,kind)); return it==resources.end()?0:it->second.vk_handle;
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){
+ std::lock_guard<std::mutex> lock(resourceMutex); resources.erase(resourceKey(rage,kind));
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance i,VkPhysicalDevice p,VkDevice d,VkQueue q,uint32_t family) {
  if(!i||!p||!d||!q) return false; g.instance=i; g.physical=p; g.device=d; g.queue=q; g.family=family;
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT; ci.queueFamilyIndex=family;
@@ -30,6 +44,9 @@ const GtavNativeDispatch* gtav_native_renderer_get_dispatch() {
   1,
   gtav_native_renderer_ready,
   gtav_native_renderer_begin_frame,
+  gtav_native_renderer_register_resource,
+  gtav_native_renderer_resolve_resource,
+  gtav_native_renderer_unregister_resource,
   gtav_native_renderer_bind_vertex_buffer,
   gtav_native_renderer_bind_index_buffer,
   gtav_native_renderer_set_viewport,
