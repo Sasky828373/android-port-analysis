@@ -303,6 +303,10 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
 }
 
 static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
+ // This is the first verified point where GTA is actively using its native Vulkan submission path.
+ // Attach here instead of relying on a constructor-time probe or an external bridge call.
+ if(!g.device) attachFromGtavRuntime();
+ g.frame.fetch_add(1,std::memory_order_relaxed);
  VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
  observedNativeCommandBuffer.store(cb,std::memory_order_release);
  static std::atomic<bool> once{false};
@@ -316,14 +320,17 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
 
 static std::atomic<uint64_t> nativeDraws{0},nativeIndexedDraws{0},nativeDispatches{0},fallbackDraws{0};
 static void hookDraw(void* c,uint32_t n,uint32_t f){
+ if(!g.device) attachFromGtavRuntime();
  if(gtav_native_renderer_rage_draw(c,n,f)){nativeDraws.fetch_add(1,std::memory_order_relaxed);return;}
  fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDraw)origDraw(c,n,f);
 }
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){
+ if(!g.device) attachFromGtavRuntime();
  if(gtav_native_renderer_rage_draw_indexed(c,n,f,v)){nativeIndexedDraws.fetch_add(1,std::memory_order_relaxed);return;}
  fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDrawIndexed)origDrawIndexed(c,n,f,v);
 }
 static void hookDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){
+ if(!g.device) attachFromGtavRuntime();
  if(gtav_native_renderer_rage_dispatch(c,x,y,z)){nativeDispatches.fetch_add(1,std::memory_order_relaxed);return;}
  fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDispatch)origDispatch(c,x,y,z);
 }
@@ -371,7 +378,10 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
- bool attached=attachFromGtavRuntime();
+ // Do not call grVulkanRuntime accessors from the ELF constructor: GTA may not have
+ // initialized the runtime singleton yet. The verified Submission::Begin hook performs
+ // the first attach when the engine is actually entering native Vulkan work.
+ bool attached=false;
  bool hooks=gtav_native_renderer_install_draw_hooks();
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","CTOR initial-attach=%d",attached?1:0);
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
