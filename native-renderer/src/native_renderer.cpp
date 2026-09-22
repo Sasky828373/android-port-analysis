@@ -43,7 +43,7 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
-static std::atomic<uint32_t> captureBudget{4096};
+static std::atomic<uint32_t> captureBudget{0};
 static void capture(const char* kind,void* rage,uint64_t vk=0){
  if(!rage)return; uint32_t b=captureBudget.load(std::memory_order_relaxed);
  while(b&& !captureBudget.compare_exchange_weak(b,b-1,std::memory_order_relaxed)){}
@@ -411,13 +411,30 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  s->vertex_buffer=(VkBuffer)(uintptr_t)vb;
  s->vertex_offset=m.offsets[0];
  uint64_t ib=resolveMapped(m.indexBuffer,NR_INDEX_BUFFER);
- if(ib){s->index_buffer=(VkBuffer)(uintptr_t)ib;s->index_offset=m.indexOffset;s->index_type=(m.indexFormat==57)?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;}
+ if(ib){
+   if(m.indexFormat==57) s->index_type=VK_INDEX_TYPE_UINT16;
+   else if(m.indexFormat==42) s->index_type=VK_INDEX_TYPE_UINT32;
+   else return false;
+   s->index_buffer=(VkBuffer)(uintptr_t)ib;s->index_offset=m.indexOffset;
+ }
  return true;
 }
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){
  if(!s || !g.device || !g.queue) return false;
  if(drawStateProvider && drawStateProvider(ctx,s) && s->command_buffer!=VK_NULL_HANDLE) return true;
  return buildMappedDrawState(ctx,s);
+}
+static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
+ RageMirrorState m{};
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;m=it->second;}
+ if(m.viewportCount){
+   uint32_t n=m.viewportCount>4?4:m.viewportCount;
+   vkCmdSetViewport(cb,0,n,reinterpret_cast<const VkViewport*>(m.viewports));
+ }
+ if(m.scissorCount){
+   uint32_t n=m.scissorCount>16?16:m.scissorCount;
+   vkCmdSetScissor(cb,0,n,reinterpret_cast<const VkRect2D*>(m.scissors));
+ }
 }
 static bool bindMappedGraphicsState(const GtavNativeDrawState& s,bool indexed){
  if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
@@ -429,8 +446,8 @@ static bool bindMappedGraphicsState(const GtavNativeDrawState& s,bool indexed){
  vkCmdBindDescriptorSets(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline_layout,0,1,&s.descriptor_set,0,nullptr);
  return true;
 }
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,false))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,true))return false;vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDispatch(s.command_buffer,x,y,z);return true;}
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
