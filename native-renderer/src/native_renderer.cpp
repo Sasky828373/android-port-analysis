@@ -141,6 +141,21 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  return vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors)==VK_SUCCESS;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
+extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader_module(const uint32_t* spirv,size_t bytes,VkShaderModule* out){
+ if(!g.device||!spirv||bytes<20||(bytes&3)||!out)return VK_ERROR_INITIALIZATION_FAILED;
+ if(spirv[0]!=0x07230203u)return VK_ERROR_INVALID_SHADER_NV;
+ VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=bytes;ci.pCode=spirv;
+ return vkCreateShaderModule(g.device,&ci,nullptr,out);
+}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_update_descriptors(const VkWriteDescriptorSet* writes,uint32_t writeCount,const VkCopyDescriptorSet* copies,uint32_t copyCount){
+ if(!g.device)return;vkUpdateDescriptorSets(g.device,writeCount,writes,copyCount,copies);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_shader(uint64_t rageShader,VkShaderModule module,uint32_t stage){
+ if(!rageShader||!module)return false;
+ uint32_t kind=stage==VK_SHADER_STAGE_VERTEX_BIT?NR_VS:stage==VK_SHADER_STAGE_FRAGMENT_BIT?NR_PS:stage==VK_SHADER_STAGE_COMPUTE_BIT?NR_CS:0;
+ if(!kind)return false;
+ gtav_native_renderer_register_resource(rageShader,(uint64_t)(uintptr_t)module,kind,1);return true;
+}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_descriptor_set_layout(const VkDescriptorSetLayoutBinding* bindings,uint32_t count,VkDescriptorSetLayout* out){
  if(!g.device||!out)return VK_ERROR_INITIALIZATION_FAILED;
  VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};ci.bindingCount=count;ci.pBindings=bindings;
