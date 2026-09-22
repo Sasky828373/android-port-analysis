@@ -621,6 +621,38 @@ jobs:
           )
           PY
 
+      - name: Extract RAGE D3D11 migration targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          nm -C -n "$LIB" 2>/dev/null | grep 'RageDirect3DDeviceContext11::' > hybrid-report/rage-d3d11-symbols.txt || true
+          python3 - <<'PY'
+          import re,subprocess,pathlib
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          txt=pathlib.Path("hybrid-report/rage-d3d11-symbols.txt").read_text(errors="ignore")
+          wanted=("Draw(","DrawIndexed(","DrawInstanced(","DrawIndexedInstanced(","RSSetViewports(","RSSetScissorRects(",
+                  "IASetVertexBuffers(","IASetIndexBuffer(","IASetInputLayout(","IASetPrimitiveTopology(",
+                  "VSSetShader(","PSSetShader(","CSSetShader(","VSSetConstantBuffers(","PSSetConstantBuffers(","CSSetConstantBuffers(",
+                  "PSSetShaderResources(","PSSetSamplers(","OMSetRenderTargets(","ClearRenderTargetView(","ClearDepthStencilView(",
+                  "CopyResource(","CopySubresourceRegion(","UpdateSubresource(","Dispatch(")
+          rows=[]
+          for line in txt.splitlines():
+            if any(x in line for x in wanted):
+              m=re.match(r"([0-9a-fA-F]+)\s+\S+\s+(.+)",line)
+              if m: rows.append((int(m.group(1),16),m.group(2)))
+          out=[]
+          for addr,name in rows:
+            start=f"0x{addr:x}"; stop=f"0x{addr+0x80:x}"
+            p=subprocess.run(["objdump","-d","--start-address="+start,"--stop-address="+stop,lib],text=True,capture_output=True)
+            out += [f"===== {name} @ {start} =====",p.stdout]
+          pathlib.Path("hybrid-report/rage-d3d11-migration-targets.txt").write_text("\n".join(out))
+          print("migration targets:",len(rows))
+          if len(rows)<8: raise SystemExit("Too few D3D11 targets resolved; refusing blind trampoline patching")
+          PY
+          test -s hybrid-report/rage-d3d11-migration-targets.txt
+
       - name: Build native Vulkan compatibility renderer
         shell: bash
         run: |
