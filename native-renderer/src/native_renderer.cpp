@@ -105,6 +105,19 @@ extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_unregister_resource(uint64_t rage,uint32_t kind){std::lock_guard<std::mutex> l(resourceMutex);resources.erase(resourceKey(rage,kind));}
 
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance,VkPhysicalDevice,VkDevice,VkQueue,uint32_t);
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_buffer(uint64_t rageBuffer,VkBuffer buffer,uint32_t kind){
+ if(!rageBuffer||!buffer)return false;
+ if(kind!=NR_VERTEX_BUFFER&&kind!=NR_INDEX_BUFFER&&kind!=NR_CBUFFER)return false;
+ return gtav_native_renderer_register_resource(rageBuffer,(uint64_t)(uintptr_t)buffer,kind,0);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_sampler(uint64_t rageSampler,VkSampler sampler){
+ return rageSampler&&sampler&&gtav_native_renderer_register_resource(rageSampler,(uint64_t)(uintptr_t)sampler,NR_SAMPLER,0);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_image_view(uint64_t rageResource,VkImageView view,uint32_t kind){
+ if(!rageResource||!view)return false;
+ if(kind!=NR_SRV&&kind!=NR_RTV&&kind!=NR_DSV&&kind!=NR_UAV)return false;
+ return gtav_native_renderer_register_resource(rageResource,(uint64_t)(uintptr_t)view,kind,0);
+}
 using GetInstanceFn=VkInstance(*)();
 using GetPhysicalDeviceFn=VkPhysicalDevice(*)();
 using GetDeviceFn=VkDevice(*)();
