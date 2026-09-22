@@ -72,7 +72,9 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
-static std::atomic<uint32_t> captureBudget{0};
+static std::atomic<uint32_t> captureBudget{256};
+static std::atomic<uint32_t> attachAttempts{0};
+static std::atomic<uint32_t> attachSuccesses{0};
 static void capture(const char* kind,void* rage,uint64_t vk=0){
  if(!rage)return; uint32_t b=captureBudget.load(std::memory_order_relaxed);
  while(b&& !captureBudget.compare_exchange_weak(b,b-1,std::memory_order_relaxed)){}
@@ -137,15 +139,19 @@ using GetDeviceFn=VkDevice(*)();
 using GetQueueFn=VkQueue(*)();
 using GetQueueFamilyFn=uint32_t(*)();
 static bool attachFromGtavRuntime(){
+ const uint32_t attempt=attachAttempts.fetch_add(1,std::memory_order_relaxed)+1;
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
- if(!gtavBase) return false;
+ if(!gtavBase){ if(attempt<=8) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait: libgtav base unavailable attempt=%u",attempt); return false; }
  auto gi=(GetInstanceFn)(gtavBase+0x6232890);
  auto gp=(GetPhysicalDeviceFn)(gtavBase+0x623289c);
  auto gd=(GetDeviceFn)(gtavBase+0x62328a8);
  auto gq=(GetQueueFn)(gtavBase+0x62328b4);
  auto gf=(GetQueueFamilyFn)(gtavBase+0x62328c0);
  VkInstance i=gi(); VkPhysicalDevice p=gp(); VkDevice d=gd(); VkQueue q=gq(); uint32_t family=gf();
- return i&&p&&d&&q&&gtav_native_renderer_attach(i,p,d,q,family);
+ if(!i||!p||!d||!q){ if(attempt<=32 || (attempt%120)==0) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait attempt=%u i=%p p=%p d=%p q=%p family=%u",attempt,(void*)i,(void*)p,(void*)d,(void*)q,family); return false; }
+ const bool ok=gtav_native_renderer_attach(i,p,d,q,family);
+ if(ok && attachSuccesses.fetch_add(1,std::memory_order_relaxed)==0) __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE","ATTACH READY i=%p p=%p d=%p q=%p family=%u",(void*)i,(void*)p,(void*)d,(void*)q,family);
+ return ok;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance i,VkPhysicalDevice p,VkDevice d,VkQueue q,uint32_t family){
  if(!i||!p||!d||!q)return false;
@@ -153,10 +159,10 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  if(g.device&&g.device!=d)return false;
  g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
- if(vkCreateCommandPool(d,&ci,nullptr,&g.commands)!=VK_SUCCESS)return false;
+ VkResult poolResult=vkCreateCommandPool(d,&ci,nullptr,&g.commands); if(poolResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateCommandPool failed=%d family=%u",(int)poolResult,family);g.commands=VK_NULL_HANDLE;return false;}
  VkDescriptorPoolSize s[]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,4096},{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,8192},{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,2048},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,2048}};
  VkDescriptorPoolCreateInfo di{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};di.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;di.maxSets=8192;di.poolSizeCount=4;di.pPoolSizes=s;
- return vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors)==VK_SUCCESS;
+ VkResult descResult=vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors); if(descResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateDescriptorPool failed=%d",(int)descResult);vkDestroyCommandPool(d,g.commands,nullptr);g.commands=VK_NULL_HANDLE;g.descriptors=VK_NULL_HANDLE;return false;} return true;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_bind_pipeline(VkCommandBuffer c,VkPipelineBindPoint p,VkPipeline v){if(c&&v)vkCmdBindPipeline(c,p,v);}
@@ -365,7 +371,9 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ bool attached=attachFromGtavRuntime();
  bool hooks=gtav_native_renderer_install_draw_hooks();
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","CTOR initial-attach=%d",attached?1:0);
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
