@@ -322,6 +322,34 @@ jobs:
           Path("hybrid-report/gold-vulkan-loader-map.txt").write_text("\n".join(out)+"\n")
           PY
 
+      - name: Extract native wrapper mapping candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/native-mapping
+          mkdir -p "$OUT"
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$NM" -C -n "$LIB" | grep -Ei 'grVulkanRuntime::(WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|CreateComputePipelines|AllocateDescriptorSet|GetOrCreateShaderModule|UpdateImageView|CreateOwnedImage)|Vulkan.*(Buffer|Texture|RenderTarget|Sampler|Descriptor|Pipeline)' > "$OUT/symbols.txt" || true
+          python3 - <<'PY'
+          import pathlib,re,subprocess,os
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          sy=pathlib.Path("hybrid-report/native-mapping/symbols.txt").read_text(errors="replace")
+          ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
+          obj=str(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump")
+          out=[]
+          for line in sy.splitlines():
+            m=re.match(r"([0-9a-fA-F]+)\\s+\\S+\\s+(.+)",line)
+            if not m: continue
+            a=int(m.group(1),16)
+            out.append("===== "+m.group(2)+f" @0x{a:x} =====")
+            out.append(subprocess.check_output([obj,"-d","-C",f"--start-address=0x{a:x}",f"--stop-address=0x{a+0x180:x}",lib],text=True,errors="replace"))
+          pathlib.Path("hybrid-report/native-mapping/wrappers.disasm.txt").write_text("\\n".join(out))
+          PY
+          grep -R -nE 'WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|AllocateDescriptorSet|GetOrCreateShaderModule' "$OUT" || true
+
       - name: Extract GOLD Vulkan dispatch slot map
         shell: bash
         run: |
