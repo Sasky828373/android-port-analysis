@@ -332,23 +332,45 @@ jobs:
           NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
           OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
           NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          "$NM" -C -n "$LIB" | grep -Ei 'grVulkanRuntime::(WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|CreateComputePipelines|AllocateDescriptorSet|GetOrCreateShaderModule|UpdateImageView|CreateOwnedImage)|Vulkan.*(Buffer|Texture|RenderTarget|Sampler|Descriptor|Pipeline)' > "$OUT/symbols.txt" || true
+
+          # Do not depend on a narrow grep. Preserve the full symbol table first.
+          "$NM" -C -n "$LIB" > "$OUT/all-symbols.txt"
+          grep -Ei 'WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|CreateComputePipelines|AllocateDescriptorSet|GetOrCreateShaderModule|UpdateImageView|CreateOwnedImage|grVulkanRuntime|Vulkan.*(Buffer|Texture|RenderTarget|Sampler|Descriptor|Pipeline)'             "$OUT/all-symbols.txt" > "$OUT/symbols.txt" || true
+
           python3 - <<'PY'
           import pathlib,re,subprocess,os
           lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
-          sy=pathlib.Path("hybrid-report/native-mapping/symbols.txt").read_text(errors="replace")
+          outdir=pathlib.Path("hybrid-report/native-mapping")
+          sy=(outdir/"all-symbols.txt").read_text(errors="replace")
           ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
           obj=str(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump")
-          out=[]
+          wanted=("WrapTexture","WrapRenderTarget","CreateGraphicsPipelines","CreateComputePipelines",
+                  "AllocateDescriptorSet","GetOrCreateShaderModule","UpdateImageView","CreateOwnedImage")
+          rows=[]
           for line in sy.splitlines():
-            m=re.match(r"([0-9a-fA-F]+)\\s+\\S+\\s+(.+)",line)
-            if not m: continue
-            a=int(m.group(1),16)
-            out.append("===== "+m.group(2)+f" @0x{a:x} =====")
-            out.append(subprocess.check_output([obj,"-d","-C",f"--start-address=0x{a:x}",f"--stop-address=0x{a+0x180:x}",lib],text=True,errors="replace"))
-          pathlib.Path("hybrid-report/native-mapping/wrappers.disasm.txt").write_text("\\n".join(out))
+            if not any(w in line for w in wanted): continue
+            m=re.match(r"^([0-9a-fA-F]+)\\s+\\S+\\s+(.+)$",line)
+            if m: rows.append((int(m.group(1),16),m.group(2)))
+          # Known addresses from the verified native-runtime extraction are fallback anchors.
+          known={0x6233230:"CreateGraphicsPipelines",0x6233368:"CreateComputePipelines",
+                 0x62334b0:"GetOrCreateShaderModule",0x6233f1c:"AllocateDescriptorSet",
+                 0x6233c00:"WrapRenderTarget",0x6233ddc:"WrapTexture"}
+          seen={a for a,_ in rows}
+          for a,n in known.items():
+            if a not in seen: rows.append((a,n+" [known-anchor]"))
+          rows=sorted(set(rows))
+          text=[]; idx=[]
+          for a,n in rows:
+            idx.append(f"0x{a:x} {n}")
+            text.append(f"===== {n} @0x{a:x} =====")
+            text.append(subprocess.check_output([obj,"-d","-C",f"--start-address=0x{a:x}",f"--stop-address=0x{a+0x240:x}",lib],text=True,errors="replace"))
+          (outdir/"resolved-addresses.txt").write_text("\n".join(idx)+"\n")
+          (outdir/"wrappers.disasm.txt").write_text("\n".join(text))
+          if not text or (outdir/"wrappers.disasm.txt").stat().st_size < 256:
+            raise SystemExit("native wrapper extraction unexpectedly empty")
           PY
-          grep -R -nE 'WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|AllocateDescriptorSet|GetOrCreateShaderModule' "$OUT" || true
+          wc -c "$OUT/wrappers.disasm.txt"
+          cat "$OUT/resolved-addresses.txt"
 
       - name: Extract GOLD Vulkan dispatch slot map
         shell: bash
