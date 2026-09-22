@@ -175,6 +175,15 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inge
  if(!words||wordCount<5)return false;
  return gtav_native_renderer_ingest_shader(rageShader,stage,words,size_t(wordCount)*sizeof(uint32_t));
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_shader_blob(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
+ if(!rageShader||!data||bytes<4)return false;
+ const uint32_t* w=reinterpret_cast<const uint32_t*>(data);
+ // Native Vulkan path accepts SPIR-V directly. DXBC/DXIL must be translated before registration;
+ // never reinterpret foreign bytecode as SPIR-V.
+ if(bytes>=20 && !(bytes&3) && w[0]==0x07230203u)
+   return gtav_native_renderer_import_spirv_shader(rageShader,stage,data,bytes);
+ return false;
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_spirv_shader(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
  if(!rageShader||!data||bytes<20||(bytes&3))return false;
  VkShaderModule module=VK_NULL_HANDLE;
