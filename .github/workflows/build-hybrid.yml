@@ -942,6 +942,41 @@ jobs:
           OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
           "$OBJDUMP" -d --demangle --start-address=0x622efc8 --stop-address=0x622efe0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so | tee hybrid-report/native-adapter/isrequested-enabled.disasm.txt
 
+      - name: Extract full grcDevice bootstrap and native handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x6158900 "$LIB" > hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6158380 --stop-address=0x6158580 "$LIB" > hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6158580 --stop-address=0x6158900 "$LIB" > hybrid-report/grc-device-bootstrap/post-device-create.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x622f840 --stop-address=0x622fa40 "$LIB" > hybrid-report/grc-device-bootstrap/vulkan-runtime-init.disasm.txt
+
+          "$NM" -D -C "$LIB" | grep -E 'grcDevice::(InitClass|GetCurrentInner|GetSwapChain|AllocateSwapChain)|grVulkan(Runtime|NativeDeviceAdapter)::(Init|Initialize|IsRequested|IsAvailable)|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/relevant-symbols.txt || true
+
+          grep -n -E 'blr|D3D11|DXGI|grVulkan|GetCurrentInner|SwapChain|cbz|cbnz|tbz|tbnz' hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt > hybrid-report/grc-device-bootstrap/control-flow-highlights.txt || true
+
+          test -s hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+          test -s hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+
+      - name: Upload tiny grcDevice bootstrap evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: grc-device-bootstrap-${{ github.run_number }}
+          compression-level: 9
+          path: |
+            hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+            hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+            hybrid-report/grc-device-bootstrap/post-device-create.disasm.txt
+            hybrid-report/grc-device-bootstrap/vulkan-runtime-init.disasm.txt
+            hybrid-report/grc-device-bootstrap/relevant-symbols.txt
+            hybrid-report/grc-device-bootstrap/control-flow-highlights.txt
+
       - name: Keep verified bootable engine startup
         shell: bash
         run: |
