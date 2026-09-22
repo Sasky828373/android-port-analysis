@@ -209,6 +209,47 @@ static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{};
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
 static OrigSubmissionBegin origSubmissionBegin{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
+struct NativeWrappedImage {
+ VkImage image;
+ uint32_t format;
+ uint32_t pad0;
+ uint64_t opaque10,opaque18,opaque20,opaque28,opaque30,opaque38,opaque40,opaque48,opaque50,opaque58,opaque60;
+ uint32_t aspect;
+ uint32_t pad6c;
+ void* resource;
+};
+static_assert(offsetof(NativeWrappedImage,image)==0);
+static_assert(offsetof(NativeWrappedImage,aspect)==0x68);
+static_assert(offsetof(NativeWrappedImage,resource)==0x70);
+using WrapTextureFn=void(*)(void*,NativeWrappedImage*);
+using WrapRenderTargetFn=void(*)(void*,NativeWrappedImage*);
+using AllocateDescriptorSetFn=VkDescriptorSet(*)(uint32_t,VkDescriptorSetLayout);
+using GetOrCreateShaderModuleFn=VkShaderModule(*)(const uint32_t*,size_t,const char*);
+static WrapTextureFn rageWrapTexture{};
+static WrapRenderTargetFn rageWrapRenderTarget{};
+static AllocateDescriptorSetFn rageAllocateDescriptorSet{};
+static GetOrCreateShaderModuleFn rageGetOrCreateShaderModule{};
+static void resolveNativeMappingFns(){
+ if(!gtavBase)return;
+ rageWrapRenderTarget=(WrapRenderTargetFn)(gtavBase+0x6233c00);
+ rageWrapTexture=(WrapTextureFn)(gtavBase+0x6233ddc);
+ rageAllocateDescriptorSet=(AllocateDescriptorSetFn)(gtavBase+0x6233f1c);
+ rageGetOrCreateShaderModule=(GetOrCreateShaderModuleFn)(gtavBase+0x62334b0);
+}
+static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
+ if(!rage)return false;
+ uint64_t existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
+ if(existing)return true;
+ resolveNativeMappingFns();
+ NativeWrappedImage w{};
+ if(renderTarget){if(!rageWrapRenderTarget)return false;rageWrapRenderTarget(rage,&w);}
+ else {if(!rageWrapTexture)return false;rageWrapTexture(rage,&w);}
+ if(!w.image)return false;
+ gtav_native_renderer_register_resource((uint64_t)(uintptr_t)rage,(uint64_t)(uintptr_t)w.image,kind,1);
+ capture(renderTarget?"WRAP-RT":"WRAP-TEX",rage,(uint64_t)(uintptr_t)w.image);
+ return true;
+}
+
 static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
  VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
  observedNativeCommandBuffer.store(cb,std::memory_order_release);
@@ -335,6 +376,9 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false; m=it->second; }
  if(!m.inputLayout || !m.vertexBuffers[0] || !m.vs || !m.ps || !m.rtvCount || !m.rtv[0]) return false;
+ // Use GTA's own native wrappers to obtain real VkImage handles instead of pointer casts.
+ mapWrappedImage(m.rtv[0],NR_RTV,true);
+ for(unsigned i=0;i<32;i++){ if(m.vsSRV[i])mapWrappedImage(m.vsSRV[i],NR_SRV,false); if(m.psSRV[i])mapWrappedImage(m.psSRV[i],NR_SRV,false); if(m.csSRV[i])mapWrappedImage(m.csSRV[i],NR_SRV,false); }
  captureMappedState(ctx,m);
  VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
  if(cb==VK_NULL_HANDLE) return false;
