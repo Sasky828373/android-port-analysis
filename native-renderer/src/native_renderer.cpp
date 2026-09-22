@@ -175,6 +175,22 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inge
  if(!words||wordCount<5)return false;
  return gtav_native_renderer_ingest_shader(rageShader,stage,words,size_t(wordCount)*sizeof(uint32_t));
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_spirv_shader(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
+ if(!rageShader||!data||bytes<20||(bytes&3))return false;
+ VkShaderModule module=VK_NULL_HANDLE;
+ const uint32_t* words=reinterpret_cast<const uint32_t*>(data);
+ if(words[0]!=0x07230203u)return false;
+ VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=bytes;ci.pCode=words;
+ if(vkCreateShaderModule(g.device,&ci,nullptr,&module)!=VK_SUCCESS)return false;
+ uint32_t kind=stage==VK_SHADER_STAGE_VERTEX_BIT?NR_VS:stage==VK_SHADER_STAGE_FRAGMENT_BIT?NR_PS:stage==VK_SHADER_STAGE_COMPUTE_BIT?NR_CS:0;
+ if(!kind){vkDestroyShaderModule(g.device,module,nullptr);return false;}
+ gtav_native_renderer_register_resource(rageShader,(uint64_t)(uintptr_t)module,kind,1);
+ return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_has_native_shader(uint64_t rageShader,uint32_t stage){
+ uint32_t kind=stage==VK_SHADER_STAGE_VERTEX_BIT?NR_VS:stage==VK_SHADER_STAGE_FRAGMENT_BIT?NR_PS:stage==VK_SHADER_STAGE_COMPUTE_BIT?NR_CS:0;
+ return kind&&gtav_native_renderer_resolve_resource(rageShader,kind)!=0;
+}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader_module(const uint32_t* spirv,size_t bytes,VkShaderModule* out){
  if(!g.device||!spirv||bytes<20||(bytes&3)||!out)return VK_ERROR_INITIALIZATION_FAILED;
  if(spirv[0]!=0x07230203u)return VK_ERROR_INVALID_SHADER_NV;
