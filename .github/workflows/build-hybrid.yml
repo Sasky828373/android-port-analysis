@@ -838,8 +838,14 @@ jobs:
           # llvm-objdump -s can ignore the intended tiny VA window on this ELF and create huge files.
           # Read exact bytes from the ELF by converting VAs to file offsets with pyelftools.
           python3 - <<'PY'
-          from elftools.elf.elffile import ELFFile
+          import subprocess
           p='XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so'
+          ph=subprocess.check_output(['readelf','-W','-l',p],text=True).splitlines()
+          segs=[]
+          for line in ph:
+            q=line.split()
+            if q and q[0]=='LOAD':
+              segs.append((int(q[2],16),int(q[5],16),int(q[1],16)))
           req={
             'isrequested-env1.txt':(0x21212a6,96),
             'isrequested-value1.txt':(0x2285eda,64),
@@ -848,12 +854,11 @@ jobs:
             'isrequested-config-default.txt':(0x23892bc,96),
           }
           with open(p,'rb') as f:
-            e=ELFFile(f)
             for name,(va,n) in req.items():
-              for seg in e.iter_segments():
-                lo=seg['p_vaddr']; hi=lo+seg['p_filesz']
+              for lo,filesz,p_offset in segs:
+                hi=lo+filesz
                 if lo <= va < hi:
-                  off=seg['p_offset']+(va-lo); f.seek(off); b=f.read(n)
+                  off=p_offset+(va-lo); f.seek(off); b=f.read(n)
                   printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
                   strings=[s.decode('utf-8','replace') for s in b.split(b'\0') if s]
                   with open('hybrid-report/native-adapter/'+name,'w') as o:
