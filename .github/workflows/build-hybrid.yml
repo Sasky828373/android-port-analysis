@@ -912,6 +912,49 @@ jobs:
           PY
           test -s hybrid-report/rage-d3d11-migration-targets.txt
 
+      - name: Force engine native Vulkan startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes())
+          BASE_DELTA=0x4000
+
+          # grVulkanNativeDeviceAdapter::IsRequested() is the engine's own renderer selector.
+          # Force only this selector to true. Do not trampoline grVulkanRuntime::Init(): its
+          # entry contains PC-relative AArch64 instructions.
+          va=0x618c270
+          off=va-BASE_DELTA
+          old=bytes(b[off:off+8])
+          # mov w0,#1 ; ret
+          patch=bytes.fromhex("20008052c0035fd6")
+          # Exact-build safety: reject blank/already-corrupt locations. Re-running is OK.
+          if old != patch:
+              first=int.from_bytes(old[:4],"little")
+              is_prologue=((first & 0xffc003ff)==0xd10003ff or
+                           (first & 0xffc07fff)==0xa9807bfd or
+                           (first & 0x9f000000)==0x90000000 or
+                           (first & 0xfc000000)==0x14000000)
+              if not is_prologue:
+                  raise SystemExit(f"IsRequested unexpected bytes {old.hex()} at {off:#x}")
+              b[off:off+8]=patch
+          p.write_bytes(b)
+          print(f"native Vulkan selector forced at VA={va:#x}: {old.hex()} -> {patch.hex()}")
+          PY
+
+          # Gate the exact selector patch before compiling/packaging anything else.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so").read_bytes()
+          off=0x618c270-0x4000
+          assert p[off:off+8] == bytes.fromhex("20008052c0035fd6")
+          print("native Vulkan startup gate: OK")
+          PY
+
       - name: Build native Vulkan compatibility renderer
         shell: bash
         run: |
