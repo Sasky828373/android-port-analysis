@@ -77,6 +77,8 @@ jobs:
               readelf -h "$f" || true
               echo "--- NEEDED/DYNAMIC ---"
               readelf -d "$f" || true
+              echo "--- EXPORTED SYMBOLS ---"
+              readelf -Ws "$f" | grep -E 'gtav_android|Java_com_gtavsource|vkQueue|vkAcquire|vkCreateSwapchain|vkGetSwapchain' || true
               echo "--- HYBRID STRINGS ---"
               strings -a "$f" | grep -Ei 'GTAV_VULKAN|gtav_android|swapchain|surface|interop|skin|luminance|refract|present|vulkan' | head -n 500 || true
             } > "hybrid-report/$b.txt"
