@@ -58,6 +58,10 @@ static uintptr_t gtavBase{};
 static constexpr uintptr_t kVulkanRuntimeInitVa=0x618caf8;
 static constexpr uint32_t kVulkanRuntimeInitExpected[4]={0x942906c6u,0xd0006d20u,0x90fe1322u,0x910bf042u};
 static std::atomic<bool> vulkanInitGateMatched{false};
+using OrigVulkanRuntimeInit=bool(*)(void*);
+static OrigVulkanRuntimeInit origVulkanRuntimeInit{};
+static std::atomic<bool> vulkanInitHookInstalled{false};
+
 
 static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
 static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
@@ -216,6 +220,28 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
 
 static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
+static bool hookVulkanRuntimeInit(void* self){
+ bool ok=origVulkanRuntimeInit?origVulkanRuntimeInit(self):false;
+ __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,"GTAV-NATIVE-MAP","VULKAN-INIT returned=%d",ok?1:0);
+ if(ok){
+   bool attached=attachFromGtavRuntime();
+   __android_log_print(attached?ANDROID_LOG_INFO:ANDROID_LOG_WARN,"GTAV-NATIVE-MAP","VULKAN-ATTACH ready=%d",attached?1:0);
+ }
+ return ok;
+}
+static bool installVulkanRuntimeInitHook(){
+ if(vulkanInitHookInstalled.load(std::memory_order_acquire)) return true;
+ if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ if(!gtavBase) return false;
+ uintptr_t target=gtavBase+kVulkanRuntimeInitVa;
+ if(std::memcmp((void*)target,kVulkanRuntimeInitExpected,16)!=0) return false;
+ uint32_t old[4]{}; void* tramp=nullptr;
+ if(!patchJump(target,(void*)hookVulkanRuntimeInit,old,&tramp)) return false;
+ origVulkanRuntimeInit=(OrigVulkanRuntimeInit)tramp;
+ vulkanInitHookInstalled.store(true,std::memory_order_release);
+ return true;
+}
+
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","HOOKS libgtav-not-found");return false;}
  static constexpr uint32_t expectDraw[4]={0xf9400400u,0xf9400008u,0xf9403503u,0xd61f0060u};
@@ -257,6 +283,10 @@ __attribute__((constructor)) static void gtav_native_renderer_ctor(){
    vulkanInitGateMatched.store(match,std::memory_order_release);
    __android_log_print(match?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP",
      "VULKAN-INIT-GATE match=%d base=0x%llx",match?1:0,(unsigned long long)gtavBase);
+ }
+ if(vulkanInitGateMatched.load(std::memory_order_acquire)){
+   bool vih=installVulkanRuntimeInitHook();
+   __android_log_print(vih?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","VULKAN-INIT-HOOK installed=%d",vih?1:0);
  }
  bool hooks=gtav_native_renderer_install_draw_hooks();
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
