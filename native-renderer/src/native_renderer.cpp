@@ -175,6 +175,20 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inge
  if(!words||wordCount<5)return false;
  return gtav_native_renderer_ingest_shader(rageShader,stage,words,size_t(wordCount)*sizeof(uint32_t));
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_on_shader_created(uint64_t rageShader,uint32_t stage,const void* bytecode,size_t bytes){
+ if(!rageShader||!bytecode||!bytes)return false;
+ if(gtav_native_renderer_has_native_shader(rageShader,stage))return true;
+ return gtav_native_renderer_import_shader_blob(rageShader,stage,bytecode,bytes);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_on_vertex_shader_created(uint64_t rageShader,const void* bytecode,size_t bytes){
+ return gtav_native_renderer_on_shader_created(rageShader,VK_SHADER_STAGE_VERTEX_BIT,bytecode,bytes);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_on_pixel_shader_created(uint64_t rageShader,const void* bytecode,size_t bytes){
+ return gtav_native_renderer_on_shader_created(rageShader,VK_SHADER_STAGE_FRAGMENT_BIT,bytecode,bytes);
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_on_compute_shader_created(uint64_t rageShader,const void* bytecode,size_t bytes){
+ return gtav_native_renderer_on_shader_created(rageShader,VK_SHADER_STAGE_COMPUTE_BIT,bytecode,bytes);
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_import_shader_blob(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
  if(!rageShader||!data||bytes<4)return false;
  const uint32_t* w=reinterpret_cast<const uint32_t*>(data);
