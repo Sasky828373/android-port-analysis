@@ -1,6 +1,7 @@
 #include <vulkan/vulkan.h>
 #include <atomic>
 #include <cstdint>
+#include "native_dispatch.h"
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
 static Runtime g;
@@ -23,7 +24,24 @@ void gtav_native_renderer_bind_pipeline(VkCommandBuffer cmd,VkPipelineBindPoint 
 extern "C" __attribute__((visibility("default")))
 void gtav_native_renderer_begin_rendering(VkCommandBuffer cmd,VkRect2D area,uint32_t colorCount,const VkRenderingAttachmentInfo* colors,const VkRenderingAttachmentInfo* depth) {
  if(!cmd) return; VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO}; ri.renderArea=area; ri.layerCount=1; ri.colorAttachmentCount=colorCount; ri.pColorAttachments=colors; ri.pDepthAttachment=depth; vkCmdBeginRendering(cmd,&ri);
+extern "C" __attribute__((visibility("default")))
+const GtavNativeDispatch* gtav_native_renderer_get_dispatch() {
+ static const GtavNativeDispatch d{
+  1,
+  gtav_native_renderer_ready,
+  gtav_native_renderer_begin_frame,
+  gtav_native_renderer_bind_vertex_buffer,
+  gtav_native_renderer_bind_index_buffer,
+  gtav_native_renderer_set_viewport,
+  gtav_native_renderer_set_scissor,
+  gtav_native_renderer_draw,
+  gtav_native_renderer_draw_indexed,
+  gtav_native_renderer_dispatch
+ };
+ return &d;
 }
+}
+
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_end_rendering(VkCommandBuffer cmd){if(cmd)vkCmdEndRendering(cmd);}
 extern "C" __attribute__((visibility("default")))
 void gtav_native_renderer_copy_buffer(VkCommandBuffer cmd,VkBuffer src,VkBuffer dst,VkDeviceSize size) {
