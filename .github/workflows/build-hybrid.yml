@@ -101,6 +101,20 @@ jobs:
           PY
           sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
 
+      - name: Native Vulkan efficiency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          {
+            echo "=== GOLD Vulkan synchronization/submission symbols ==="
+            for f in XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so; do
+              echo "--- $f ---"
+              readelf -Ws "$f" | grep -E 'vk(QueueSubmit|QueuePresent|WaitForFences|ResetFences|WaitSemaphores|SignalSemaphore|AcquireNextImage|AllocateMemory|FreeMemory|AllocateDescriptor|UpdateDescriptor)' || true
+              strings -a "$f" | grep -Ei 'queue submit|wait.*fence|semaphore|descriptor|allocation|memory budget|present wait|frame pace' | head -n 250 || true
+            done
+          } > hybrid-report/native-efficiency-audit.txt
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
