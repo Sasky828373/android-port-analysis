@@ -161,6 +161,20 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_upda
  VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=type;w.pImageInfo=&ii;
  vkUpdateDescriptorSets(g.device,1,&w,0,nullptr);return true;
 }
+static bool validSpirv(const uint32_t* code,size_t bytes){
+ return code&&bytes>=20&&!(bytes&3)&&code[0]==0x07230203u;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ingest_shader(uint64_t rageShader,uint32_t stage,const void* data,size_t bytes){
+ if(!rageShader||!data||!validSpirv((const uint32_t*)data,bytes))return false;
+ VkShaderModule module{};
+ if(gtav_native_renderer_create_shader_module((const uint32_t*)data,bytes,&module)!=VK_SUCCESS)return false;
+ if(!gtav_native_renderer_register_shader(rageShader,module,stage)){vkDestroyShaderModule(g.device,module,nullptr);return false;}
+ return true;
+}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ingest_shader_words(uint64_t rageShader,uint32_t stage,const uint32_t* words,uint32_t wordCount){
+ if(!words||wordCount<5)return false;
+ return gtav_native_renderer_ingest_shader(rageShader,stage,words,size_t(wordCount)*sizeof(uint32_t));
+}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader_module(const uint32_t* spirv,size_t bytes,VkShaderModule* out){
  if(!g.device||!spirv||bytes<20||(bytes&3)||!out)return VK_ERROR_INITIALIZATION_FAILED;
  if(spirv[0]!=0x07230203u)return VK_ERROR_INVALID_SHADER_NV;
