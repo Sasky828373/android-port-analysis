@@ -810,10 +810,15 @@ jobs:
           NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
           "$NM" -C -n "$LIB" > hybrid-report/native-adapter/symbols.txt
-          grep -E 'grVulkanNativeDeviceAdapter|IsRequested|Initialize' hybrid-report/native-adapter/symbols.txt > hybrid-report/native-adapter/bootstrap-symbols.txt || true
-          "$OBJDUMP" -d --demangle --disassemble-symbols='_ZN4rage27grVulkanNativeDeviceAdapter11IsRequestedEv,_ZN4rage27grVulkanNativeDeviceAdapter10InitializeEv' "$LIB" > hybrid-report/native-adapter/bootstrap.disasm.txt || true
-          test -s hybrid-report/native-adapter/bootstrap-symbols.txt
-          readelf -Ws "$LIB" | grep -E 'grVulkanNativeDeviceAdapter|IsRequested|Initialize' > hybrid-report/native-adapter/dynsym.txt || true
+          readelf -Ws "$LIB" > hybrid-report/native-adapter/all-dynsym.txt
+          # The adapter entry points may be hidden/local or reached through PLT from libgtav.so.
+          # Preserve every Vulkan/JNI/driver candidate instead of assuming exported C++ symbols.
+          grep -Ei 'Vulkan|DriverManager|nativeInitialize|IsRequested|Initialize' hybrid-report/native-adapter/symbols.txt > hybrid-report/native-adapter/bootstrap-symbols.txt || true
+          grep -Ei 'Vulkan|DriverManager|nativeInitialize|IsRequested|Initialize' hybrid-report/native-adapter/all-dynsym.txt > hybrid-report/native-adapter/dynsym.txt || true
+          "$OBJDUMP" -d --demangle --start-address=0x26c20 --stop-address=0x27400 "$LIB" > hybrid-report/native-adapter/bootstrap.disasm.txt
+          test -s hybrid-report/native-adapter/bootstrap.disasm.txt
+          # Also capture the PLT/import side from libgtav.so so we can resolve the adapter calls.
+          "$OBJDUMP" -d --demangle --start-address=0x6cbebc0 --stop-address=0x6cbec40 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/libgtav-adapter-plt.disasm.txt
 
       - name: Extract RAGE D3D11 migration targets
         shell: bash
@@ -1071,6 +1076,7 @@ jobs:
             hybrid-report/native-adapter/bootstrap-symbols.txt
             hybrid-report/native-adapter/bootstrap.disasm.txt
             hybrid-report/native-adapter/dynsym.txt
+            hybrid-report/native-adapter/libgtav-adapter-plt.disasm.txt
             hybrid-report/full-native/key-addresses.txt
             hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
           compression-level: 0
