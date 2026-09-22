@@ -55,6 +55,10 @@ static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
 static uintptr_t gtavBase{};
+static constexpr uintptr_t kVulkanRuntimeInitVa=0x618caf8;
+static constexpr uint32_t kVulkanRuntimeInitExpected[4]={0x942906c6u,0xd0006d20u,0x90fe1322u,0x910bf042u};
+static std::atomic<bool> vulkanInitGateMatched{false};
+
 static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
 static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
  void* m=mmap(nullptr,4096,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0); if(m==MAP_FAILED)return nullptr;
@@ -248,6 +252,12 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
+ if(gtavBase){
+   bool match=std::memcmp((void*)(gtavBase+kVulkanRuntimeInitVa),kVulkanRuntimeInitExpected,16)==0;
+   vulkanInitGateMatched.store(match,std::memory_order_release);
+   __android_log_print(match?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP",
+     "VULKAN-INIT-GATE match=%d base=0x%llx",match?1:0,(unsigned long long)gtavBase);
+ }
  bool hooks=gtav_native_renderer_install_draw_hooks();
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
