@@ -944,28 +944,20 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf patchstage out
-          mkdir -p patchstage out
+          mkdir -p patchstage/assets patchstage/lib/arm64-v8a out
           cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk
-
-          # Strip the old signature only. Keep the original manifest/resources/ZIP layout.
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'META-INF/*' || true
 
-          # Only files intentionally changed by the hybrid are replaced.
-          mkdir -p patchstage/assets patchstage/lib/arm64-v8a
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
 
-          # Final native cutover: remove the legacy DXVK payload/config inherited from the base APK.
-          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk \
-            'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' \
-            'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' || true
-
-          # Replace native libraries uncompressed; this is required by many modern Android APKs.
+          # DXVK-free final package: remove translation runtime and its config.
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk             'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so'             'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' || true
           (
             cd patchstage
-            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
+            zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk               lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
             zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini
           )
 
@@ -989,6 +981,7 @@ jobs:
           unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
           ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
           unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
+          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\\.so|assets/dxvk\\.conf'
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
@@ -1016,10 +1009,3 @@ jobs:
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
             out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
           compression-level: 0
-
-      - name: Upload native analysis reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: XHYN-V0.17-NATIVE-REPORTS
-          path: hybrid-report/
-          compression-level: 6
