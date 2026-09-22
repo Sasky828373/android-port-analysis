@@ -309,6 +309,36 @@ jobs:
             echo "then map LDR [object,#slot] + BLR call sites."
           } > hybrid-report/gold-dispatch-slots.txt
 
+      - name: Resolve GOLD dispatch symbol names
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          data=lib.read_bytes()
+          src=Path("hybrid-report/gold-vulkan-dispatch-constructor.txt").read_text(errors="replace").splitlines()
+          out=[]
+          page=None
+          for i,line in enumerate(src):
+            m=re.search(r'adrp\s+x1,\s*([0-9a-fA-F]+)',line)
+            if m: page=int(m.group(1),16)
+            m=re.search(r'add\s+x1,\s*x1,\s*#0x([0-9a-fA-F]+)',line)
+            if m and page is not None:
+              va=page+int(m.group(1),16)
+              if i+1 < len(src) and "dlsym@plt" in src[i+1]:
+                end=data.find(b'\0',va,va+256)
+                name=data[va:end].decode(errors="replace") if end>va else "?"
+                slot="?"
+                for j in range(i+2,min(i+8,len(src))):
+                  sm=re.search(r'str\s+x(?:8|0),\s*\[x19(?:,\s*#(\d+))?\]',src[j])
+                  if sm:
+                    slot=int(sm.group(1) or 0); break
+                out.append(f"slot +0x{slot:x} ({slot:3d}) <- {name} @0x{va:x}")
+          Path("hybrid-report/gold-dispatch-symbol-map.txt").write_text("\n".join(out)+"\n")
+          PY
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
