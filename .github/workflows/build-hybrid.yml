@@ -976,6 +976,11 @@ jobs:
             hybrid-report/grc-device-bootstrap/vulkan-runtime-init.disasm.txt
             hybrid-report/grc-device-bootstrap/relevant-symbols.txt
             hybrid-report/grc-device-bootstrap/control-flow-highlights.txt
+            hybrid-report/grc-device-bootstrap/device-bootstrap-relocations.txt
+            hybrid-report/grc-device-bootstrap/device-bootstrap-symbols.txt
+            hybrid-report/grc-device-bootstrap/device-create-failure.txt
+            hybrid-report/grc-device-bootstrap/post-create-display.txt
+            hybrid-report/grc-device-bootstrap/feature-level-display.txt
 
       - name: Resolve exact legacy device bootstrap imports
         shell: bash
