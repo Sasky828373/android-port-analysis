@@ -6,8 +6,9 @@ on:
     branches: [hybrid-apk-unpacked]
   workflow_dispatch:
 
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -865,6 +866,21 @@ jobs:
           cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
           unzip -t /tmp/final.apk >/dev/null
           sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
+
+      - name: Publish direct APK release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="native-capture-${GITHUB_RUN_NUMBER}"
+          APK="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk"
+          SUM="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256"
+          gh release create "$TAG" "$APK" "$SUM" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "XHYN Native Capture ${GITHUB_RUN_NUMBER}" \
+            --notes "Direct APK download. Built from ${GITHUB_SHA} and validated with zipalign, apksigner and unzip -t."
 
       - name: Upload APK only
         uses: actions/upload-artifact@v4
