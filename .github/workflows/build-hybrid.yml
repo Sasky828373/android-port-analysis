@@ -1,4 +1,4 @@
-name: Build XHYN Vulkan Hybrid
+name: Build XHYN Vulkan Hybrid Performance
 # Hybrid build pipeline v1
 
 on:
@@ -134,7 +134,7 @@ jobs:
           set -euo pipefail
           rm -rf patchstage out
           mkdir -p patchstage out
-          cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk
+          cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk
 
           # Strip the old signature only. Keep the original manifest/resources/ZIP layout.
           zip -q -d out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk 'META-INF/*' || true
@@ -163,24 +163,24 @@ jobs:
           set -euo pipefail
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
 
-          "$BT/zipalign" -f -p 4             out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk             out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+          "$BT/zipalign" -f -p 4             out/XHYN_V0.17_HYBRID_FULL_UNSIGNED.apk             out/XHYN_V0.17_HYBRID_PERFORMANCE_ALIGNED.apk
           "$BT/zipalign" -c -p 4 out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
 
           keytool -genkeypair -noprompt             -keystore out/hybrid.keystore -storepass android -keypass android             -alias hybrid -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=XHYN Hybrid,O=Android,C=DE"
 
-          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk             out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
+          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk             out/XHYN_V0.17_HYBRID_FULL_ALIGNED.apk
 
-          "$BT/apksigner" verify --verbose --print-certs out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
-          "$BT/aapt" dump badging out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk | tee out/aapt-badging.txt
-          "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk AndroidManifest.xml >/dev/null
-          unzip -t out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk >/dev/null
-          sha256sum out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk > out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk.sha256
+          "$BT/apksigner" verify --verbose --print-certs out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+          "$BT/aapt" dump badging out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | tee out/aapt-badging.txt
+          "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk AndroidManifest.xml >/dev/null
+          unzip -t out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk >/dev/null
+          sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: XHYN-V0.17-HYBRID-FULL
+          name: XHYN-V0.17-HYBRID-PERFORMANCE
           path: |
-            out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk
-            out/XHYN_V0.17_HYBRID_FULL_SIGNED.apk.sha256
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
             hybrid-report/
           compression-level: 0
