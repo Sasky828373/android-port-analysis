@@ -377,6 +377,15 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
  gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)l,NR_PIPELINE_LAYOUT,0);
  gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)d,NR_DESCRIPTOR_SET,0);return true;
 }
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_compute_state(uint64_t rageShader,VkPipeline p,VkPipelineLayout l,VkDescriptorSet d){
+ if(!rageShader||!p||!l||!d)return false;
+ const uint64_t key=hashMix(rageShader,0x43534e4154495645ull);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)p,NR_GRAPHICS_PIPELINE,0);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)l,NR_PIPELINE_LAYOUT,0);
+ gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)d,NR_DESCRIPTOR_SET,0);
+ {std::lock_guard<std::mutex> g2(pipelineCacheMutex);pipelineCache[key]={p,l,d};}
+ return true;
+}
 struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; VkImageAspectFlags aspect{}; };
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
@@ -587,9 +596,11 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
  VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);if(!cb)return false;
  uint64_t cs=resolveMapped(m.cs,NR_CS);if(!cs)return false;
  uint64_t key=hashMix((uint64_t)(uintptr_t)m.cs,0x43534e4154495645ull);
- uint64_t pipe=gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE);
- uint64_t layout=gtav_native_renderer_resolve_resource(key,NR_PIPELINE_LAYOUT);
- uint64_t desc=gtav_native_renderer_resolve_resource(key,NR_DESCRIPTOR_SET);
+ uint64_t pipe=0,layout=0,desc=0;
+ {std::lock_guard<std::mutex> l(pipelineCacheMutex);auto it=pipelineCache.find(key);if(it!=pipelineCache.end()){pipe=(uint64_t)(uintptr_t)it->second.pipeline;layout=(uint64_t)(uintptr_t)it->second.layout;desc=(uint64_t)(uintptr_t)it->second.descriptor;}}
+ if(!pipe)pipe=gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE);
+ if(!layout)layout=gtav_native_renderer_resolve_resource(key,NR_PIPELINE_LAYOUT);
+ if(!desc)desc=gtav_native_renderer_resolve_resource(key,NR_DESCRIPTOR_SET);
  if(!pipe||!layout||!desc)return false;
  for(unsigned i=0;i<16;i++){
   if(m.csCB[i]&&!resolveMapped(m.csCB[i],NR_CBUFFER))return false;
