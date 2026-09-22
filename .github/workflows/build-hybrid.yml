@@ -1178,6 +1178,26 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace post-D3D11CreateDevice object consumers
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-d3d11-device
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # Runtime reached QueryInterface and one unknown device/context virtual before
+          # crashing at +0x10. Capture the complete InitClass continuation plus helpers.
+          "$OBJDUMP" -d --demangle --start-address=0x6158400 --stop-address=0x615995c "$LIB" > "$OUT/initclass-after-device.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1800 --stop-address=0x61b2400 "$LIB" > "$OUT/device-accessors.txt"
+          grep -n -B20 -A50 -E 'blr|#0x10\]|#0x18\]|#0x20\]|#0x28\]|#0x30\]|#0x38\]|#0x40\]|#0x48\]|#0x50\]|#0x58\]|#0x60\]|#0x128\]' "$OUT/initclass-after-device.txt" > "$OUT/virtual-call-windows.txt" || true
+          grep -n -B16 -A36 -E 'QueryInterface|SwapChain|GetCurrentInner|AllocateSwapChain|D3D11|DXGI|blr' "$OUT/initclass-after-device.txt" > "$OUT/bootstrap-highlights.txt" || true
+
+      - name: Upload post-D3D11CreateDevice trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-d3d11-device-${{ github.run_number }}
+          path: hybrid-report/post-d3d11-device/
+
       - name: Trace D3D11CreateDevice-only callsites and consumers
         run: |
           set -euo pipefail
