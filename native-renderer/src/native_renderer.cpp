@@ -282,9 +282,26 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
  return observedNativeCommandBuffer.load(std::memory_order_acquire);
 }
 
-static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
-static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
-static void hookDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){if(!gtav_native_renderer_rage_dispatch(c,x,y,z)&&origDispatch)origDispatch(c,x,y,z);}
+static std::atomic<uint64_t> nativeDraws{0},nativeIndexedDraws{0},nativeDispatches{0},fallbackDraws{0};
+static void hookDraw(void* c,uint32_t n,uint32_t f){
+ if(gtav_native_renderer_rage_draw(c,n,f)){nativeDraws.fetch_add(1,std::memory_order_relaxed);return;}
+ fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDraw)origDraw(c,n,f);
+}
+static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){
+ if(gtav_native_renderer_rage_draw_indexed(c,n,f,v)){nativeIndexedDraws.fetch_add(1,std::memory_order_relaxed);return;}
+ fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDrawIndexed)origDrawIndexed(c,n,f,v);
+}
+static void hookDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){
+ if(gtav_native_renderer_rage_dispatch(c,x,y,z)){nativeDispatches.fetch_add(1,std::memory_order_relaxed);return;}
+ fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDispatch)origDispatch(c,x,y,z);
+}
+extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_native_commands(){
+ return nativeDraws.load(std::memory_order_relaxed)+nativeIndexedDraws.load(std::memory_order_relaxed)+nativeDispatches.load(std::memory_order_relaxed);
+}
+extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_fallback_commands(){return fallbackDraws.load(std::memory_order_relaxed);}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_cutover_active(){
+ return drawHooksInstalled.load(std::memory_order_acquire)&&g.device&&observedNativeCommandBuffer.load(std::memory_order_acquire)!=VK_NULL_HANDLE;
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","HOOKS libgtav-not-found");return false;}
  static constexpr uint32_t expectDraw[4]={0xf9400400u,0xf9400008u,0xf9403503u,0xd61f0060u};
@@ -617,7 +634,10 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 }
 
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){if(!g.device)attachFromGtavRuntime();return g.device&&g.queue&&g.commands&&g.descriptors;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){
+ if(!g.device)attachFromGtavRuntime();
+ return g.device&&g.queue&&g.commands&&g.descriptors&&drawHooksInstalled.load(std::memory_order_acquire);
+}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){
  if(!g.device)return;
  vkDeviceWaitIdle(g.device);
