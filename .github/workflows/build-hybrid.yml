@@ -46,6 +46,44 @@ jobs:
           test "$(stat -c%s lib/arm64-v8a/libgtav.so)" = "154327768"
           sha256sum lib/arm64-v8a/libgtav.so > HYBRID-libgtav.sha256
 
+      - name: Native hot-path cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, struct
+
+          p = Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          data = bytearray(p.read_bytes())
+          # ELF mapping verified for this libgtav build: file offset = virtual address - 0x4000.
+          # These are gameplay diagnostics/telemetry update functions, not rendering functions.
+          targets = {
+              "MetricsCapture_Update":       0x4a31e34,
+              "MetricsCapture_DrawWindows":  0x4a32660,
+              "NetworkDebugTelemetry_Update":0x58fe1bc,
+          }
+          ret = bytes.fromhex("c0035fd6")  # AArch64 RET
+          report = []
+          for name, va in targets.items():
+              off = va - 0x4000
+              if off < 0 or off + 4 > len(data):
+                  raise SystemExit(f"{name}: offset out of range: {off:#x}")
+              old = bytes(data[off:off+4])
+              # Refuse to silently patch an already-RET location or zero/corrupt area.
+              if old == b"\x00\x00\x00\x00":
+                  raise SystemExit(f"{name}: unexpected zero instruction at {off:#x}")
+              data[off:off+4] = ret
+              report.append(f"{name}: VA={va:#x} file={off:#x} old={old.hex()} new={ret.hex()}")
+
+          p.write_bytes(data)
+          Path("hybrid-report").mkdir(exist_ok=True)
+          Path("hybrid-report/native-hotpath-patches.txt").write_text(
+              "\n".join(report) + "\nsha256=" + hashlib.sha256(data).hexdigest() + "\n"
+          )
+          PY
+          sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+
       - name: Verify hybrid native stack
         shell: bash
         run: |
@@ -99,7 +137,7 @@ jobs:
           mkdir -p patchstage/assets patchstage/lib/arm64-v8a
           cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
           cp XHYN_V017_UNPACKED/assets/dxvk.conf patchstage/assets/
-          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/\n          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so patchstage/lib/arm64-v8a/
           cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so patchstage/lib/arm64-v8a/
           if [ -f XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so ]; then
             cp XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d10core.so patchstage/lib/arm64-v8a/
