@@ -594,32 +594,18 @@ jobs:
           test "$(stat -c%s "$LIB")" = "154327768"
           readelf -h "$LIB" | grep -q 'AArch64'
           readelf -h XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so | grep -q 'AArch64'
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
-          d=p.read_bytes()
-          ret=bytes.fromhex("c0035fd6")
-          # All established function-level cleanup patches must be present.
-          for va in [0x4a31e34,0x4a32660,0x58fe1bc,0x61329f8,0x611d854,0x6135ec0,0x612eaf8,0x611d6d4,0x6136044]:
-              off=va-0x4000
-              assert d[off:off+4] == ret, f"missing native RET patch at {va:#x}"
-          # V10 BindCompute counter bypass must branch from 0x619aa58 to 0x619a8b4.
-          src,dst=0x619aa58,0x619a8b4
-          off=src-0x4000
-          ins=int.from_bytes(d[off:off+4],"little")
-          assert (ins>>26)==0b000101, f"V10 branch missing at {src:#x}"
-          imm=ins & 0x03ffffff
-          if imm & 0x02000000: imm-=0x04000000
-          actual=src+(imm<<2)
-          assert actual==dst, f"V10 branch target {actual:#x} != {dst:#x}"
-          # AndroidPerformance::Update is already intentionally RET in this base.
-          assert d[0x4a331a8-0x4000:0x4a331ac-0x4000] == ret
-          Path("hybrid-report/native-final-integrity.txt").write_text(
-              "libgtav size OK\nAArch64 ELF OK\nlegacy native cleanup OK\n"
-              "BindCompute counter bypass OK\nAndroidPerformance Update already RET\n"
-          )
-          PY
-          sha256sum "$LIB" XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so >> hybrid-report/native-final-integrity.txt
+          # Crash-isolation mode intentionally preserves original libgtav instructions.
+          # Integrity here verifies the reconstructed binary itself rather than requiring
+          # the old RET/BindCompute performance patches that were deliberately removed.
+          ORIG_SHA="$(cut -d' ' -f1 XHYN_V017_UNPACKED/HYBRID-libgtav.sha256)"
+          NOW_SHA="$(sha256sum "$LIB" | cut -d' ' -f1)"
+          test "$NOW_SHA" = "$ORIG_SHA"
+          {
+            echo "libgtav size OK"
+            echo "AArch64 ELF OK"
+            echo "original libgtav instruction stream preserved"
+            sha256sum "$LIB" XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          } > hybrid-report/native-final-integrity.txt
 
       - name: GPU 8.33ms native migration audit
         shell: bash
