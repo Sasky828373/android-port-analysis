@@ -57,15 +57,11 @@ jobs:
           p = Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
           data = bytearray(p.read_bytes())
           # ELF mapping verified for this libgtav build: file offset = virtual address - 0x4000.
-          # These are diagnostics/telemetry/statistics and PIX instrumentation entry points, not rendering passes.
+          # These are diagnostics/telemetry and PIX instrumentation entry points, not rendering passes.
           targets = {
               "MetricsCapture_Update":       0x4a31e34,
               "MetricsCapture_DrawWindows":  0x4a32660,
               "NetworkDebugTelemetry_Update":0x58fe1bc,
-              # Native V9: remove constant-buffer / compute statistics bookkeeping only.
-              # These addresses are known instrumentation/statistics entry points in this exact libgtav build.
-              "ConstantBufferStats_61b0398": 0x61b0398,
-              "BindComputeStats_619aa5c":    0x619aa5c,
               "PIX_marker_61329f8":          0x61329f8,
               "PIX_marker_611d854":          0x611d854,
               "PIX_marker_6135ec0":          0x6135ec0,
