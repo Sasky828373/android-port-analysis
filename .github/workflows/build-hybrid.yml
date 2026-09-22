@@ -62,6 +62,10 @@ jobs:
               "MetricsCapture_Update":       0x4a31e34,
               "MetricsCapture_DrawWindows":  0x4a32660,
               "NetworkDebugTelemetry_Update":0x58fe1bc,
+              # V10 verified micro-patch: skip only the optional BindCompute usage-counter block.
+              # 0x619aa5c is inside BindCompute (not a function entry), so patch its conditional
+              # branch to jump directly back to the normal loop at 0x619a8b4.
+
               "PIX_marker_61329f8":          0x61329f8,
               "PIX_marker_611d854":          0x611d854,
               "PIX_marker_6135ec0":          0x6135ec0,
@@ -92,6 +96,22 @@ jobs:
                   raise SystemExit(f"{name}: unexpected entry instruction {old.hex()} at {off:#x}; refusing unsafe patch")
               data[off:off+4] = ret
               report.append(f"{name}: VA={va:#x} file={off:#x} old={old.hex()} new={ret.hex()}")
+
+          # Verified from native-v10-candidate-disasm: the block 0x619aa58..0x619aa94
+          # only gates/increments a per-binding counter after memcpy. Preserve memcpy and all
+          # actual compute binding calls; bypass the bookkeeping block with one unconditional B.
+          src_va, dst_va = 0x619aa58, 0x619a8b4
+          src_off = src_va - 0x4000
+          old = bytes(data[src_off:src_off+4])
+          if old != bytes.fromhex("486a0090"):  # ADRP x8, ... in this exact build
+              raise SystemExit(f"BindCompute counter patch: unexpected {old.hex()} at {src_off:#x}")
+          delta = dst_va - src_va
+          if delta % 4:
+              raise SystemExit("unaligned branch target")
+          imm26 = (delta >> 2) & 0x03ffffff
+          branch = (0x14000000 | imm26).to_bytes(4,"little")
+          data[src_off:src_off+4] = branch
+          report.append(f"BindComputeCounterBypass: VA={src_va:#x}->{dst_va:#x} old={old.hex()} new={branch.hex()}")
 
           p.write_bytes(data)
           Path("hybrid-report").mkdir(exist_ok=True)
