@@ -252,6 +252,17 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  else {if(!rageWrapTexture)return false;rageWrapTexture(rage,&w);}
  if(!w.image)return false;
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)rage,(uint64_t)(uintptr_t)w.image,kind,1);
+ // WrapTexture/WrapRenderTarget retain the underlying interface in +0x70.
+ // This wrapper is temporary, so balance that retained COM-style reference.
+ if(w.resource){
+   void** vt=*reinterpret_cast<void***>(w.resource);
+   if(vt){
+     using ReleaseFn=uint32_t(*)(void*);
+     auto release=reinterpret_cast<ReleaseFn>(vt[2]);
+     if(release)release(w.resource);
+   }
+   w.resource=nullptr;
+ }
  capture(renderTarget?"WRAP-RT":"WRAP-TEX",rage,(uint64_t)(uintptr_t)w.image);
  return true;
 }
