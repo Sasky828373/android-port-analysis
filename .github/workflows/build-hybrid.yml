@@ -953,6 +953,15 @@ jobs:
           patchelf --remove-needed libdxvk_d3d10core.so patchstage/lib/arm64-v8a/libgtav.so || true
           patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so > /tmp/libgtav-needed.txt
           if grep -q '^libdxvk_' /tmp/libgtav-needed.txt; then exit 1; fi
+
+          # Fail in CI on unresolved legacy graphics imports instead of discovering them one-by-one on Android.
+          readelf -Ws patchstage/lib/arm64-v8a/libgtav.so | awk '$7 == "UND" { print $8 }' | sort -u > /tmp/libgtav-undefined.txt
+          legacy_graphics="$(grep -E '^(D3D|DXGI|CreateDXGI|D3D11)' /tmp/libgtav-undefined.txt || true)"
+          if [ -n "$legacy_graphics" ]; then
+            echo "Unresolved legacy graphics imports after DXVK removal:" >&2
+            echo "$legacy_graphics" >&2
+            exit 1
+          fi
           zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' 'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' 'assets/*dxvk*' 'assets/dxvk/*' || true
           cd patchstage
           zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
