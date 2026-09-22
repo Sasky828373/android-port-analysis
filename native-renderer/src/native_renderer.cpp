@@ -213,7 +213,7 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
 static void hookDraw(void* c,uint32_t n,uint32_t f){if(!gtav_native_renderer_rage_draw(c,n,f)&&origDraw)origDraw(c,n,f);}
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){if(!gtav_native_renderer_rage_draw_indexed(c,n,f,v)&&origDrawIndexed)origDrawIndexed(c,n,f,v);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
- if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase)return false;
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr); if(!gtavBase){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-MAP","HOOKS libgtav-not-found");return false;}
  static constexpr uint32_t expectDraw[4]={0xf9400400u,0xf9400008u,0xf9403503u,0xd61f0060u};
  static constexpr uint32_t expectDrawIndexed[4]={0xf9400400u,0xf9400008u,0xf9403104u,0xd61f0080u};
  if(std::memcmp((void*)(gtavBase+0x61d254c),expectDraw,16)!=0) return false;
@@ -246,10 +246,10 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  bool ok=x&&y&&z&&sil&&svb&&sib&&stop&&svs&&sps&&scs&&svp&&ssr&&extra; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
 __attribute__((constructor)) static void gtav_native_renderer_ctor(){
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","LOAD native_renderer pid=%d",(int)getpid());
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
- // Runtime may not be initialized at ELF constructor time; hook install is safe,
- // while attach is retried lazily by ready()/begin_frame().
- gtav_native_renderer_install_draw_hooks();
+ bool hooks=gtav_native_renderer_install_draw_hooks();
+ __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","HOOKS installed=%d base=0x%llx",hooks?1:0,(unsigned long long)gtavBase);
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){return drawStateProvider&&s&&drawStateProvider(ctx,s)&&s->command_buffer!=VK_NULL_HANDLE;}
