@@ -648,7 +648,7 @@ jobs:
             ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
             objdump=(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump") if ndk else pathlib.Path("llvm-objdump")
             p=subprocess.run([str(objdump),"-d","--start-address="+start,"--stop-address="+stop,lib],text=True,capture_output=True)
-            if p.returncode or not re.search(r"^[0-9a-f]+:",p.stdout,re.M):
+            if p.returncode or not re.search(r"^\s*[0-9a-f]+:",p.stdout,re.M):
               raise SystemExit(f"Disassembly failed for {name}: {p.stderr}")
             out += [f"===== {name} @ {start} =====",p.stdout]
           pathlib.Path("hybrid-report/rage-d3d11-migration-targets.txt").write_text("\n".join(out))
