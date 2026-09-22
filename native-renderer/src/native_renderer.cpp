@@ -20,6 +20,7 @@ static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
+static std::atomic<bool> drawHooksInstalled{false};
 static GtavNativeGetDrawState drawStateProvider{};
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
 static uintptr_t gtavBase{};
@@ -33,10 +34,15 @@ static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
 }
 static bool patchJump(uintptr_t target,void* replacement,uint32_t original[4],void** trampoline){
  std::memcpy(original,(void*)target,16); *trampoline=makeTrampoline(target,original); if(!*trampoline)return false;
- long ps=sysconf(_SC_PAGESIZE); uintptr_t page=target&~((uintptr_t)ps-1); if(mprotect((void*)page,ps,PROT_READ|PROT_WRITE|PROT_EXEC))return false;
- intptr_t delta=(intptr_t)replacement-(intptr_t)target; if((delta&3)||delta<-(1ll<<27)||delta>=(1ll<<27))return false;
- uint32_t b=0x14000000u|((uint32_t)(delta>>2)&0x03ffffffu); std::memcpy((void*)target,&b,4);
- __builtin___clear_cache((char*)target,(char*)target+4); mprotect((void*)page,ps,PROT_READ|PROT_EXEC); return true;
+ long ps=sysconf(_SC_PAGESIZE); uintptr_t page=target&~((uintptr_t)ps-1);
+ if(mprotect((void*)page,ps,PROT_READ|PROT_WRITE|PROT_EXEC))return false;
+ // AArch64 absolute 16-byte veneer: ldr x16,#8 ; br x16 ; .quad replacement.
+ // Unlike B imm26 this works even when libgtav_native_renderer.so is > +/-128 MiB away.
+ uint32_t veneer[4]={0x58000050u,0xd61f0200u,0,0};
+ uint64_t dst=(uint64_t)(uintptr_t)replacement; std::memcpy(&veneer[2],&dst,sizeof(dst));
+ std::memcpy((void*)target,veneer,sizeof(veneer));
+ __builtin___clear_cache((char*)target,(char*)target+sizeof(veneer));
+ mprotect((void*)page,ps,PROT_READ|PROT_EXEC); return true;
 }
 static void load13(VkDevice d){
  pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRendering"));
@@ -89,8 +95,9 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  uint32_t a[4]{},b[4]{}; void *ta=nullptr,*tb=nullptr;
  bool x=patchJump(gtavBase+0x61d254c,(void*)hookDraw,a,&ta); if(x)origDraw=(OrigDraw)ta;
  bool y=patchJump(gtavBase+0x61d253c,(void*)hookDrawIndexed,b,&tb); if(y)origDrawIndexed=(OrigDrawIndexed)tb;
- return x&&y;
+ bool ok=x&&y; drawHooksInstalled.store(ok,std::memory_order_release); return ok;
 }
+__attribute__((constructor)) static void gtav_native_renderer_ctor(){ gtav_native_renderer_install_draw_hooks(); }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_set_draw_state_provider(GtavNativeGetDrawState p){drawStateProvider=p;}
 static bool getDrawState(void* ctx,GtavNativeDrawState* s){return drawStateProvider&&s&&drawStateProvider(ctx,s)&&s->command_buffer!=VK_NULL_HANDLE;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s))return false;vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
@@ -100,5 +107,5 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){g.frame.fetch_add(1,std::memory_order_relaxed);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){return g.device&&g.queue&&g.commands&&g.descriptors;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shutdown(){if(!g.device)return;vkDeviceWaitIdle(g.device);if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;}
-extern "C" __attribute__((visibility("default"))) const GtavNativeDispatch* gtav_native_renderer_get_dispatch(){static const GtavNativeDispatch d{1,gtav_native_renderer_ready,gtav_native_renderer_begin_frame,gtav_native_renderer_register_resource,gtav_native_renderer_resolve_resource,gtav_native_renderer_unregister_resource,gtav_native_renderer_bind_vertex_buffer,gtav_native_renderer_bind_index_buffer,gtav_native_renderer_set_viewport,gtav_native_renderer_set_scissor,gtav_native_renderer_draw,gtav_native_renderer_draw_indexed,gtav_native_renderer_dispatch,gtav_native_renderer_set_draw_state_provider,gtav_native_renderer_rage_draw,gtav_native_renderer_rage_draw_indexed,gtav_native_renderer_rage_dispatch};return &d;}
+extern "C" __attribute__((visibility("default"))) const GtavNativeDispatch* gtav_native_renderer_get_dispatch(){static const GtavNativeDispatch d{2,gtav_native_renderer_ready,gtav_native_renderer_begin_frame,gtav_native_renderer_register_resource,gtav_native_renderer_resolve_resource,gtav_native_renderer_unregister_resource,gtav_native_renderer_bind_vertex_buffer,gtav_native_renderer_bind_index_buffer,gtav_native_renderer_set_viewport,gtav_native_renderer_set_scissor,gtav_native_renderer_draw,gtav_native_renderer_draw_indexed,gtav_native_renderer_dispatch,gtav_native_renderer_set_draw_state_provider,gtav_native_renderer_rage_draw,gtav_native_renderer_rage_draw_indexed,gtav_native_renderer_rage_dispatch};return &d;}
 }
