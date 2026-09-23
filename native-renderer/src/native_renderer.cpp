@@ -380,16 +380,13 @@ alignas(4096) static uint8_t gCompatMapScratch[32 * 1024 * 1024]{};
 static int32_t compatD3DMap(void*, void* resource, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
   gtavdiag::checkpoint("compat-d3d11-map");
   if(!mapped) return (int32_t)0x80004003u;
-  mapped->pData=gCompatMapScratch; mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch); mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
-  if(resource){
-    auto* o=(CompatResourceObject*)resource;
-    if(o->vtbl==gCompatBufferVtable || o->vtbl==gCompatTexture1DVtable || o->vtbl==gCompatTexture2DVtable || o->vtbl==gCompatTexture3DVtable){
-      if(o->backing.empty())o->backing.resize(sizeof(gCompatMapScratch));
-      mapped->pData=o->backing.data();
-      if(o->vtbl==gCompatTexture2DVtable && o->descSize>=8){uint32_t w=((uint32_t*)o->desc)[0],h=((uint32_t*)o->desc)[1];mapped->rowPitch=w*4u;mapped->depthPitch=mapped->rowPitch*std::max(1u,h);}
-      else {mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;}
-    }
-  }
+  // Until resource types are declared below, keep the proven guarded arena.
+  // Per-resource backing is selected by a helper defined after CompatResourceObject.
+  mapped->pData=gCompatMapScratch;
+  mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch);
+  mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
+  extern bool compatMapResourceBacking(void*, CompatMappedSubresource*);
+  (void)compatMapResourceBacking(resource,mapped);
   return 0;
 }
 static void compatD3DUnmap(void*, void*, uint32_t) {
@@ -505,6 +502,21 @@ static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t b
   auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatViews.push_back(o);return o;
+}
+bool compatMapResourceBacking(void* resource, CompatMappedSubresource* mapped){
+  if(!resource||!mapped)return false;
+  auto* o=(CompatResourceObject*)resource;
+  if(o->vtbl!=gCompatBufferVtable&&o->vtbl!=gCompatTexture1DVtable&&o->vtbl!=gCompatTexture2DVtable&&o->vtbl!=gCompatTexture3DVtable)return false;
+  if(o->backing.empty())o->backing.resize(sizeof(gCompatMapScratch));
+  mapped->pData=o->backing.data();
+  if(o->vtbl==gCompatTexture2DVtable&&o->descSize>=8){
+    uint32_t w=((uint32_t*)o->desc)[0],h=((uint32_t*)o->desc)[1];
+    mapped->rowPitch=w*4u; mapped->depthPitch=mapped->rowPitch*std::max(1u,h);
+  } else {
+    mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);
+    mapped->depthPitch=mapped->rowPitch;
+  }
+  return true;
 }
 static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
