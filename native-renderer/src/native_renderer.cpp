@@ -77,7 +77,7 @@ struct CompatDXGIAdapter { void** vtbl; };
 static CompatDXGIFactory gCompatFactory{};
 static CompatDXGIAdapter gCompatAdapter{};
 static void* gFactoryVtable[8]{};
-static void* gAdapterVtable[9]{};
+static void* gAdapterVtable[10]{};
 
 static int32_t compatQueryInterface(void* self, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-query-interface");
@@ -130,6 +130,10 @@ static void initCompatDXGI() {
   gAdapterVtable[2]=(void*)compatRelease;
   gAdapterVtable[7]=(void*)compatEnumOutputs;
   gAdapterVtable[8]=(void*)compatGetDesc;
+  gAdapterVtable[9]=(void*)compatAdapterCheckInterfaceSupport;
+  // IDXGIAdapter::CheckInterfaceSupport is slot 9/+0x48. Keep one extra slot
+  // available because post-RetrieveVideoMemory bootstrap can query driver support.
+  // (gAdapterVtable is enlarged below before assignment.)
   gCompatAdapter.vtbl=gAdapterVtable;
 }
 }
@@ -168,6 +172,13 @@ static uint32_t compatD3DGetFeatureLevel(void*) {
 static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
+}
+static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* version) {
+  gtavdiag::checkpoint("compat-dxgi-adapter-check-interface-support");
+  if(version) *version=0;
+  // DXGI_ERROR_UNSUPPORTED: callers must take their fallback instead of consuming
+  // an uninitialised output object/version.
+  return (int32_t)0x887A0004u;
 }
 static int32_t compatDXGIDeviceGetParent(void*, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-parent");
