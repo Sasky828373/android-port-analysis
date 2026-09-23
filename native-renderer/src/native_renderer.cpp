@@ -1920,8 +1920,8 @@ public:
   return {0u,compatDescriptorBinding(stage,(uint32_t)type,space,reg)};
  }
  uint32_t mapPushData(dxbc_spv::ir::ShaderStageMask stages) override {
-  if(stages!=stages.first()||stages==dxbc_spv::ir::ShaderStage::eCompute)return 0u;
-  return 64u+32u*dxbc_spv::util::tzcnt(uint32_t(stages));
+  uint32_t raw=uint32_t(stages);if(!raw||(raw&(raw-1u))||raw==uint32_t(dxbc_spv::ir::ShaderStage::eCompute))return 0u;
+  uint32_t bit=0;while(((raw>>bit)&1u)==0u&&bit<31u)bit++;return 64u+32u*bit;
  }
 private:uint32_t stage;
 };
@@ -2057,7 +2057,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])addBinding(compatDescriptorBinding(0,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSampler[i])addBinding(compatDescriptorBinding(1,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_FRAGMENT_BIT);}
  VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};dci.bindingCount=(uint32_t)bindings.size();dci.pBindings=bindings.empty()?nullptr:bindings.data();VkDescriptorSetLayout dsl{};
  if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-pipeline-descriptor-layout-failed");return false;}
- VkPushConstantRange push{};push.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;push.offset=0;push.size=128;
+ VkPushConstantRange push{};push.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;push.offset=0;push.size=256;
  VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;lci.pushConstantRangeCount=1;lci.pPushConstantRanges=&push;VkPipelineLayout layout{};
  if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-layout-create-failed");return false;}
  VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-alloc-failed");return false;}
