@@ -1178,6 +1178,27 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace exact QueryInterface consumer and failing virtual
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/d3d11-qi-consumer
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # Runtime proves QueryInterface succeeds but the next virtual is NOT the
+          # guessed IDXGIDevice::GetAdapter slot. Capture register setup and every
+          # virtual offset around the exact post-create continuation.
+          "$OBJDUMP" -d --demangle --start-address=0x6158380 --stop-address=0x6158800 "$LIB" > "$OUT/post-create-exact.txt"
+          grep -n -B32 -A72 -E 'blr|#0x[0-9a-f]+\]' "$OUT/post-create-exact.txt" > "$OUT/all-virtual-windows.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6158800 --stop-address=0x615995c "$LIB" > "$OUT/initclass-tail.txt"
+          grep -n -B24 -A48 -E 'blr|QueryInterface|DXGI|D3D|SwapChain' "$OUT/initclass-tail.txt" > "$OUT/tail-highlights.txt" || true
+
+      - name: Upload exact QueryInterface consumer trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-qi-consumer-${{ github.run_number }}
+          path: hybrid-report/d3d11-qi-consumer/
+
       - name: Trace post-D3D11CreateDevice object consumers
         run: |
           set -euo pipefail
