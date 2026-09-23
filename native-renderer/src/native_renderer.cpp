@@ -1522,7 +1522,11 @@ using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(v
 using OrigDispatch=void(*)(void*,uint32_t,uint32_t,uint32_t);
 static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{}; static OrigDispatch origDispatch{};
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
+using OrigTransitionOwnedResources=void(*)(void*,VkCommandBuffer);
+using OrigPassEndAndSubmit=bool(*)(void*);
 static OrigSubmissionBegin origSubmissionBegin{};
+static OrigTransitionOwnedResources origTransitionOwnedResources{};
+static OrigPassEndAndSubmit origPassEndAndSubmit{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
 static thread_local VkCommandBuffer tlsNativeCommandBuffer=VK_NULL_HANDLE;
 static std::atomic<uint64_t> observedCommandBufferEpoch{0};
@@ -1626,6 +1630,18 @@ static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
  if(ret)publishNativeCommandBuffer(ret,"native-command-buffer-submission");else gtavdiag::checkpoint("native-submission-begin-no-cb");
  return ret;
 }
+static void hookTransitionOwnedResources(void* self,VkCommandBuffer cb){
+ if(cb)publishNativeCommandBuffer(cb,"native-command-buffer-pass-transition");
+ if(origTransitionOwnedResources)origTransitionOwnedResources(self,cb);
+}
+static bool hookPassEndAndSubmit(void* self){
+ VkCommandBuffer mine=tlsNativeCommandBuffer;
+ bool ok=origPassEndAndSubmit?origPassEndAndSubmit(self):false;
+ tlsNativeCommandBuffer=VK_NULL_HANDLE;
+ if(mine){VkCommandBuffer expected=mine;observedNativeCommandBuffer.compare_exchange_strong(expected,VK_NULL_HANDLE,std::memory_order_acq_rel);}
+ gtavdiag::checkpoint("native-command-buffer-pass-ended");
+ return ok;
+}
 extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_renderer_observed_command_buffer(){
  return observedNativeCommandBuffer.load(std::memory_order_acquire);
 }
@@ -1679,6 +1695,8 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  if(std::memcmp((void*)(gtavBase+0x623526c),expectSubmissionBegin,16)==0)
    submission=install(0x623526c,(void*)hookSubmissionBegin,(void**)&origSubmissionBegin,"native-hook-submission-begin");
  else mark("native-hook-submission-prologue-mismatch",false);
+ bool passCapture=install(0x6235de0,(void*)hookTransitionOwnedResources,(void**)&origTransitionOwnedResources,"native-hook-pass-transition-owned");
+ bool passEnd=install(0x6235f54,(void*)hookPassEndAndSubmit,(void**)&origPassEndAndSubmit,"native-hook-pass-end-submit");
 
  bool state=true;
  state&=install(0x61d2654,(void*)hookIASetInputLayout,(void**)&origIASetInputLayout,"native-hook-input-layout");
@@ -1709,7 +1727,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  // than blocking the verified Draw/DrawIndexed hooks.
  bool cutover=draw&&drawIndexed;
  drawHooksInstalled.store(cutover,std::memory_order_release);
- char detail[192];snprintf(detail,sizeof(detail),"draw=%d indexed=%d dispatch=%d submission=%d state=%d cutover=%d compat-state-fallback=%d",draw,drawIndexed,dispatch,submission,state,cutover,state?0:1);
+ char detail[224];snprintf(detail,sizeof(detail),"draw=%d indexed=%d dispatch=%d submission=%d passCapture=%d passEnd=%d state=%d cutover=%d compat-state-fallback=%d",draw,drawIndexed,dispatch,submission,passCapture,passEnd,state,cutover,state?0:1);
  gtavdiag::checkpoint("native-hook-summary",detail);
  return cutover;
 }
