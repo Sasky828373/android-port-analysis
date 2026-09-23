@@ -289,7 +289,16 @@ static void compatCtxDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){gtavdiag
 static void compatCtxRSSetState(void* c,void* state){gtavdiag::checkpoint("compat-context-rs-set-state");gtavnative_compat_mirror_objs(c,12,0,1,&state);}
 static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-viewports");gtavnative_compat_mirror_viewports(c,n,p);}
 static void compatCtxRSSetScissorRects(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");gtavnative_compat_mirror_scissors(c,n,p);}
-static void compatCtxUpdateSubresource(void*,void*,uint32_t,const void*,const void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-update-subresource");}
+static void compatCtxUpdateSubresource(void*,void* dst,uint32_t sub,const void*,const void* src,uint32_t srcRow,uint32_t srcDepth){
+ gtavdiag::checkpoint("compat-context-update-subresource");if(!dst||!src)return;
+ CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;
+ auto* r=(CompatResourceObject*)dst;size_t cap=r->backing.size()-(size_t)((uint8_t*)m.pData-r->backing.data());
+ if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=44){
+   uint32_t row=m.rowPitch,depth=m.depthPitch;const uint8_t* s=(const uint8_t*)src;uint8_t* d=(uint8_t*)m.pData;
+   uint32_t rows=row?depth/row:0;uint32_t sr=srcRow?srcRow:row;
+   for(uint32_t y=0;y<rows&&size_t(y)*row<cap;y++)std::memcpy(d+size_t(y)*row,s+size_t(y)*sr,std::min(row,sr));
+ }else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));
+}
 static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
 static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
 // Split the remaining high-frequency D3D11 context ABI instead of routing it
@@ -310,14 +319,23 @@ static void compatCtxDrawIndexedInstancedIndirect(void*,void*,uint32_t){gtavdiag
 static void compatCtxDrawInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced-indirect");}
 static void compatCtxDispatchIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-dispatch-indirect");}
 static void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}
-static void compatCtxCopyResource(void*,void*,void*){gtavdiag::checkpoint("compat-context-copy-resource");}
+static void compatCtxCopyResource(void*,void* dst,void* src){
+ gtavdiag::checkpoint("compat-context-copy-resource");if(!dst||!src)return;
+ auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;
+ if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());
+ if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());
+}
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
 static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-uav-float");}
 static void compatCtxGenerateMips(void*,void*){gtavdiag::checkpoint("compat-context-generate-mips");}
 static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("compat-context-set-resource-min-lod");}
 static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
-static void compatCtxResolveSubresource(void*,void*,uint32_t,void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");}
+static void compatCtxResolveSubresource(void*,void* dst,uint32_t dsub,void* src,uint32_t ssub,uint32_t){
+ gtavdiag::checkpoint("compat-context-resolve-subresource");if(!dst||!src)return;
+ CompatMappedSubresource dm{},sm{};if(!compatMapResourceBackingSubresource(dst,dsub,&dm)||!compatMapResourceBackingSubresource(src,ssub,&sm))return;
+ size_t n=std::min<size_t>(dm.depthPitch?dm.depthPitch:dm.rowPitch,sm.depthPitch?sm.depthPitch:sm.rowPitch);if(n)std::memcpy(dm.pData,sm.pData,n);
+}
 static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
 static void compatCtxHSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-shader-resources");}
 static void compatCtxHSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-hs-set-shader");}
@@ -835,8 +853,15 @@ static int32_t compatCheckFormatSupport(void*,uint32_t fmt,uint32_t* out){
   if(p.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)s|=0x10000u;
   *out=s;return 0;
 }
-static int32_t compatCheckMSAA(void*,uint32_t,uint32_t samples,uint32_t* out){
-  gtavdiag::checkpoint("compat-d3d11-check-msaa");if(!out)return (int32_t)0x80004003u;*out=samples?1u:0u;return 0;
+static int32_t compatCheckMSAA(void*,uint32_t fmt,uint32_t samples,uint32_t* out){
+  gtavdiag::checkpoint("compat-d3d11-check-msaa");if(!out)return (int32_t)0x80004003u;*out=0;
+  VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED||!g.physical||!samples)return (int32_t)0x80070057u;
+  VkImageFormatProperties ip{};VkResult vr=vkGetPhysicalDeviceImageFormatProperties(g.physical,vf,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
+    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,0,&ip);
+  if(vr!=VK_SUCCESS)vr=vkGetPhysicalDeviceImageFormatProperties(g.physical,vf,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
+    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,0,&ip);
+  VkSampleCountFlags bit=samples==1?VK_SAMPLE_COUNT_1_BIT:samples==2?VK_SAMPLE_COUNT_2_BIT:samples==4?VK_SAMPLE_COUNT_4_BIT:samples==8?VK_SAMPLE_COUNT_8_BIT:samples==16?VK_SAMPLE_COUNT_16_BIT:0;
+  if(vr==VK_SUCCESS&&bit&&(ip.sampleCounts&bit)){*out=1;return 0;}return (int32_t)0x80070057u;
 }
 static int32_t compatCheckFeatureSupport(void*,uint32_t feature,void* data,uint32_t bytes){
   gtavdiag::checkpoint("compat-d3d11-check-feature-support");if(data&&bytes)std::memset(data,0,bytes);
