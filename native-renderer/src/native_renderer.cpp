@@ -377,7 +377,7 @@ GTAV_SLOT_STUB(Context,63)
 // the old 4 MiB scratch boundary.
 struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
 alignas(4096) static uint8_t gCompatMapScratch[32 * 1024 * 1024]{};
-static int32_t compatD3DMap(void*, void* resource, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
+static int32_t compatD3DMap(void*, void* resource, uint32_t subresource, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
   gtavdiag::checkpoint("compat-d3d11-map");
   if(!mapped) return (int32_t)0x80004003u;
   // Until resource types are declared below, keep the proven guarded arena.
@@ -386,7 +386,7 @@ static int32_t compatD3DMap(void*, void* resource, uint32_t, uint32_t, uint32_t,
   mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch);
   mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
   extern bool compatMapResourceBacking(void*, CompatMappedSubresource*);
-  (void)compatMapResourceBacking(resource,mapped);
+  extern bool compatMapResourceBackingSubresource(void*, uint32_t, CompatMappedSubresource*);\n  (void)compatMapResourceBackingSubresource(resource,subresource,mapped);
   return 0;
 }
 static void compatD3DUnmap(void*, void*, uint32_t) {
@@ -504,21 +504,50 @@ static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t b
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatViews.push_back(o);return o;
 }
-bool compatMapResourceBacking(void* resource, CompatMappedSubresource* mapped){
+static void compatFormatLayout(uint32_t fmt,uint32_t& bw,uint32_t& bh,uint32_t& bytes){
+  bw=bh=1; bytes=4;
+  switch(fmt){
+    case 1:case 2:case 3:case 4: bytes=16; break;
+    case 9:case 10:case 11:case 12:case 13:case 14:case 15:case 16: bytes=8; break;
+    case 17:case 18:case 19:case 20:case 21:case 22:case 23: bytes=4; break;
+    case 24:case 25:case 26: bytes=4; break;
+    case 27:case 28:case 29:case 30:case 31:case 32:case 33:case 34:case 35:case 36:case 37:case 38:case 39:case 40:case 41:case 42:case 43:case 44:case 45:case 46:case 47: bytes=4; break;
+    case 48:case 49:case 50:case 51:case 52:case 53:case 54:case 55:case 56:case 57:case 58:case 59: bytes=2; break;
+    case 60:case 61:case 62:case 63:case 64:case 65: bytes=1; break;
+    case 70:case 71:case 72:case 79:case 80: bw=bh=4; bytes=8; break;
+    case 73:case 74:case 75:case 76:case 77:case 78:case 81:case 82:case 83:case 84:case 94:case 95:case 96:case 97:case 98:case 99: bw=bh=4; bytes=16; break;
+    default: break;
+  }
+}
+static size_t compatTexture2DLayout(const uint32_t* d,uint32_t targetSub,uint32_t* rowOut,uint32_t* depthOut,size_t* offOut){
+  uint32_t w=std::max(1u,d[0]),h=std::max(1u,d[1]),mips=std::max(1u,d[2]),arrays=std::max(1u,d[3]),fmt=d[4];
+  uint32_t bw,bh,bpb; compatFormatLayout(fmt,bw,bh,bpb);
+  size_t total=0,targetOff=0; uint32_t tr=0,td=0;
+  uint32_t count=std::min<uint32_t>(mips*arrays,4096u);
+  for(uint32_t s=0;s<count;s++){
+    uint32_t mip=s%mips, mw=std::max(1u,w>>std::min(mip,31u)), mh=std::max(1u,h>>std::min(mip,31u));
+    uint32_t row=((mw+bw-1)/bw)*bpb, rows=(mh+bh-1)/bh, depth=row*rows;
+    if(s==targetSub){targetOff=total;tr=row;td=depth;}
+    total+=depth;
+  }
+  if(targetSub>=count){targetOff=0;tr=((w+bw-1)/bw)*bpb;td=tr*((h+bh-1)/bh);}
+  if(rowOut)*rowOut=tr;if(depthOut)*depthOut=td;if(offOut)*offOut=targetOff;return total;
+}
+bool compatMapResourceBackingSubresource(void* resource,uint32_t subresource,CompatMappedSubresource* mapped){
   if(!resource||!mapped)return false;
   auto* o=(CompatResourceObject*)resource;
   if(o->vtbl!=gCompatBufferVtable&&o->vtbl!=gCompatTexture1DVtable&&o->vtbl!=gCompatTexture2DVtable&&o->vtbl!=gCompatTexture3DVtable)return false;
-  if(o->backing.empty())o->backing.resize(sizeof(gCompatMapScratch));
-  mapped->pData=o->backing.data();
-  if(o->vtbl==gCompatTexture2DVtable&&o->descSize>=8){
-    uint32_t w=((uint32_t*)o->desc)[0],h=((uint32_t*)o->desc)[1];
-    mapped->rowPitch=w*4u; mapped->depthPitch=mapped->rowPitch*std::max(1u,h);
-  } else {
-    mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);
-    mapped->depthPitch=mapped->rowPitch;
+  if(o->vtbl==gCompatTexture2DVtable&&o->descSize>=44){
+    uint32_t row=0,depth=0;size_t off=0,total=compatTexture2DLayout((const uint32_t*)o->desc,subresource,&row,&depth,&off);
+    total=std::min<size_t>(std::max<size_t>(total,depth),256u*1024u*1024u);
+    if(o->backing.size()<total)o->backing.resize(total);
+    if(off>=o->backing.size())off=0;
+    mapped->pData=o->backing.data()+off;mapped->rowPitch=row;mapped->depthPitch=depth;return true;
   }
-  return true;
+  if(o->backing.empty())o->backing.resize(sizeof(gCompatMapScratch));
+  mapped->pData=o->backing.data();mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;return true;
 }
+bool compatMapResourceBacking(void* resource,CompatMappedSubresource* mapped){return compatMapResourceBackingSubresource(resource,0,mapped);}
 static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
 }
@@ -849,7 +878,7 @@ static uint32_t compatSwapRelease(void*){return 1;}
 static int32_t compatSwapPresent(void*,uint32_t,uint32_t) {
   static std::atomic<uint32_t> presents{0};
   uint32_t n=presents.fetch_add(1,std::memory_order_relaxed)+1;
-  if(n<=4 || (n%600)==0) gtavdiag::checkpoint("compat-swapchain-present");
+  if(n<=8 || (n%120)==0) gtavdiag::checkpoint("compat-swapchain-present");
   // The native renderer records into GTA's Vulkan runtime. Advance its frame
   // epoch here instead of returning E_NOTIMPL every frame.
   gtav_native_renderer_begin_frame();
@@ -888,6 +917,12 @@ static int32_t compatBackBufferQI(void* self,const void*,void** out) {
 static uint32_t compatBackBufferAddRef(void*){return 2;}
 static uint32_t compatBackBufferRelease(void*){return 1;}
 static int32_t compatBackBufferSetPrivateData(void*,const void*,uint32_t,const void*){return 0;}
+static void compatBackBufferGetDevice(void*,void** out){if(out)*out=&gCompatD3DDevice;}
+static int32_t compatBackBufferGetPrivateData(void*,const void*,uint32_t* n,void*){if(n)*n=0;return (int32_t)0x80004005u;}
+static int32_t compatBackBufferSetPrivateDataInterface(void*,const void*,void*){return 0;}
+static void compatBackBufferGetType(void*,uint32_t* out){if(out)*out=3;}
+static void compatBackBufferSetEvictionPriority(void*,uint32_t){}
+static uint32_t compatBackBufferGetEvictionPriority(void*){return 0;}
 static void compatBackBufferGetDesc(void*,void* desc) {
   gtavdiag::checkpoint("compat-backbuffer-get-desc");
   if(!desc)return;
