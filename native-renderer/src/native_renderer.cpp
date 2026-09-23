@@ -102,6 +102,7 @@ static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
   (void)index;
   return (int32_t)0x887A0002u; // DXGI_ERROR_NOT_FOUND
 }
+static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t*);
 static int32_t compatGetDesc(void*, void* desc) {
   gtavdiag::checkpoint("compat-dxgi-get-desc");
   if (!desc) return (int32_t)0x80004003u;
