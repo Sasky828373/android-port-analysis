@@ -498,6 +498,48 @@ static int32_t compatCreateDSV(void*,void* resource,const void* desc,void** out)
   if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-dsv");return 0;
 }
 
+struct CompatStateObject { void** vtbl; uint8_t desc[128]; };
+struct CompatQueryObject { void** vtbl; uint32_t query; uint32_t miscFlags; std::atomic<uint32_t> ended{0}; };
+static void* gCompatStateVtable[16]{};
+static void* gCompatQueryVtable[16]{};
+static std::vector<CompatStateObject*> gCompatStates;
+static std::vector<CompatQueryObject*> gCompatQueries;
+static void compatStateGetDesc(void* self,void* out){ if(self&&out)std::memcpy(out,((CompatStateObject*)self)->desc,128); }
+static void compatQueryGetDesc(void* self,void* out){ if(self&&out){auto* q=(CompatQueryObject*)self;((uint32_t*)out)[0]=q->query;((uint32_t*)out)[1]=q->miscFlags;} }
+static void initCompatStateVtables(){
+  static bool once=false;if(once)return;once=true;
+  for(void*& p:gCompatStateVtable)p=(void*)compatD3DUnsupported;
+  for(void*& p:gCompatQueryVtable)p=(void*)compatD3DUnsupported;
+  for(void** t:{gCompatStateVtable,gCompatQueryVtable}){t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
+  gCompatStateVtable[7]=(void*)compatStateGetDesc;
+  gCompatQueryVtable[7]=(void*)compatQueryGetDesc;
+}
+static int32_t makeCompatState(const void* desc,size_t bytes,void** out,const char* cp){
+  gtavdiag::checkpoint(cp); if(!out)return (int32_t)0x80004003u; initCompatStateVtables();
+  auto* o=new CompatStateObject{};o->vtbl=gCompatStateVtable;if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  {std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatStates.push_back(o);}*out=o;return 0;
+}
+static int32_t compatCreateBlendState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-blend-state");}
+static int32_t compatCreateDepthStencilState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-depth-stencil-state");}
+static int32_t compatCreateRasterizerState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-rasterizer-state");}
+static int32_t compatCreateSamplerState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-sampler-state");}
+static int32_t compatCreateQuery(void*,const void* d,void** out){
+  gtavdiag::checkpoint("compat-d3d11-create-query");if(!out)return (int32_t)0x80004003u;initCompatStateVtables();
+  auto* q=new CompatQueryObject{};q->vtbl=gCompatQueryVtable;if(d){q->query=((const uint32_t*)d)[0];q->miscFlags=((const uint32_t*)d)[1];}
+  {std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatQueries.push_back(q);}*out=q;return 0;
+}
+static int32_t compatCreatePredicate(void* d,const void* q,void** out){gtavdiag::checkpoint("compat-d3d11-create-predicate");return compatCreateQuery(d,q,out);}
+static void compatContextBegin(void*,void* q){gtavdiag::checkpoint("compat-d3d11-query-begin");if(q)((CompatQueryObject*)q)->ended.store(0);}
+static void compatContextEnd(void*,void* q){gtavdiag::checkpoint("compat-d3d11-query-end");if(q)((CompatQueryObject*)q)->ended.store(1);}
+static int32_t compatContextGetData(void*,void* q,void* data,uint32_t bytes,uint32_t){
+  gtavdiag::checkpoint("compat-d3d11-query-get-data");if(data&&bytes)std::memset(data,0,bytes);
+  if(data&&bytes>=4)*(uint32_t*)data=1;return (!q||((CompatQueryObject*)q)->ended.load())?0:1;
+}
+static int32_t compatCheckFeatureSupport(void*,uint32_t feature,void* data,uint32_t bytes){
+  gtavdiag::checkpoint("compat-d3d11-check-feature-support");if(data&&bytes)std::memset(data,0,bytes);
+  return 0;
+}
+
 static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*) {
   // grcEffect::SetPIXLabel calls ID3D11DeviceChild::SetPrivateData (+0x28)
   // on shader/resource child objects, not on the immediate context.
@@ -567,12 +609,12 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[17]=(void*)compatDeviceSlot17;
   gD3DDeviceVtable[18]=(void*)compatDeviceSlot18;
   gD3DDeviceVtable[19]=(void*)compatDeviceSlot19;
-  gD3DDeviceVtable[20]=(void*)compatDeviceSlot20;
-  gD3DDeviceVtable[21]=(void*)compatDeviceSlot21;
-  gD3DDeviceVtable[22]=(void*)compatDeviceSlot22;
-  gD3DDeviceVtable[23]=(void*)compatDeviceSlot23;
-  gD3DDeviceVtable[24]=(void*)compatDeviceSlot24;
-  gD3DDeviceVtable[25]=(void*)compatDeviceSlot25;
+  gD3DDeviceVtable[20]=(void*)compatCreateBlendState;
+  gD3DDeviceVtable[21]=(void*)compatCreateDepthStencilState;
+  gD3DDeviceVtable[22]=(void*)compatCreateRasterizerState;
+  gD3DDeviceVtable[23]=(void*)compatCreateSamplerState;
+  gD3DDeviceVtable[24]=(void*)compatCreateQuery;
+  gD3DDeviceVtable[25]=(void*)compatCreatePredicate;
   gD3DDeviceVtable[26]=(void*)compatDeviceSlot26;
   gD3DDeviceVtable[27]=(void*)compatDeviceSlot27;
   gD3DDeviceVtable[28]=(void*)compatDeviceSlot28;
@@ -580,7 +622,7 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[30]=(void*)compatDeviceSlot30;
   gD3DDeviceVtable[31]=(void*)compatDeviceSlot31;
   gD3DDeviceVtable[32]=(void*)compatDeviceSlot32;
-  gD3DDeviceVtable[33]=(void*)compatDeviceSlot33;
+  gD3DDeviceVtable[33]=(void*)compatCheckFeatureSupport;
   gD3DDeviceVtable[34]=(void*)compatDeviceSlot34;
   gD3DDeviceVtable[35]=(void*)compatDeviceSlot35;
   gD3DDeviceVtable[36]=(void*)compatDeviceSlot36;
@@ -635,9 +677,9 @@ static void initCompatD3D11() {
   gD3DContextVtable[24]=(void*)compatContextSlot24;
   gD3DContextVtable[25]=(void*)compatContextSlot25;
   gD3DContextVtable[26]=(void*)compatContextSlot26;
-  gD3DContextVtable[27]=(void*)compatContextSlot27;
-  gD3DContextVtable[28]=(void*)compatContextSlot28;
-  gD3DContextVtable[29]=(void*)compatContextSlot29;
+  gD3DContextVtable[27]=(void*)compatContextBegin;
+  gD3DContextVtable[28]=(void*)compatContextEnd;
+  gD3DContextVtable[29]=(void*)compatContextGetData;
   gD3DContextVtable[30]=(void*)compatContextSlot30;
   gD3DContextVtable[31]=(void*)compatContextSlot31;
   gD3DContextVtable[32]=(void*)compatContextSlot32;
