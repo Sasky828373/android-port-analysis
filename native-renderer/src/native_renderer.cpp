@@ -679,7 +679,8 @@ static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,co
   size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
-extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget);\nstatic CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
+extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget);
+static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
   auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
