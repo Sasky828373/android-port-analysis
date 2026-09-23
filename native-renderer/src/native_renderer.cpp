@@ -425,7 +425,10 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
 // GTA consumes the created RTV/DSV/SRV objects immediately.
 struct CompatResourceObject { void** vtbl; uint8_t desc[64]; };
 struct CompatViewObject { void** vtbl; CompatResourceObject* resource; uint8_t desc[64]; };
-static void* gCompatResourceVtable[16]{};
+static void* gCompatBufferVtable[16]{};
+static void* gCompatTexture1DVtable[16]{};
+static void* gCompatTexture2DVtable[16]{};
+static void* gCompatTexture3DVtable[16]{};
 static void* gCompatViewVtable[16]{};
 static std::mutex gCompatObjectMutex;
 static std::vector<CompatResourceObject*> gCompatResources;
@@ -447,16 +450,20 @@ static void compatViewGetDesc(void* self,void* out){
 }
 static void initCompatResourceVtables(){
   static bool once=false;if(once)return;once=true;
-  for(void*& p:gCompatResourceVtable)p=(void*)compatD3DUnsupported;
+  void** tables[]={gCompatBufferVtable,gCompatTexture1DVtable,gCompatTexture2DVtable,gCompatTexture3DVtable};
+  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
+  // ID3D11Buffer::GetDesc slot 10; Texture1D/2D/3D GetDesc slots 10/10/10.
+  gCompatBufferVtable[10]=(void*)compatResourceGetDesc;
+  gCompatTexture1DVtable[10]=(void*)compatResourceGetDesc;
+  gCompatTexture2DVtable[10]=(void*)compatResourceGetDesc;
+  gCompatTexture3DVtable[10]=(void*)compatResourceGetDesc;
   for(void*& p:gCompatViewVtable)p=(void*)compatD3DUnsupported;
-  gCompatResourceVtable[0]=(void*)compatChildQI; gCompatResourceVtable[1]=(void*)compatChildAddRef; gCompatResourceVtable[2]=(void*)compatChildRelease;
-  gCompatResourceVtable[5]=(void*)compatSetPrivateData; gCompatResourceVtable[10]=(void*)compatResourceGetDesc;
   gCompatViewVtable[0]=(void*)compatChildQI; gCompatViewVtable[1]=(void*)compatChildAddRef; gCompatViewVtable[2]=(void*)compatChildRelease;
   gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
 }
-static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint){
+static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
-  auto* o=new CompatResourceObject{};o->vtbl=gCompatResourceVtable;
+  auto* o=new CompatResourceObject{};o->vtbl=vtbl;
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
@@ -467,16 +474,16 @@ static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t b
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatViews.push_back(o);return o;
 }
 static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
 }
 static int32_t compatCreateTexture1D(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,40,"compat-d3d11-create-texture1d");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,40,"compat-d3d11-create-texture1d",gCompatTexture1DVtable);return 0;
 }
 static int32_t compatCreateTexture2D(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,44,"compat-d3d11-create-texture2d");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,44,"compat-d3d11-create-texture2d",gCompatTexture2DVtable);return 0;
 }
 static int32_t compatCreateTexture3D(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,36,"compat-d3d11-create-texture3d");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,36,"compat-d3d11-create-texture3d",gCompatTexture3DVtable);return 0;
 }
 static int32_t compatCreateSRV(void*,void* resource,const void* desc,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-srv");return 0;
