@@ -417,6 +417,79 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
   return 0;
 }
 
+
+// Minimal D3D11 resource/view shells used only for the engine bootstrap ABI.
+// They keep valid COM objects and descriptors alive while the actual draw path is
+// migrated to Vulkan. Returning E_NOTIMPL with a null out pointer here is unsafe:
+// GTA consumes the created RTV/DSV/SRV objects immediately.
+struct CompatResourceObject { void** vtbl; uint8_t desc[64]; };
+struct CompatViewObject { void** vtbl; CompatResourceObject* resource; uint8_t desc[64]; };
+static void* gCompatResourceVtable[16]{};
+static void* gCompatViewVtable[16]{};
+static std::mutex gCompatObjectMutex;
+static std::vector<CompatResourceObject*> gCompatResources;
+static std::vector<CompatViewObject*> gCompatViews;
+static int32_t compatChildQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
+static uint32_t compatChildAddRef(void*){return 2;}
+static uint32_t compatChildRelease(void*){return 1;}
+static void compatResourceGetDesc(void* self,void* out){
+  gtavdiag::checkpoint("compat-resource-get-desc");
+  if(self&&out)std::memcpy(out,((CompatResourceObject*)self)->desc,64);
+}
+static void compatViewGetResource(void* self,void** out){
+  gtavdiag::checkpoint("compat-view-get-resource");
+  if(out)*out=self?((CompatViewObject*)self)->resource:nullptr;
+}
+static void compatViewGetDesc(void* self,void* out){
+  gtavdiag::checkpoint("compat-view-get-desc");
+  if(self&&out)std::memcpy(out,((CompatViewObject*)self)->desc,64);
+}
+static void initCompatResourceVtables(){
+  static bool once=false;if(once)return;once=true;
+  for(void*& p:gCompatResourceVtable)p=(void*)compatD3DUnsupported;
+  for(void*& p:gCompatViewVtable)p=(void*)compatD3DUnsupported;
+  gCompatResourceVtable[0]=(void*)compatChildQI; gCompatResourceVtable[1]=(void*)compatChildAddRef; gCompatResourceVtable[2]=(void*)compatChildRelease;
+  gCompatResourceVtable[5]=(void*)compatSetPrivateData; gCompatResourceVtable[10]=(void*)compatResourceGetDesc;
+  gCompatViewVtable[0]=(void*)compatChildQI; gCompatViewVtable[1]=(void*)compatChildAddRef; gCompatViewVtable[2]=(void*)compatChildRelease;
+  gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
+}
+static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint){
+  gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
+  auto* o=new CompatResourceObject{};o->vtbl=gCompatResourceVtable;
+  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
+}
+static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
+  gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
+  auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;
+  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatViews.push_back(o);return o;
+}
+static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer");return 0;
+}
+static int32_t compatCreateTexture1D(void*,const void* desc,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,40,"compat-d3d11-create-texture1d");return 0;
+}
+static int32_t compatCreateTexture2D(void*,const void* desc,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,44,"compat-d3d11-create-texture2d");return 0;
+}
+static int32_t compatCreateTexture3D(void*,const void* desc,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,36,"compat-d3d11-create-texture3d");return 0;
+}
+static int32_t compatCreateSRV(void*,void* resource,const void* desc,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-srv");return 0;
+}
+static int32_t compatCreateUAV(void*,void* resource,const void* desc,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-uav");return 0;
+}
+static int32_t compatCreateRTV(void*,void* resource,const void* desc,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-rtv");return 0;
+}
+static int32_t compatCreateDSV(void*,void* resource,const void* desc,void** out){
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-dsv");return 0;
+}
+
 static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*) {
   // grcEffect::SetPIXLabel calls ID3D11DeviceChild::SetPrivateData (+0x28)
   // on shader/resource child objects, not on the immediate context.
@@ -469,14 +542,14 @@ static void initCompatD3D11() {
   static bool once=false; if(once)return; once=true;
   for(void*& p:gD3DDeviceVtable) p=(void*)compatD3DUnsupported;
   for(void*& p:gD3DContextVtable) p=(void*)compatD3DUnsupported;
-  gD3DDeviceVtable[3]=(void*)compatDeviceSlot3;
-  gD3DDeviceVtable[4]=(void*)compatDeviceSlot4;
-  gD3DDeviceVtable[5]=(void*)compatDeviceSlot5;
-  gD3DDeviceVtable[6]=(void*)compatDeviceSlot6;
-  gD3DDeviceVtable[7]=(void*)compatDeviceSlot7;
-  gD3DDeviceVtable[8]=(void*)compatDeviceSlot8;
-  gD3DDeviceVtable[9]=(void*)compatDeviceSlot9;
-  gD3DDeviceVtable[10]=(void*)compatDeviceSlot10;
+  gD3DDeviceVtable[3]=(void*)compatCreateBuffer;
+  gD3DDeviceVtable[4]=(void*)compatCreateTexture1D;
+  gD3DDeviceVtable[5]=(void*)compatCreateTexture2D;
+  gD3DDeviceVtable[6]=(void*)compatCreateTexture3D;
+  gD3DDeviceVtable[7]=(void*)compatCreateSRV;
+  gD3DDeviceVtable[8]=(void*)compatCreateUAV;
+  gD3DDeviceVtable[9]=(void*)compatCreateRTV;
+  gD3DDeviceVtable[10]=(void*)compatCreateDSV;
   gD3DDeviceVtable[11]=(void*)compatCreateInputLayout;
   gD3DDeviceVtable[12]=(void*)compatDeviceSlot12;
   gD3DDeviceVtable[13]=(void*)compatDeviceSlot13;
