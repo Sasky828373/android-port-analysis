@@ -679,7 +679,7 @@ static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,co
   size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
-static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
+extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget);\nstatic CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
   auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
@@ -1488,17 +1488,39 @@ static void resolveNativeMappingFns(){
  rageGetOrCreateShaderModule=(GetOrCreateShaderModuleFn)(gtavBase+0x62334b0);
 }
 static void registerImageMeta(void* rage,const NativeWrappedImage& w);
+extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget){
+ if(!view||!resource)return false;
+ // Preserve the COM view identity while also registering its underlying texture/resource.
+ // Native mapping still happens lazily once GTA's Vulkan wrapper is available.
+ uint64_t mapped=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)resource,kind);
+ if(mapped)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)view,mapped,kind,1);
+ return true;
+}
+static void* compatUnderlyingResource(void* p){
+ if(!p)return nullptr;
+ auto* v=(CompatViewObject*)p;
+ if(v->vtbl==gCompatViewVtable && v->resource)return v->resource;
+ return nullptr;
+}
 static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  if(!rage)return false;
  uint64_t existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
  if(existing)return true;
+ void* original=rage;
+ if(void* resource=compatUnderlyingResource(rage))rage=resource;
+ existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
+ if(existing){
+   if(original!=rage)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)original,existing,kind,1);
+   return true;
+ }
  resolveNativeMappingFns();
  NativeWrappedImage w{};
  if(renderTarget){if(!rageWrapRenderTarget)return false;rageWrapRenderTarget(rage,&w);}
  else {if(!rageWrapTexture)return false;rageWrapTexture(rage,&w);}
  if(!w.image)return false;
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)rage,(uint64_t)(uintptr_t)w.image,kind,1);
- registerImageMeta(rage,w);
+ if(original!=rage)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)original,(uint64_t)(uintptr_t)w.image,kind,1);
+ registerImageMeta(original,w);
  // WrapTexture/WrapRenderTarget retain the underlying interface in +0x70.
  // This wrapper is temporary, so balance that retained COM-style reference.
  if(w.resource){
@@ -1760,7 +1782,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
- if(!m.inputLayout){gtavdiag::checkpoint("native-draw-fail-input-layout");return false;}
+ if(!m.inputLayout)gtavdiag::checkpoint("native-draw-no-input-layout-continue");
  if(!m.vertexBuffers[0]){gtavdiag::checkpoint("native-draw-fail-vb0");return false;}
  if(!m.vs){gtavdiag::checkpoint("native-draw-fail-vs");return false;}
  if(!m.ps){gtavdiag::checkpoint("native-draw-fail-ps");return false;}
