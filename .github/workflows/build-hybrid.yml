@@ -1178,6 +1178,14 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace post-swapchain crash LR
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          echo "=== post-swapchain crash libgtav+0x61abd18 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x61abb80 --stop-address=0x61abe80 "$LIB"
+
       - name: Trace output-enumeration crash LR
         run: |
           set -euo pipefail
