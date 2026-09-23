@@ -377,12 +377,19 @@ GTAV_SLOT_STUB(Context,63)
 // the old 4 MiB scratch boundary.
 struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
 alignas(4096) static uint8_t gCompatMapScratch[32 * 1024 * 1024]{};
-static int32_t compatD3DMap(void*, void*, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
+static int32_t compatD3DMap(void*, void* resource, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
   gtavdiag::checkpoint("compat-d3d11-map");
   if(!mapped) return (int32_t)0x80004003u;
-  mapped->pData=gCompatMapScratch;
-  mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch);
-  mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
+  mapped->pData=gCompatMapScratch; mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch); mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
+  if(resource){
+    auto* o=(CompatResourceObject*)resource;
+    if(o->vtbl==gCompatBufferVtable || o->vtbl==gCompatTexture1DVtable || o->vtbl==gCompatTexture2DVtable || o->vtbl==gCompatTexture3DVtable){
+      if(o->backing.empty())o->backing.resize(sizeof(gCompatMapScratch));
+      mapped->pData=o->backing.data();
+      if(o->vtbl==gCompatTexture2DVtable && o->descSize>=8){uint32_t w=((uint32_t*)o->desc)[0],h=((uint32_t*)o->desc)[1];mapped->rowPitch=w*4u;mapped->depthPitch=mapped->rowPitch*std::max(1u,h);}
+      else {mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;}
+    }
+  }
   return 0;
 }
 static void compatD3DUnmap(void*, void*, uint32_t) {
@@ -437,7 +444,7 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
 // They keep valid COM objects and descriptors alive while the actual draw path is
 // migrated to Vulkan. Returning E_NOTIMPL with a null out pointer here is unsafe:
 // GTA consumes the created RTV/DSV/SRV objects immediately.
-struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; };
+struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; std::vector<uint8_t> backing; };
 struct CompatViewObject { void** vtbl; CompatResourceObject* resource; size_t descSize; uint8_t desc[32]; };
 static void* gCompatBufferVtable[16]{};
 static void* gCompatTexture1DVtable[16]{};
@@ -490,7 +497,7 @@ static void initCompatResourceVtables(){
 static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
   auto* o=new CompatResourceObject{};o->vtbl=vtbl;o->descSize=std::min(bytes,sizeof(o->desc));
-  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));\n  size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
 static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
@@ -761,7 +768,7 @@ static void initCompatD3D11() {
   gD3DContextVtable[60]=(void*)compatContextNoop;
   gD3DContextVtable[61]=(void*)compatContextNoop;
   gD3DContextVtable[62]=(void*)compatContextNoop;
-  gD3DContextVtable[63]=(void*)compatContextNoop;
+  gD3DContextVtable[63]=(void*)compatContextNoop;\n  for(int i=64;i<128;i++) gD3DContextVtable[i]=(void*)compatContextNoop;
 
   // ID3D11DeviceContext: Map=14, Unmap=15.
   gD3DContextVtable[14]=(void*)compatD3DMap;
