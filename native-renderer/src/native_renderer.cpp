@@ -2003,7 +2003,28 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineShaderStageCreateInfo stages[2]{};
  stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
  stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
- VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+ VkVertexInputBindingDescription vbDesc[16]{};VkVertexInputAttributeDescription vaDesc[32]{};uint32_t vbCount=0,vaCount=0;bool slotUsed[16]{};
+ if(auto* il=compatInputLayoutObject(m.inputLayout)){
+   uint32_t appendOffset[16]{};
+   for(size_t i=0;i<il->elements.size()&&vaCount<32;i++){
+     const auto& e=il->elements[i];if(e.slot>=16)continue;VkFormat vf=VK_FORMAT_UNDEFINED;uint32_t sz=0;
+     switch(e.format){
+      case 2:vf=VK_FORMAT_R32G32B32A32_SFLOAT;sz=16;break;case 6:vf=VK_FORMAT_R32G32B32_SFLOAT;sz=12;break;
+      case 10:vf=VK_FORMAT_R16G16B16A16_SFLOAT;sz=8;break;case 11:vf=VK_FORMAT_R16G16B16A16_UNORM;sz=8;break;
+      case 16:vf=VK_FORMAT_R32G32_SFLOAT;sz=8;break;case 24:vf=VK_FORMAT_A2B10G10R10_UNORM_PACK32;sz=4;break;
+      case 28:vf=VK_FORMAT_R8G8B8A8_UNORM;sz=4;break;case 29:vf=VK_FORMAT_R8G8B8A8_SRGB;sz=4;break;
+      case 34:vf=VK_FORMAT_R16G16_SFLOAT;sz=4;break;case 35:vf=VK_FORMAT_R16G16_UNORM;sz=4;break;
+      case 41:vf=VK_FORMAT_R32_SFLOAT;sz=4;break;case 49:vf=VK_FORMAT_R8G8_UNORM;sz=2;break;
+      case 54:vf=VK_FORMAT_R16_SFLOAT;sz=2;break;case 56:vf=VK_FORMAT_R16_UNORM;sz=2;break;case 61:vf=VK_FORMAT_R8_UNORM;sz=1;break;
+      default:break;
+     }
+     if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-input-layout-format-unsupported");continue;}
+     uint32_t off=e.offset==0xffffffffu?appendOffset[e.slot]:e.offset;appendOffset[e.slot]=off+sz;
+     auto& a=vaDesc[vaCount];a.location=vaCount;a.binding=e.slot;a.format=vf;a.offset=off;vaCount++;slotUsed[e.slot]=true;
+   }
+   for(uint32_t slot=0;slot<16;slot++)if(slotUsed[slot]){auto& b=vbDesc[vbCount++];b.binding=slot;b.stride=m.strides[slot]?m.strides[slot]:appendOffset[slot];bool inst=false;for(const auto& e:il->elements)if(e.slot==slot&&e.inputClass==1){inst=true;break;}b.inputRate=inst?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;}
+ }
+ VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};vi.vertexBindingDescriptionCount=vbCount;vi.pVertexBindingDescriptions=vbCount?vbDesc:nullptr;vi.vertexAttributeDescriptionCount=vaCount;vi.pVertexAttributeDescriptions=vaCount?vaDesc:nullptr;
  VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
  VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
  VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.lineWidth=1.0f;
