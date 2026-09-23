@@ -95,6 +95,15 @@ static void* gAdapterVtable[10]{};
 static int32_t compatQueryInterface(void* self, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-query-interface");
   if (!out) return (int32_t)0x80004003u;
+  // Do not claim arbitrary DXGI interfaces on the adapter. SuppressAltEnter
+  // probes adapter -> QI -> GetParent(+0x30); our minimal adapter does not
+  // implement that queried interface. Returning E_NOINTERFACE makes the
+  // engine take its safe non-Windows fullscreen fallback.
+  if (self == &gCompatAdapter) {
+    *out=nullptr;
+    gtavdiag::checkpoint("compat-dxgi-adapter-qi-unsupported");
+    return (int32_t)0x80004002u;
+  }
   *out=self;
   return 0;
 }
