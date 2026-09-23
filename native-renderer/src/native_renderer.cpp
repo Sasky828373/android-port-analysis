@@ -818,6 +818,10 @@ static int32_t makeCompatState(const void* desc,size_t bytes,void** out,const ch
   auto* o=new CompatStateObject{};o->vtbl=gCompatStateVtable;o->descSize=std::min(bytes,sizeof(o->desc));if(desc)std::memcpy(o->desc,desc,o->descSize);
   {std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatStates.push_back(o);}*out=o;return 0;
 }
+static CompatStateObject* compatStateObject(void* p){
+ if(!p)return nullptr;std::lock_guard<std::mutex> l(gCompatObjectMutex);auto* s=(CompatStateObject*)p;
+ return std::find(gCompatStates.begin(),gCompatStates.end(),s)!=gCompatStates.end()?s:nullptr;
+}
 static int32_t compatCreateBlendState(void*,const void* d,void** o){return makeCompatState(d,264,o,"compat-d3d11-create-blend-state");}
 static int32_t compatCreateDepthStencilState(void*,const void* d,void** o){return makeCompatState(d,52,o,"compat-d3d11-create-depth-stencil-state");}
 static int32_t compatCreateRasterizerState(void*,const void* d,void** o){return makeCompatState(d,40,o,"compat-d3d11-create-rasterizer-state");}
@@ -1994,7 +1998,8 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  const VkShaderModule vs=(VkShaderModule)(uintptr_t)resolveMapped(m.vs,NR_VS);
  const VkShaderModule ps=(VkShaderModule)(uintptr_t)resolveMapped(m.ps,NR_PS);
  if(!vs||!ps){gtavdiag::checkpoint("native-pipeline-missing-shader");return false;}
- NativeImageMeta rt{};{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.rtv[0]);if(it==imageMeta.end()){gtavdiag::checkpoint("native-pipeline-missing-rt-meta");return false;}rt=it->second;}
+ NativeImageMeta rt{};VkFormat colorFormats[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
+ {std::lock_guard<std::mutex> l(imageMetaMutex);for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i]){colorFormats[i]=VK_FORMAT_UNDEFINED;continue;}auto it=imageMeta.find((uint64_t)(uintptr_t)m.rtv[i]);if(it==imageMeta.end()){gtavdiag::checkpoint("native-pipeline-missing-rt-meta");return false;}if(i==0)rt=it->second;colorFormats[i]=it->second.format;}}
  VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};VkDescriptorSetLayout dsl{};
  if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-pipeline-descriptor-layout-failed");return false;}
  VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;VkPipelineLayout layout{};
@@ -2028,12 +2033,18 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
  VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
  VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.lineWidth=1.0f;
+ if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;rs.frontFace=d[2]?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=d[6]?VK_FALSE:VK_TRUE;}
  VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
  VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
- VkPipelineColorBlendAttachmentState cba{};cba.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
- VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};cb.attachmentCount=1;cb.pAttachments=&cba;
+ auto cmp=[](uint32_t x){switch(x){case 1:return VK_COMPARE_OP_NEVER;case 2:return VK_COMPARE_OP_LESS;case 3:return VK_COMPARE_OP_EQUAL;case 4:return VK_COMPARE_OP_LESS_OR_EQUAL;case 5:return VK_COMPARE_OP_GREATER;case 6:return VK_COMPARE_OP_NOT_EQUAL;case 7:return VK_COMPARE_OP_GREATER_OR_EQUAL;default:return VK_COMPARE_OP_ALWAYS;}};
+ if(auto* s=compatStateObject(m.depthState);s&&s->descSize>=52){const uint32_t* d=(const uint32_t*)s->desc;ds.depthTestEnable=d[0]?VK_TRUE:VK_FALSE;ds.depthWriteEnable=d[1]?VK_TRUE:VK_FALSE;ds.depthCompareOp=cmp(d[2]);ds.stencilTestEnable=d[3]?VK_TRUE:VK_FALSE;ds.front.compareOp=VK_COMPARE_OP_ALWAYS;ds.back.compareOp=VK_COMPARE_OP_ALWAYS;}
+ auto bf=[](uint32_t x){switch(x){case 1:return VK_BLEND_FACTOR_ZERO;case 2:return VK_BLEND_FACTOR_ONE;case 3:return VK_BLEND_FACTOR_SRC_COLOR;case 4:return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;case 5:return VK_BLEND_FACTOR_SRC_ALPHA;case 6:return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;case 7:return VK_BLEND_FACTOR_DST_ALPHA;case 8:return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;case 9:return VK_BLEND_FACTOR_DST_COLOR;case 10:return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;case 11:return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;case 14:return VK_BLEND_FACTOR_CONSTANT_COLOR;case 15:return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;case 16:return VK_BLEND_FACTOR_SRC1_COLOR;case 17:return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;case 18:return VK_BLEND_FACTOR_SRC1_ALPHA;case 19:return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;default:return VK_BLEND_FACTOR_ONE;}};
+ auto bop=[](uint32_t x){switch(x){case 2:return VK_BLEND_OP_SUBTRACT;case 3:return VK_BLEND_OP_REVERSE_SUBTRACT;case 4:return VK_BLEND_OP_MIN;case 5:return VK_BLEND_OP_MAX;default:return VK_BLEND_OP_ADD;}};
+ VkPipelineColorBlendAttachmentState cba[8]{};for(uint32_t i=0;i<colorCount;i++)cba[i].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
+ if(auto* s=compatStateObject(m.blendState);s&&s->descSize>=264){const uint8_t* d=s->desc;bool independent=*(const uint32_t*)(d+4)!=0;for(uint32_t i=0;i<colorCount;i++){const uint8_t* r=d+8+(independent?i:0)*32;auto& a=cba[i];a.blendEnable=*(const uint32_t*)(r+0)?VK_TRUE:VK_FALSE;a.srcColorBlendFactor=bf(*(const uint32_t*)(r+4));a.dstColorBlendFactor=bf(*(const uint32_t*)(r+8));a.colorBlendOp=bop(*(const uint32_t*)(r+12));a.srcAlphaBlendFactor=bf(*(const uint32_t*)(r+16));a.dstAlphaBlendFactor=bf(*(const uint32_t*)(r+20));a.alphaBlendOp=bop(*(const uint32_t*)(r+24));uint8_t mask=*(r+28);a.colorWriteMask=((mask&1)?VK_COLOR_COMPONENT_R_BIT:0)|((mask&2)?VK_COLOR_COMPONENT_G_BIT:0)|((mask&4)?VK_COLOR_COMPONENT_B_BIT:0)|((mask&8)?VK_COLOR_COMPONENT_A_BIT:0);}}
+ VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};cb.attachmentCount=colorCount;cb.pAttachments=colorCount?cba:nullptr;
  VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dyn.dynamicStateCount=2;dyn.pDynamicStates=dyns;
- VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&rt.format;
+ VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=colorCount;rendering.pColorAttachmentFormats=colorFormats;
  NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
  VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
  VkPipeline pipe{};VkResult pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
