@@ -252,6 +252,14 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
   *out=&gCompatShader;
   return 0;
 }
+
+static int32_t compatContextSetPrivateData(void*, const void*, uint32_t, const void*) {
+  // grcEffect::SetPIXLabel uses ID3D11DeviceChild::SetPrivateData (+0x28)
+  // only for PIX/debug labels. Android has no PIX consumer, so accepting the
+  // label as a no-op is sufficient and prevents a null vtable call.
+  gtavdiag::checkpoint("compat-d3d11-set-private-data");
+  return 0;
+}
 static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* version) {
   gtavdiag::checkpoint("compat-dxgi-adapter-check-interface-support");
   if(version) *version=0;
@@ -328,6 +336,9 @@ static void initCompatD3D11() {
   gD3DContextVtable[0]=(void*)compatD3DQueryInterface;
   gD3DContextVtable[1]=(void*)compatD3DAddRef;
   gD3DContextVtable[2]=(void*)compatD3DRelease;
+  // The effect system stores the immediate context as an ID3D11DeviceChild-like
+  // object for PIX labels and calls slot 5 / +0x28.
+  gD3DContextVtable[5]=(void*)compatContextSetPrivateData;
   gCompatD3DDevice.vtbl=gD3DDeviceVtable;
   gCompatD3DContext.vtbl=gD3DContextVtable;
 }
