@@ -631,7 +631,10 @@ static bool compatShaderIsSpirv(const CompatShaderObject* s){
 // They keep valid COM objects and descriptors alive while the actual draw path is
 // migrated to Vulkan. Returning E_NOTIMPL with a null out pointer here is unsafe:
 // GTA consumes the created RTV/DSV/SRV objects immediately.
-struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; std::vector<uint8_t> backing; uint64_t version{1}; };
+struct CompatResourceObject {
+ void** vtbl;size_t descSize;uint8_t desc[64];std::vector<uint8_t> backing;uint64_t version{1};
+ uint32_t pendingClearFlags{};float pendingClearColor[4]{};float pendingClearDepth{1.0f};uint8_t pendingClearStencil{};
+};
 struct CompatViewObject { void** vtbl; CompatResourceObject* resource; size_t descSize; uint8_t desc[32]; };
 static void* gCompatBufferVtable[16]{};
 static void* gCompatTexture1DVtable[16]{};
@@ -749,14 +752,15 @@ static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t 
 static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
 static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);((CompatResourceObject*)dst)->version++;}}
 static void compatClearRTVBacking(void* view,const float* color){
- if(!view||!color)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;
- uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}
- else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());r->version++;
+ if(!view||!color)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;
+ for(int i=0;i<4;i++)r->pendingClearColor[i]=color[i];r->pendingClearFlags|=0x100u;
+ if(!r->backing.empty()){uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());}
 }
 static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
- if(!view)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
+ if(!view)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
+ if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
  if((flags&1)&&fmt==40){for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&depth,4);}
- else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}r->version++;
+ else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}
 }
 static int32_t compatCreateBuffer(void*,const void* desc,const void* init,void** out){
   if(!out)return (int32_t)0x80004003u;auto* o=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);*out=o;
@@ -2412,11 +2416,15 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  if(!cb||!pBeginRendering||!pEndRendering)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
  for(uint32_t i=0;i<32;i++){if(m.vsSRV[i]){if(!syncCompatOwnedImage(cb,m.vsSRV[i]))return false;transitionCompatOwnedImage(cb,m.vsSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}if(m.psSRV[i]){if(!syncCompatOwnedImage(cb,m.psSRV[i]))return false;transitionCompatOwnedImage(cb,m.psSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}}
  VkRenderingAttachmentInfo colors[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
- for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i])continue;if(!syncCompatOwnedImage(cb,m.rtv[i]))return false;transitionCompatOwnedImage(cb,m.rtv[i],VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);if(!v)return false;colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;}
- VkRenderingAttachmentInfo depth{};VkRenderingAttachmentInfo* dp=nullptr;bool hasStencil=false;if(m.dsv){transitionCompatOwnedImage(cb,m.dsv,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv);if(!v)return false;{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end())hasStencil=(it->second.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)!=0;}depth.sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;depth.imageView=v;depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;dp=&depth;}
+ for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i])continue;if(!syncCompatOwnedImage(cb,m.rtv[i]))return false;transitionCompatOwnedImage(cb,m.rtv[i],VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);if(!v)return false;colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+   if(void* u=compatUnderlyingResource(m.rtv[i])){auto* rr=(CompatResourceObject*)u;if(rr->pendingClearFlags&0x100u){colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=rr->pendingClearColor[k];rr->pendingClearFlags&=~0x100u;}}
+ }
+ VkRenderingAttachmentInfo depth{},stencilAtt{};VkRenderingAttachmentInfo* dp=nullptr;VkRenderingAttachmentInfo* sp=nullptr;bool hasStencil=false;if(m.dsv){transitionCompatOwnedImage(cb,m.dsv,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv);if(!v)return false;{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end())hasStencil=(it->second.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)!=0;}depth.sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;depth.imageView=v;depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;stencilAtt=depth;dp=&depth;if(hasStencil)sp=&stencilAtt;
+   if(void* u=compatUnderlyingResource(m.dsv)){auto* rr=(CompatResourceObject*)u;depth.clearValue.depthStencil.depth=rr->pendingClearDepth;depth.clearValue.depthStencil.stencil=rr->pendingClearStencil;stencilAtt.clearValue=depth.clearValue;if(rr->pendingClearFlags&1u)depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;if(hasStencil&&(rr->pendingClearFlags&2u))stencilAtt.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;rr->pendingClearFlags&=~3u;}
+ }
  uint32_t rw=gCompatSwapWidth.load(),rh=gCompatSwapHeight.load();int32_t rx=0,ry=0;if(m.rtvCount&&m.rtv[0]){void* u=compatUnderlyingResource(m.rtv[0]);if(u){auto* rr=(CompatResourceObject*)u;if(rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){rw=((uint32_t*)rr->desc)[0];rh=((uint32_t*)rr->desc)[1];}}}
  if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);rw=std::min(rw,(uint32_t)std::max(1.0f,v[0].width));float vh=v[0].height<0.0f?-v[0].height:v[0].height;rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
- VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=hasStencil?dp:nullptr;pBeginRendering(cb,&ri);return true;
+ VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=sp;pBeginRendering(cb,&ri);return true;
 }
 static bool refreshCompatDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
  if(!g.device||!desc)return false;
