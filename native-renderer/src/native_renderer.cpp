@@ -236,7 +236,7 @@ static int32_t compatD3DUnsupported(void*) {
 // execution is intercepted by the native Vulkan renderer hooks.
 struct CompatShaderObject { void** vtbl; };
 static CompatShaderObject gCompatShader{};
-static void* gCompatShaderVtable[3]{};
+static void* gCompatShaderVtable[8]{};
 static int32_t compatShaderQI(void* self,const void*,void** out){
   if(!out)return (int32_t)0x80004003u; *out=self; return 0;
 }
@@ -248,15 +248,17 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
   gCompatShaderVtable[0]=(void*)compatShaderQI;
   gCompatShaderVtable[1]=(void*)compatShaderAddRef;
   gCompatShaderVtable[2]=(void*)compatShaderRelease;
+  // ID3D11DeviceChild: GetDevice=3, GetPrivateData=4, SetPrivateData=5,
+  // SetPrivateDataInterface=6. PIX labels use slot 5 / +0x28.
+  gCompatShaderVtable[5]=(void*)compatSetPrivateData;
   gCompatShader.vtbl=gCompatShaderVtable;
   *out=&gCompatShader;
   return 0;
 }
 
-static int32_t compatContextSetPrivateData(void*, const void*, uint32_t, const void*) {
-  // grcEffect::SetPIXLabel uses ID3D11DeviceChild::SetPrivateData (+0x28)
-  // only for PIX/debug labels. Android has no PIX consumer, so accepting the
-  // label as a no-op is sufficient and prevents a null vtable call.
+static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*) {
+  // grcEffect::SetPIXLabel calls ID3D11DeviceChild::SetPrivateData (+0x28)
+  // on shader/resource child objects, not on the immediate context.
   gtavdiag::checkpoint("compat-d3d11-set-private-data");
   return 0;
 }
@@ -336,10 +338,7 @@ static void initCompatD3D11() {
   gD3DContextVtable[0]=(void*)compatD3DQueryInterface;
   gD3DContextVtable[1]=(void*)compatD3DAddRef;
   gD3DContextVtable[2]=(void*)compatD3DRelease;
-  // The effect system stores the immediate context as an ID3D11DeviceChild-like
-  // object for PIX labels and calls slot 5 / +0x28.
-  gD3DContextVtable[5]=(void*)compatContextSetPrivateData;
-  gCompatD3DDevice.vtbl=gD3DDeviceVtable;
+   gCompatD3DDevice.vtbl=gD3DDeviceVtable;
   gCompatD3DContext.vtbl=gD3DContextVtable;
 }
 }
