@@ -1563,18 +1563,35 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
 }
 
 static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
- // Submission::Begin is the verified owner of GTA's recording command buffer.
- // Publish only a non-null handle; never erase a previously valid recording handle
- // when the engine enters a submission path that intentionally returns null.
+ // Submission::Begin in this build is a stateful owner method. Its return value is
+ // not a reliable VkCommandBuffer (the previous hook installed correctly but never
+ // observed one). Capture likely dispatchable handles from the submission object
+ // around the original call, while keeping the return-value path as the first choice.
  if(!g.device) attachFromGtavRuntime();
  g.frame.fetch_add(1,std::memory_order_relaxed);
- VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
- if(cb)publishNativeCommandBuffer(cb,"native-command-buffer-submission");
+ VkCommandBuffer before=VK_NULL_HANDLE,after=VK_NULL_HANDLE;
+ auto plausible=[&](VkCommandBuffer cb){
+   uintptr_t v=(uintptr_t)cb;
+   return v>0x10000u && (v&7u)==0u;
+ };
+ if(self){
+   // Conservative scan: only the first 0x100 bytes of the live Submission object.
+   // Vulkan dispatchable handles are pointer-like and 8-byte aligned.
+   auto* q=(uintptr_t*)self;
+   for(unsigned i=0;i<32;i++){VkCommandBuffer x=(VkCommandBuffer)q[i];if(plausible(x)){before=x;break;}}
+ }
+ VkCommandBuffer ret=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
+ if(plausible(ret))after=ret;
+ if(!after&&self){
+   auto* q=(uintptr_t*)self;
+   for(unsigned i=0;i<32;i++){VkCommandBuffer x=(VkCommandBuffer)q[i];if(plausible(x)&&x!=before){after=x;break;}}
+ }
+ if(after)publishNativeCommandBuffer(after,"native-command-buffer-submission");
+ else gtavdiag::checkpoint("native-submission-begin-no-cb");
  static std::atomic<bool> once{false};
- if(cb==VK_NULL_HANDLE)gtavdiag::checkpoint("native-submission-begin-null-cb");
- if(cb!=VK_NULL_HANDLE && !once.exchange(true,std::memory_order_acq_rel))
-   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","NATIVE-CB connected=%p",(void*)cb);
- return cb;
+ if(after && !once.exchange(true,std::memory_order_acq_rel))
+   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","NATIVE-CB connected=%p",(void*)after);
+ return ret;
 }
 extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_renderer_observed_command_buffer(){
  return observedNativeCommandBuffer.load(std::memory_order_acquire);
@@ -1755,7 +1772,7 @@ static uint32_t compatMemoryType(uint32_t bits,VkMemoryPropertyFlags wanted){
  return UINT32_MAX;
 }
 static VkFormat compatDxgiFormat(uint32_t f){
- switch(f){case 28:return VK_FORMAT_R8G8B8A8_UNORM;case 29:return VK_FORMAT_R8G8B8A8_SRGB;case 87:return VK_FORMAT_B8G8R8A8_UNORM;case 88:return VK_FORMAT_B8G8R8A8_UNORM;case 40:return VK_FORMAT_D32_SFLOAT;case 45:return VK_FORMAT_D24_UNORM_S8_UINT;default:return VK_FORMAT_R8G8B8A8_UNORM;}
+ switch(f){case 28:return VK_FORMAT_R8G8B8A8_UNORM;case 29:return VK_FORMAT_R8G8B8A8_SRGB;case 87:return VK_FORMAT_B8G8R8A8_UNORM;case 88:return VK_FORMAT_B8G8R8A8_UNORM;case 40:return VK_FORMAT_D32_SFLOAT;case 45:return VK_FORMAT_D24_UNORM_S8_UINT;default:return VK_FORMAT_UNDEFINED;}
 }
 static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  if(!resource||!publish||!g.device||!g.physical)return false;
@@ -1771,8 +1788,13 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
    if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=20){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];fmt=d[4];}
    else return false;
  }
- if(!w||!h)return false;
- VkFormat vf=compatDxgiFormat(fmt);VkImageAspectFlags aspect=depth?(vf==VK_FORMAT_D24_UNORM_S8_UINT?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_DEPTH_BIT):VK_IMAGE_ASPECT_COLOR_BIT;
+ if(!w||!h||w>16384||h>16384){gtavdiag::checkpoint("native-compat-image-invalid-extent");return false;}
+ VkFormat vf=compatDxgiFormat(fmt);
+ if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-compat-image-unsupported-format");return false;}
+ VkFormatProperties fp{};vkGetPhysicalDeviceFormatProperties(g.physical,vf,&fp);
+ VkFormatFeatureFlags need=depth?VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+ if((fp.optimalTilingFeatures&need)!=need){gtavdiag::checkpoint("native-compat-image-format-unsupported");return false;}
+ VkImageAspectFlags aspect=depth?(vf==VK_FORMAT_D24_UNORM_S8_UINT?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_DEPTH_BIT):VK_IMAGE_ASPECT_COLOR_BIT;
  VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=vf;ci.extent={w,h,1};ci.mipLevels=1;ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
  ci.usage=depth?(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT):(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
  VkImage img{};if(vkCreateImage(g.device,&ci,nullptr,&img)!=VK_SUCCESS)return false;
