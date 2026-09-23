@@ -227,6 +227,17 @@ static uint32_t compatD3DGetFeatureLevel(void*) {
   gtavdiag::checkpoint("compat-d3d11-get-feature-level");
   return 0xb000u;
 }
+static int32_t compatChildGetPrivateData(void*,const void*,uint32_t* size,void*){gtavdiag::checkpoint("compat-child-get-private-data");if(size)*size=0;return (int32_t)0x80004005u;}
+static void compatChildGetDevice(void*,void** out){gtavdiag::checkpoint("compat-child-get-device");if(out)*out=&gCompatD3DDevice;}
+static int32_t compatChildSetPrivateDataInterface(void*,const void*,void*){gtavdiag::checkpoint("compat-child-set-private-data-interface");return 0;}
+static void compatContextNoop(void*,...){gtavdiag::checkpoint("compat-context-noop");}
+static int32_t compatDeviceGetPrivateData(void* s,const void* g,uint32_t* n,void* d){return compatChildGetPrivateData(s,g,n,d);}
+static int32_t compatDeviceSetPrivateDataInterface(void*,const void*,void*){return 0;}
+static uint32_t compatDeviceGetCreationFlags(void*){return 0;}
+static int32_t compatDeviceRemovedReason(void*){return 0;}
+static void compatDeviceGetImmediateContext(void*,void** out){if(out)*out=&gCompatD3DContext;}
+static int32_t compatDeviceSetExceptionMode(void*,uint32_t){return 0;}
+static uint32_t compatDeviceGetExceptionMode(void*){return 0;}
 static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
@@ -451,7 +462,7 @@ static void compatViewGetDesc(void* self,void* out){
 static void initCompatResourceVtables(){
   static bool once=false;if(once)return;once=true;
   void** tables[]={gCompatBufferVtable,gCompatTexture1DVtable,gCompatTexture2DVtable,gCompatTexture3DVtable};
-  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
+  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
   // ID3D11Buffer::GetDesc slot 10; Texture1D/2D/3D GetDesc slots 10/10/10.
   gCompatBufferVtable[10]=(void*)compatResourceGetDesc;
   gCompatTexture1DVtable[10]=(void*)compatResourceGetDesc;
@@ -459,7 +470,7 @@ static void initCompatResourceVtables(){
   gCompatTexture3DVtable[10]=(void*)compatResourceGetDesc;
   for(void*& p:gCompatViewVtable)p=(void*)compatD3DUnsupported;
   gCompatViewVtable[0]=(void*)compatChildQI; gCompatViewVtable[1]=(void*)compatChildAddRef; gCompatViewVtable[2]=(void*)compatChildRelease;
-  gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
+  gCompatViewVtable[3]=(void*)compatChildGetDevice; gCompatViewVtable[4]=(void*)compatChildGetPrivateData; gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[6]=(void*)compatChildSetPrivateDataInterface; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
 }
 static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
@@ -623,15 +634,15 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[31]=(void*)compatDeviceSlot31;
   gD3DDeviceVtable[32]=(void*)compatDeviceSlot32;
   gD3DDeviceVtable[33]=(void*)compatCheckFeatureSupport;
-  gD3DDeviceVtable[34]=(void*)compatDeviceSlot34;
-  gD3DDeviceVtable[35]=(void*)compatDeviceSlot35;
-  gD3DDeviceVtable[36]=(void*)compatDeviceSlot36;
+  gD3DDeviceVtable[34]=(void*)compatDeviceGetPrivateData;
+  gD3DDeviceVtable[35]=(void*)compatSetPrivateData;
+  gD3DDeviceVtable[36]=(void*)compatDeviceSetPrivateDataInterface;
   gD3DDeviceVtable[37]=(void*)compatDeviceSlot37;
-  gD3DDeviceVtable[38]=(void*)compatDeviceSlot38;
-  gD3DDeviceVtable[39]=(void*)compatDeviceSlot39;
-  gD3DDeviceVtable[40]=(void*)compatDeviceSlot40;
-  gD3DDeviceVtable[41]=(void*)compatDeviceSlot41;
-  gD3DDeviceVtable[42]=(void*)compatDeviceSlot42;
+  gD3DDeviceVtable[38]=(void*)compatDeviceGetCreationFlags;
+  gD3DDeviceVtable[39]=(void*)compatDeviceRemovedReason;
+  gD3DDeviceVtable[40]=(void*)compatDeviceGetImmediateContext;
+  gD3DDeviceVtable[41]=(void*)compatDeviceSetExceptionMode;
+  gD3DDeviceVtable[42]=(void*)compatDeviceGetExceptionMode;
   gD3DDeviceVtable[43]=(void*)compatDeviceSlot43;
   gD3DDeviceVtable[44]=(void*)compatDeviceSlot44;
   gD3DDeviceVtable[45]=(void*)compatDeviceSlot45;
@@ -657,63 +668,63 @@ static void initCompatD3D11() {
   gD3DContextVtable[4]=(void*)compatContextSlot4;
   gD3DContextVtable[5]=(void*)compatContextSlot5;
   gD3DContextVtable[6]=(void*)compatContextSlot6;
-  gD3DContextVtable[7]=(void*)compatContextSlot7;
-  gD3DContextVtable[8]=(void*)compatContextSlot8;
-  gD3DContextVtable[9]=(void*)compatContextSlot9;
-  gD3DContextVtable[10]=(void*)compatContextSlot10;
-  gD3DContextVtable[11]=(void*)compatContextSlot11;
-  gD3DContextVtable[12]=(void*)compatContextSlot12;
-  gD3DContextVtable[13]=(void*)compatContextSlot13;
+  gD3DContextVtable[7]=(void*)compatContextNoop;
+  gD3DContextVtable[8]=(void*)compatContextNoop;
+  gD3DContextVtable[9]=(void*)compatContextNoop;
+  gD3DContextVtable[10]=(void*)compatContextNoop;
+  gD3DContextVtable[11]=(void*)compatContextNoop;
+  gD3DContextVtable[12]=(void*)compatContextNoop;
+  gD3DContextVtable[13]=(void*)compatContextNoop;
   gD3DContextVtable[14]=(void*)compatContextSlot14;
   gD3DContextVtable[15]=(void*)compatContextSlot15;
-  gD3DContextVtable[16]=(void*)compatContextSlot16;
-  gD3DContextVtable[17]=(void*)compatContextSlot17;
-  gD3DContextVtable[18]=(void*)compatContextSlot18;
-  gD3DContextVtable[19]=(void*)compatContextSlot19;
-  gD3DContextVtable[20]=(void*)compatContextSlot20;
-  gD3DContextVtable[21]=(void*)compatContextSlot21;
-  gD3DContextVtable[22]=(void*)compatContextSlot22;
-  gD3DContextVtable[23]=(void*)compatContextSlot23;
-  gD3DContextVtable[24]=(void*)compatContextSlot24;
-  gD3DContextVtable[25]=(void*)compatContextSlot25;
-  gD3DContextVtable[26]=(void*)compatContextSlot26;
+  gD3DContextVtable[16]=(void*)compatContextNoop;
+  gD3DContextVtable[17]=(void*)compatContextNoop;
+  gD3DContextVtable[18]=(void*)compatContextNoop;
+  gD3DContextVtable[19]=(void*)compatContextNoop;
+  gD3DContextVtable[20]=(void*)compatContextNoop;
+  gD3DContextVtable[21]=(void*)compatContextNoop;
+  gD3DContextVtable[22]=(void*)compatContextNoop;
+  gD3DContextVtable[23]=(void*)compatContextNoop;
+  gD3DContextVtable[24]=(void*)compatContextNoop;
+  gD3DContextVtable[25]=(void*)compatContextNoop;
+  gD3DContextVtable[26]=(void*)compatContextNoop;
   gD3DContextVtable[27]=(void*)compatContextBegin;
   gD3DContextVtable[28]=(void*)compatContextEnd;
   gD3DContextVtable[29]=(void*)compatContextGetData;
-  gD3DContextVtable[30]=(void*)compatContextSlot30;
-  gD3DContextVtable[31]=(void*)compatContextSlot31;
-  gD3DContextVtable[32]=(void*)compatContextSlot32;
-  gD3DContextVtable[33]=(void*)compatContextSlot33;
-  gD3DContextVtable[34]=(void*)compatContextSlot34;
-  gD3DContextVtable[35]=(void*)compatContextSlot35;
-  gD3DContextVtable[36]=(void*)compatContextSlot36;
-  gD3DContextVtable[37]=(void*)compatContextSlot37;
-  gD3DContextVtable[38]=(void*)compatContextSlot38;
-  gD3DContextVtable[39]=(void*)compatContextSlot39;
-  gD3DContextVtable[40]=(void*)compatContextSlot40;
-  gD3DContextVtable[41]=(void*)compatContextSlot41;
-  gD3DContextVtable[42]=(void*)compatContextSlot42;
-  gD3DContextVtable[43]=(void*)compatContextSlot43;
-  gD3DContextVtable[44]=(void*)compatContextSlot44;
-  gD3DContextVtable[45]=(void*)compatContextSlot45;
-  gD3DContextVtable[46]=(void*)compatContextSlot46;
-  gD3DContextVtable[47]=(void*)compatContextSlot47;
-  gD3DContextVtable[48]=(void*)compatContextSlot48;
-  gD3DContextVtable[49]=(void*)compatContextSlot49;
-  gD3DContextVtable[50]=(void*)compatContextSlot50;
-  gD3DContextVtable[51]=(void*)compatContextSlot51;
-  gD3DContextVtable[52]=(void*)compatContextSlot52;
-  gD3DContextVtable[53]=(void*)compatContextSlot53;
-  gD3DContextVtable[54]=(void*)compatContextSlot54;
-  gD3DContextVtable[55]=(void*)compatContextSlot55;
-  gD3DContextVtable[56]=(void*)compatContextSlot56;
-  gD3DContextVtable[57]=(void*)compatContextSlot57;
-  gD3DContextVtable[58]=(void*)compatContextSlot58;
-  gD3DContextVtable[59]=(void*)compatContextSlot59;
-  gD3DContextVtable[60]=(void*)compatContextSlot60;
-  gD3DContextVtable[61]=(void*)compatContextSlot61;
-  gD3DContextVtable[62]=(void*)compatContextSlot62;
-  gD3DContextVtable[63]=(void*)compatContextSlot63;
+  gD3DContextVtable[30]=(void*)compatContextNoop;
+  gD3DContextVtable[31]=(void*)compatContextNoop;
+  gD3DContextVtable[32]=(void*)compatContextNoop;
+  gD3DContextVtable[33]=(void*)compatContextNoop;
+  gD3DContextVtable[34]=(void*)compatContextNoop;
+  gD3DContextVtable[35]=(void*)compatContextNoop;
+  gD3DContextVtable[36]=(void*)compatContextNoop;
+  gD3DContextVtable[37]=(void*)compatContextNoop;
+  gD3DContextVtable[38]=(void*)compatContextNoop;
+  gD3DContextVtable[39]=(void*)compatContextNoop;
+  gD3DContextVtable[40]=(void*)compatContextNoop;
+  gD3DContextVtable[41]=(void*)compatContextNoop;
+  gD3DContextVtable[42]=(void*)compatContextNoop;
+  gD3DContextVtable[43]=(void*)compatContextNoop;
+  gD3DContextVtable[44]=(void*)compatContextNoop;
+  gD3DContextVtable[45]=(void*)compatContextNoop;
+  gD3DContextVtable[46]=(void*)compatContextNoop;
+  gD3DContextVtable[47]=(void*)compatContextNoop;
+  gD3DContextVtable[48]=(void*)compatContextNoop;
+  gD3DContextVtable[49]=(void*)compatContextNoop;
+  gD3DContextVtable[50]=(void*)compatContextNoop;
+  gD3DContextVtable[51]=(void*)compatContextNoop;
+  gD3DContextVtable[52]=(void*)compatContextNoop;
+  gD3DContextVtable[53]=(void*)compatContextNoop;
+  gD3DContextVtable[54]=(void*)compatContextNoop;
+  gD3DContextVtable[55]=(void*)compatContextNoop;
+  gD3DContextVtable[56]=(void*)compatContextNoop;
+  gD3DContextVtable[57]=(void*)compatContextNoop;
+  gD3DContextVtable[58]=(void*)compatContextNoop;
+  gD3DContextVtable[59]=(void*)compatContextNoop;
+  gD3DContextVtable[60]=(void*)compatContextNoop;
+  gD3DContextVtable[61]=(void*)compatContextNoop;
+  gD3DContextVtable[62]=(void*)compatContextNoop;
+  gD3DContextVtable[63]=(void*)compatContextNoop;
 
   // ID3D11DeviceContext: Map=14, Unmap=15.
   gD3DContextVtable[14]=(void*)compatD3DMap;
