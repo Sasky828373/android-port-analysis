@@ -1715,8 +1715,10 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf native-renderer/third_party/dxbc-spirv
-          git clone --depth 1 https://github.com/doitsujin/dxbc-spirv.git native-renderer/third_party/dxbc-spirv
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/doitsujin/dxbc-spirv.git native-renderer/third_party/dxbc-spirv
+          git -C native-renderer/third_party/dxbc-spirv submodule update --init --recursive --depth 1
           test -s native-renderer/third_party/dxbc-spirv/dxbc/dxbc_api.cpp
+          test -s native-renderer/third_party/dxbc-spirv/submodules/spirv_headers/include/spirv/unified1/spirv.hpp
           echo "dxbc-spirv revision: $(git -C native-renderer/third_party/dxbc-spirv rev-parse HEAD)" | tee hybrid-report/dxbc-spirv-revision.txt
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake
