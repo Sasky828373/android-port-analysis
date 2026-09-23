@@ -230,6 +230,28 @@ static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
 }
+// Shader creation is consumed as an object pointer by grcProgram::CreateShader.
+// Returning E_NOTIMPL through the generic stub leaves the out-object undefined
+// and later crashes on Release. Return a tiny COM object instead; actual shader
+// execution is intercepted by the native Vulkan renderer hooks.
+struct CompatShaderObject { void** vtbl; };
+static CompatShaderObject gCompatShader{};
+static void* gCompatShaderVtable[3]{};
+static int32_t compatShaderQI(void* self,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u; *out=self; return 0;
+}
+static uint32_t compatShaderAddRef(void*){return 2;}
+static uint32_t compatShaderRelease(void*){return 1;}
+static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out){
+  gtavdiag::checkpoint("compat-d3d11-create-shader");
+  if(!out)return (int32_t)0x80004003u;
+  gCompatShaderVtable[0]=(void*)compatShaderQI;
+  gCompatShaderVtable[1]=(void*)compatShaderAddRef;
+  gCompatShaderVtable[2]=(void*)compatShaderRelease;
+  gCompatShader.vtbl=gCompatShaderVtable;
+  *out=&gCompatShader;
+  return 0;
+}
 static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* version) {
   gtavdiag::checkpoint("compat-dxgi-adapter-check-interface-support");
   if(version) *version=0;
@@ -293,6 +315,15 @@ static void initCompatD3D11() {
   gCompatDXGIDevice.vtbl=gDXGIDeviceVtable;
   // ID3D11Device::GetFeatureLevel is slot 37 / byte offset 0x128.
   // libgtav's grcDevice::GetDXFeatureLevelSupported consumes this exact slot.
+  // ID3D11Device shader creation slots used by grcProgram::CreateShader:
+  // VS=12/+0x60, GS=13/+0x68, PS=15/+0x78, HS=16/+0x80,
+  // DS=17/+0x88, CS=18/+0x90.
+  gD3DDeviceVtable[12]=(void*)compatCreateShader;
+  gD3DDeviceVtable[13]=(void*)compatCreateShader;
+  gD3DDeviceVtable[15]=(void*)compatCreateShader;
+  gD3DDeviceVtable[16]=(void*)compatCreateShader;
+  gD3DDeviceVtable[17]=(void*)compatCreateShader;
+  gD3DDeviceVtable[18]=(void*)compatCreateShader;
   gD3DDeviceVtable[37]=(void*)compatD3DGetFeatureLevel;
   gD3DContextVtable[0]=(void*)compatD3DQueryInterface;
   gD3DContextVtable[1]=(void*)compatD3DAddRef;
