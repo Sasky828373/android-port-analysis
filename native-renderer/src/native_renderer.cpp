@@ -274,10 +274,10 @@ static void compatCtxDrawIndexedInstanced(void*,uint32_t,uint32_t,uint32_t,int32
 static void compatCtxDrawInstanced(void*,uint32_t,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced");}
 static void compatCtxIASetPrimitiveTopology(void* c,uint32_t t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");gtavnative_compat_mirror_topology(c,t);}
 static void compatCtxOMSetRenderTargets(void* c,uint32_t n,void* const* r,void* d){gtavdiag::checkpoint("compat-context-om-set-render-targets");gtavnative_compat_mirror_render_targets(c,n,r,d);}
-static void compatCtxOMSetBlendState(void*,void*,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");}
-static void compatCtxOMSetDepthStencilState(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");}
+static void compatCtxOMSetBlendState(void* c,void* state,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");gtavnative_compat_mirror_objs(c,10,0,1,&state);}
+static void compatCtxOMSetDepthStencilState(void* c,void* state,uint32_t){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");gtavnative_compat_mirror_objs(c,11,0,1,&state);}
 static void compatCtxDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){gtavdiag::checkpoint("compat-context-dispatch");gtavnative_compat_dispatch(c,x,y,z);}
-static void compatCtxRSSetState(void*,void*){gtavdiag::checkpoint("compat-context-rs-set-state");}
+static void compatCtxRSSetState(void* c,void* state){gtavdiag::checkpoint("compat-context-rs-set-state");gtavnative_compat_mirror_objs(c,12,0,1,&state);}
 static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-viewports");gtavnative_compat_mirror_viewports(c,n,p);}
 static void compatCtxRSSetScissorRects(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");gtavnative_compat_mirror_scissors(c,n,p);}
 static void compatCtxUpdateSubresource(void*,void*,uint32_t,const void*,const void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-update-subresource");}
@@ -1241,6 +1241,7 @@ struct RageMirrorState {
  void* vsSampler[16]{}; void* psSampler[16]{}; void* csSampler[16]{};
  void* csUAV[16]{};
  void* rtv[8]{}; uint32_t rtvCount{}; void* dsv{};
+ void* blendState{}; void* depthState{}; void* rasterState{};
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
@@ -1262,7 +1263,7 @@ extern "C" void gtavnative_compat_mirror_topology(void* c,uint32_t t){std::lock_
 extern "C" void gtavnative_compat_mirror_shader(void* c,uint32_t stage,void* sh){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);if(stage==0)m.vs=sh;else if(stage==1)m.ps=sh;else if(stage==2)m.cs=sh;}
 extern "C" void gtavnative_compat_mirror_viewports(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.viewportCount=n>4?4:n;if(p)std::memcpy(m.viewports,p,m.viewportCount*24);}
 extern "C" void gtavnative_compat_mirror_scissors(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.scissorCount=n>16?16:n;if(p)std::memcpy(m.scissors,p,m.scissorCount*16);}
-extern "C" void gtavnative_compat_mirror_objs(void* c,uint32_t k,uint32_t f,uint32_t n,void* const* v){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);void** d=nullptr;uint32_t cap=16;switch(k){case 0:d=m.vsCB;break;case 1:d=m.psCB;break;case 2:d=m.csCB;break;case 3:d=m.vsSRV;cap=32;break;case 4:d=m.psSRV;cap=32;break;case 5:d=m.csSRV;cap=32;break;case 6:d=m.vsSampler;break;case 7:d=m.psSampler;break;case 8:d=m.csSampler;break;case 9:d=m.csUAV;break;default:return;}for(uint32_t i=0;i<n&&f+i<cap;i++)d[f+i]=v?v[i]:nullptr;}
+extern "C" void gtavnative_compat_mirror_objs(void* c,uint32_t k,uint32_t f,uint32_t n,void* const* v){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);void** d=nullptr;uint32_t cap=16;switch(k){case 0:d=m.vsCB;break;case 1:d=m.psCB;break;case 2:d=m.csCB;break;case 3:d=m.vsSRV;cap=32;break;case 4:d=m.psSRV;cap=32;break;case 5:d=m.csSRV;cap=32;break;case 6:d=m.vsSampler;break;case 7:d=m.psSampler;break;case 8:d=m.csSampler;break;case 9:d=m.csUAV;break;case 10:d=&m.blendState;cap=1;break;case 11:d=&m.depthState;cap=1;break;case 12:d=&m.rasterState;cap=1;break;default:return;}for(uint32_t i=0;i<n&&f+i<cap;i++)d[f+i]=v?v[i]:nullptr;}
 extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
 
 
@@ -1562,12 +1563,13 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
 }
 
 static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
- // This is the first verified point where GTA is actively using its native Vulkan submission path.
- // Attach here instead of relying on a constructor-time probe or an external bridge call.
+ // Submission::Begin is the verified owner of GTA's recording command buffer.
+ // Publish only a non-null handle; never erase a previously valid recording handle
+ // when the engine enters a submission path that intentionally returns null.
  if(!g.device) attachFromGtavRuntime();
  g.frame.fetch_add(1,std::memory_order_relaxed);
  VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
- observedNativeCommandBuffer.store(cb,std::memory_order_release);
+ if(cb)publishNativeCommandBuffer(cb,"native-command-buffer-submission");
  static std::atomic<bool> once{false};
  if(cb==VK_NULL_HANDLE)gtavdiag::checkpoint("native-submission-begin-null-cb");
  if(cb!=VK_NULL_HANDLE && !once.exchange(true,std::memory_order_acq_rel))
