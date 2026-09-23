@@ -1734,6 +1734,64 @@ jobs:
           name: black-screen-crash-${{ github.run_number }}
           path: hybrid-report/black-screen-crash
 
+      - name: Full D3D11 DXGI binary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/full-d3d11-audit
+          mkdir -p "$OUT"
+          LLVM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          OBJDUMP="$LLVM/llvm-objdump"
+          NM="$LLVM/llvm-nm"
+          READELF="$LLVM/llvm-readelf"
+          STRINGS="$LLVM/llvm-strings"
+
+          "$READELF" -Ws "$LIB" > "$OUT/symbols-all.txt"
+          "$READELF" -r "$LIB" > "$OUT/relocations-all.txt"
+          "$NM" -an -C "$LIB" > "$OUT/nm-all.txt" 2>/dev/null || true
+          "$STRINGS" -a -t x "$LIB" > "$OUT/strings-offsets.txt"
+          "$OBJDUMP" -d --demangle "$LIB" > "$OUT/libgtav-full.disasm.txt"
+
+          grep -Ein 'D3D11|DXGI|Direct3D|grcDevice|DeviceContext|SwapChain|CreateDXGI|CreateDevice|Map|Unmap|DrawIndexed|DrawInstanced|Dispatch|RenderTarget|ShaderResource|UnorderedAccess|Sampler|InputLayout|Rasterizer|DepthStencil|BlendState|Query|Predicate'             "$OUT/symbols-all.txt" "$OUT/nm-all.txt" "$OUT/strings-offsets.txt" > "$OUT/d3d11-dxgi-hits.txt" || true
+
+          grep -Ein 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory'             "$OUT/relocations-all.txt" "$OUT/symbols-all.txt" > "$OUT/import-relocation-hits.txt" || true
+
+          for RANGE in             6157000:6159000             61a5000:61a7000             61ac000:61ae000             61b0000:61c0000             61d0000:61d4000             622e000:6236000             6240000:6250000; do
+            A="${RANGE%%:*}"; B="${RANGE##*:}"
+            "$OBJDUMP" -d --demangle --start-address=0x$A --stop-address=0x$B "$LIB" > "$OUT/region-$A-$B.txt"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          out=Path("hybrid-report/full-d3d11-audit")
+          text=(out/"libgtav-full.disasm.txt").read_text(errors="ignore")
+          # ARM64 indirect COM calls: ldr target from vtable + blr.
+          lines=text.splitlines()
+          found=[]
+          for i,line in enumerate(lines):
+              if re.search(r'\bblr\s+x\d+', line):
+                  chunk="\n".join(lines[max(0,i-8):i+2])
+                  if re.search(r'ldr\s+x\d+,\s*\[x\d+(?:,\s*#0x[0-9a-f]+)?\]', chunk, re.I):
+                      found.append(chunk)
+          (out/"indirect-vtable-call-sites.txt").write_text("\n\n---\n\n".join(found))
+          PY
+
+          {
+            echo "Full libgtav.so D3D11/DXGI audit."
+            echo "Use d3d11-dxgi-hits + import-relocation-hits + indirect-vtable-call-sites to enumerate the compatibility surface before the next runtime test."
+            echo "Hot regions include grcDevice bootstrap, DXGI adapter/swapchain, D3D11 context consumers, native Vulkan adapter/runtime, and current crash neighborhoods."
+          } > "$OUT/README.txt"
+
+      - name: Upload full D3D11 DXGI binary audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-d3d11-audit-${{ github.run_number }}
+          path: hybrid-report/full-d3d11-audit/
+          compression-level: 9
+          retention-days: 7
+
       - name: Build native Vulkan compatibility renderer
         shell: bash
         run: |
