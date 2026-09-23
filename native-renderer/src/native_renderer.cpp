@@ -287,6 +287,19 @@ static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("
 static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
 static void compatCtxResolveSubresource(void*,void*,uint32_t,void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");}
 static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
+static void compatCtxHSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-shader-resources");}
+static void compatCtxHSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-hs-set-shader");}
+static void compatCtxHSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-samplers");}
+static void compatCtxHSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-constant-buffers");}
+static void compatCtxDSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ds-set-shader-resources");}
+static void compatCtxDSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ds-set-shader");}
+static void compatCtxDSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ds-set-samplers");}
+static void compatCtxDSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ds-set-constant-buffers");}
+static void compatCtxCSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-shader-resources");}
+static void compatCtxCSSetUnorderedAccessViews(void*,uint32_t,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-cs-set-uavs");}
+static void compatCtxCSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-cs-set-shader");}
+static void compatCtxCSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-samplers");}
+static void compatCtxCSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-constant-buffers");}
 static int32_t compatDeviceGetPrivateData(void* s,const void* g,uint32_t* n,void* d){return compatChildGetPrivateData(s,g,n,d);}
 static int32_t compatDeviceSetPrivateDataInterface(void*,const void*,void*){return 0;}
 static uint32_t compatDeviceGetCreationFlags(void*){return 0;}
@@ -865,12 +878,20 @@ static void initCompatD3D11() {
   gD3DContextVtable[56]=(void*)compatCtxGetResourceMinLOD;
   gD3DContextVtable[57]=(void*)compatCtxResolveSubresource;
   gD3DContextVtable[58]=(void*)compatCtxExecuteCommandList;
-  gD3DContextVtable[59]=(void*)compatContextNoop;
-  gD3DContextVtable[60]=(void*)compatContextNoop;
-  gD3DContextVtable[61]=(void*)compatContextNoop;
-  gD3DContextVtable[62]=(void*)compatContextNoop;
-  gD3DContextVtable[63]=(void*)compatContextNoop;
+  gD3DContextVtable[59]=(void*)compatCtxHSSetShaderResources;
+  gD3DContextVtable[60]=(void*)compatCtxHSSetShader;
+  gD3DContextVtable[61]=(void*)compatCtxHSSetSamplers;
+  gD3DContextVtable[62]=(void*)compatCtxHSSetConstantBuffers;
+  gD3DContextVtable[63]=(void*)compatCtxDSSetShaderResources;
   for(int i=64;i<128;i++) gD3DContextVtable[i]=(void*)compatContextNoop;
+  gD3DContextVtable[64]=(void*)compatCtxDSSetShader;
+  gD3DContextVtable[65]=(void*)compatCtxDSSetSamplers;
+  gD3DContextVtable[66]=(void*)compatCtxDSSetConstantBuffers;
+  gD3DContextVtable[67]=(void*)compatCtxCSSetShaderResources;
+  gD3DContextVtable[68]=(void*)compatCtxCSSetUnorderedAccessViews;
+  gD3DContextVtable[69]=(void*)compatCtxCSSetShader;
+  gD3DContextVtable[70]=(void*)compatCtxCSSetSamplers;
+  gD3DContextVtable[71]=(void*)compatCtxCSSetConstantBuffers;
 
   // ID3D11DeviceContext: Map=14, Unmap=15.
   gD3DContextVtable[14]=(void*)compatD3DMap;
