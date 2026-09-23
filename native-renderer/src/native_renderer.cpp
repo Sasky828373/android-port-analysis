@@ -1654,9 +1654,12 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
 
  // "installed" means the native draw cutover is safe. Submission capture can
  // still remain active on its own and provide diagnostics when another hook moved.
- bool cutover=draw&&drawIndexed&&state;
+ // The compat ID3D11 context already mirrors IA/shader/resource state before these
+ // native hooks are armed. Treat moved optional state veneers as diagnostics rather
+ // than blocking the verified Draw/DrawIndexed hooks.
+ bool cutover=draw&&drawIndexed;
  drawHooksInstalled.store(cutover,std::memory_order_release);
- char detail[160];snprintf(detail,sizeof(detail),"draw=%d indexed=%d dispatch=%d submission=%d state=%d cutover=%d",draw,drawIndexed,dispatch,submission,state,cutover);
+ char detail[192];snprintf(detail,sizeof(detail),"draw=%d indexed=%d dispatch=%d submission=%d state=%d cutover=%d compat-state-fallback=%d",draw,drawIndexed,dispatch,submission,state,cutover,state?0:1);
  gtavdiag::checkpoint("native-hook-summary",detail);
  return cutover;
 }
@@ -2136,9 +2139,12 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begi
  // Hook installation was deliberately removed from the ELF constructor because
  // libgtav's graphics bootstrap is not ready there. Present is the first verified
  // late point where the native Vulkan runtime is alive, so arm the draw cutover here.
- static std::atomic<bool> hookAttempted{false};
- if(attached && !drawHooksInstalled.load(std::memory_order_acquire) &&
-    !hookAttempted.exchange(true,std::memory_order_acq_rel)){
+ static std::atomic<uint32_t> hookAttempts{0};
+ // Retry a failed late install a few times: bootstrap code may still be changing
+ // protections/state on the first Present, and optional hooks no longer gate cutover.
+ uint32_t ha=hookAttempts.load(std::memory_order_relaxed);
+ if(attached && !drawHooksInstalled.load(std::memory_order_acquire) && ha<3 &&
+    hookAttempts.compare_exchange_strong(ha,ha+1,std::memory_order_acq_rel)){
    gtavdiag::checkpoint("native-draw-hooks-install-attempt");
    bool hooks=gtav_native_renderer_install_draw_hooks();
    gtavdiag::checkpoint(hooks?"native-draw-hooks-installed":"native-draw-hooks-failed");
