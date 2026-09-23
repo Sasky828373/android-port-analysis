@@ -375,12 +375,55 @@ static int32_t compatSwapGetDesc(void*,void* desc) {
   auto* p=(uint8_t*)desc; *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
   return 0;
 }
+
+struct CompatBackBuffer { void** vtbl; };
+static CompatBackBuffer gCompatBackBuffer{};
+static void* gBackBufferVtable[16]{};
+static int32_t compatBackBufferQI(void* self,const void*,void** out) {
+  if(!out)return (int32_t)0x80004003u; *out=self; return 0;
+}
+static uint32_t compatBackBufferAddRef(void*){return 2;}
+static uint32_t compatBackBufferRelease(void*){return 1;}
+static int32_t compatBackBufferSetPrivateData(void*,const void*,uint32_t,const void*){return 0;}
+static void compatBackBufferGetDesc(void*,void* desc) {
+  gtavdiag::checkpoint("compat-backbuffer-get-desc");
+  if(!desc)return;
+  // D3D11_TEXTURE2D_DESC: Width, Height, MipLevels, ArraySize, Format,
+  // SampleDesc{Count,Quality}, Usage, BindFlags, CPUAccessFlags, MiscFlags.
+  auto* p=(uint8_t*)desc; memset(p,0,44);
+  *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
+  *(uint32_t*)(p+8)=1; *(uint32_t*)(p+12)=1;
+  *(uint32_t*)(p+16)=28; // DXGI_FORMAT_R8G8B8A8_UNORM
+  *(uint32_t*)(p+20)=1; // sample count
+  *(uint32_t*)(p+28)=0; // D3D11_USAGE_DEFAULT
+  *(uint32_t*)(p+32)=0x28; // RENDER_TARGET | SHADER_RESOURCE
+}
+static void initCompatBackBuffer(){
+  static bool once=false;if(once)return;once=true;
+  for(void*& p:gBackBufferVtable)p=(void*)compatD3DUnsupported;
+  gBackBufferVtable[0]=(void*)compatBackBufferQI;
+  gBackBufferVtable[1]=(void*)compatBackBufferAddRef;
+  gBackBufferVtable[2]=(void*)compatBackBufferRelease;
+  gBackBufferVtable[5]=(void*)compatBackBufferSetPrivateData;
+  // ID3D11Texture2D::GetDesc = slot 10 / +0x50.
+  gBackBufferVtable[10]=(void*)compatBackBufferGetDesc;
+  gCompatBackBuffer.vtbl=gBackBufferVtable;
+}
+static int32_t compatSwapGetBuffer(void*,uint32_t index,const void*,void** out) {
+  gtavdiag::checkpoint("compat-swapchain-get-buffer");
+  if(!out)return (int32_t)0x80004003u;
+  if(index!=0){*out=nullptr;return (int32_t)0x887A0002u;}
+  initCompatBackBuffer(); *out=&gCompatBackBuffer; return 0;
+}
 static void initCompatSwapChain() {
   static bool once=false;if(once)return;once=true;
   for(void*& p:gSwapChainVtable)p=(void*)compatSwapUnsupported;
   gSwapChainVtable[0]=(void*)compatSwapQueryInterface;
   gSwapChainVtable[1]=(void*)compatSwapAddRef;
   gSwapChainVtable[2]=(void*)compatSwapRelease;
+  // grcTextureFactoryDX11::Reset consumes IDXGISwapChain::GetBuffer at
+  // slot 9/+0x48, then calls ID3D11Texture2D::GetDesc at +0x50.
+  gSwapChainVtable[9]=(void*)compatSwapGetBuffer;
   // Exact InitClass trace consumes swapchain vtable +0x60 immediately.
   gSwapChainVtable[12]=(void*)compatSwapGetDesc;
   gCompatSwapChain.vtbl=gSwapChainVtable;
