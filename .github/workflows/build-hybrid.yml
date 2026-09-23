@@ -1178,6 +1178,28 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Resolve runtime crash PC 0x4a6a910
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/runtime-crash-4a6a910
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$OBJDUMP" -d --demangle --start-address=0x4a6a780 --stop-address=0x4a6ab00 "$LIB" > "$OUT/crash-window.txt"
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000004a6a910" {last=$0} END{print last}' > "$OUT/nearest-symbol.txt" || true
+          "$READELF" -Ws "$LIB" | grep -Ei '4a6a|DXGI|D3D11|SwapChain' > "$OUT/symbol-context.txt" || true
+          grep -n -B80 -A120 -E '4a6a910|blr|br[[:space:]]+x|#0x10\]|cbz|cbnz|tbz|tbnz' "$OUT/crash-window.txt" > "$OUT/crash-control-flow.txt" || true
+          cat "$OUT/nearest-symbol.txt"
+          cat "$OUT/crash-window.txt"
+
+      - name: Upload resolved runtime crash
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-crash-4a6a910-${{ github.run_number }}
+          path: hybrid-report/runtime-crash-4a6a910/
+
       - name: Audit remaining bootstrap crash surfaces
         run: |
           set -euo pipefail
