@@ -1178,6 +1178,41 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Map crash PC through ELF segments
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/runtime-crash-elf-map
+          mkdir -p "$OUT"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$READELF" -lW "$LIB" > "$OUT/program-headers.txt"
+          "$READELF" -SW "$LIB" > "$OUT/sections.txt"
+          python3 - <<'PY' > "$OUT/mapping.txt"
+          import re
+          pc=0x4a6a910
+          txt=open("hybrid-report/runtime-crash-elf-map/program-headers.txt").read().splitlines()
+          print(f"runtime-relative-pc=0x{pc:x}")
+          for line in txt:
+              if line.lstrip().startswith("LOAD"):
+                  xs=re.findall(r'0x[0-9a-fA-F]+',line)
+                  if len(xs)>=5:
+                      off,va,pa,fs,ms=map(lambda x:int(x,16),xs[:5])
+                      if va <= pc < va+ms:
+                          print("MATCH",line)
+                          print(f"file-offset=0x{off+(pc-va):x}")
+          PY
+          cat "$OUT/mapping.txt"
+          # Also retain the closest executable section/symbol context instead of
+          # assuming runtime-relative PC equals llvm-objdump VMA.
+          "$OBJDUMP" -h "$LIB" > "$OUT/objdump-sections.txt"
+
+      - name: Upload crash ELF mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-crash-elf-map-${{ github.run_number }}
+          path: hybrid-report/runtime-crash-elf-map/
+
       - name: Resolve runtime crash PC 0x4a6a910
         run: |
           set -euo pipefail
