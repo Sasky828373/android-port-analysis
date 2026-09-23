@@ -1829,23 +1829,33 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
    gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)it->second.image,kind,1);
    imageMeta[(uint64_t)(uintptr_t)publish]={it->second.image,it->second.format,it->second.aspect};return true;
  }}
- uint32_t w=0,h=0,fmt=28;bool depth=(kind==NR_DSV);
- if(resource==&gCompatBackBuffer){w=gCompatSwapWidth.load();h=gCompatSwapHeight.load();fmt=gCompatSwapFormat.load();}
+ uint32_t w=0,h=0,fmt=28,mips=1,layers=1,samples=1,bindFlags=0x28u;
+ if(resource==&gCompatBackBuffer){w=gCompatSwapWidth.load();h=gCompatSwapHeight.load();fmt=gCompatSwapFormat.load();bindFlags=0x20u;}
  else {
    auto* r=(CompatResourceObject*)resource;
-   if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=20){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];fmt=d[4];}
+   if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=44){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];mips=std::max(1u,d[2]);layers=std::max(1u,d[3]);fmt=d[4];samples=std::max(1u,d[5]);bindFlags=d[8];}
    else return false;
  }
- if(!w||!h||w>16384||h>16384){gtavdiag::checkpoint("native-compat-image-invalid-extent");return false;}
- VkFormat vf=compatDxgiFormat(fmt);
- if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-compat-image-unsupported-format");return false;}
+ if(!w||!h||w>16384||h>16384||mips>16||layers>2048){gtavdiag::checkpoint("native-compat-image-invalid-desc");return false;}
+ VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-compat-image-unsupported-format");return false;}
+ bool depth=(bindFlags&0x40u)!=0||kind==NR_DSV;VkImageUsageFlags usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+ VkFormatFeatureFlags need=0;
+ if(bindFlags&0x08u){usage|=VK_IMAGE_USAGE_SAMPLED_BIT;need|=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;}
+ if(bindFlags&0x20u){usage|=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;need|=VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;}
+ if(bindFlags&0x40u){usage|=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;need|=VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;}
+ if(bindFlags&0x80u){usage|=VK_IMAGE_USAGE_STORAGE_BIT;need|=VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;}
+ if(kind==NR_SRV){usage|=VK_IMAGE_USAGE_SAMPLED_BIT;need|=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;}
+ if(kind==NR_RTV){usage|=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;need|=VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;}
+ if(kind==NR_DSV){usage|=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;need|=VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;}
+ if(kind==NR_UAV){usage|=VK_IMAGE_USAGE_STORAGE_BIT;need|=VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;}
  VkFormatProperties fp{};vkGetPhysicalDeviceFormatProperties(g.physical,vf,&fp);
- VkFormatFeatureFlags need=depth?VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
  if((fp.optimalTilingFeatures&need)!=need){gtavdiag::checkpoint("native-compat-image-format-unsupported");return false;}
+ VkSampleCountFlagBits sc=VK_SAMPLE_COUNT_1_BIT;
+ switch(samples){case 1:sc=VK_SAMPLE_COUNT_1_BIT;break;case 2:sc=VK_SAMPLE_COUNT_2_BIT;break;case 4:sc=VK_SAMPLE_COUNT_4_BIT;break;case 8:sc=VK_SAMPLE_COUNT_8_BIT;break;default:gtavdiag::checkpoint("native-compat-image-samples-unsupported");return false;}
  VkImageAspectFlags aspect=depth?(vf==VK_FORMAT_D24_UNORM_S8_UINT?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_DEPTH_BIT):VK_IMAGE_ASPECT_COLOR_BIT;
- VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=vf;ci.extent={w,h,1};ci.mipLevels=1;ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
- ci.usage=depth?(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT):(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
- VkImage img{};if(vkCreateImage(g.device,&ci,nullptr,&img)!=VK_SUCCESS)return false;
+ VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=vf;ci.extent={w,h,1};ci.mipLevels=mips;ci.arrayLayers=layers;ci.samples=sc;ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.usage=usage;ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+ if(layers==6)ci.flags|=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+ VkImage img{};VkResult cr=vkCreateImage(g.device,&ci,nullptr,&img);if(cr!=VK_SUCCESS){gtavdiag::checkpoint("native-compat-image-create-failed");return false;}
  VkMemoryRequirements mr{};vkGetImageMemoryRequirements(g.device,img,&mr);uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(mt==UINT32_MAX){vkDestroyImage(g.device,img,nullptr);return false;}
  VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;VkDeviceMemory mem{};
  if(vkAllocateMemory(g.device,&ai,nullptr,&mem)!=VK_SUCCESS||vkBindImageMemory(g.device,img,mem,0)!=VK_SUCCESS){if(mem)vkFreeMemory(g.device,mem,nullptr);vkDestroyImage(g.device,img,nullptr);return false;}
