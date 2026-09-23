@@ -233,6 +233,33 @@ static int32_t compatChildGetPrivateData(void*,const void*,uint32_t* size,void*)
 static void compatChildGetDevice(void*,void** out){gtavdiag::checkpoint("compat-child-get-device");if(out)*out=&gCompatD3DDevice;}
 static int32_t compatChildSetPrivateDataInterface(void*,const void*,void*){gtavdiag::checkpoint("compat-child-set-private-data-interface");return 0;}
 static void compatContextNoop(void*,...){gtavdiag::checkpoint("compat-context-noop");}
+// Render-path split diagnostics. Keep ABI-compatible signatures for the hot
+// ID3D11DeviceContext slots so the crash log identifies the command that GTA
+// actually issued instead of collapsing everything into compat-context-noop.
+static void compatCtxVSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-constant-buffers");}
+static void compatCtxPSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-shader-resources");}
+static void compatCtxPSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ps-set-shader");}
+static void compatCtxPSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-samplers");}
+static void compatCtxVSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-vs-set-shader");}
+static void compatCtxDrawIndexed(void*,uint32_t,uint32_t,int32_t){gtavdiag::checkpoint("compat-context-draw-indexed");}
+static void compatCtxDraw(void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw");}
+static void compatCtxPSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-constant-buffers");}
+static void compatCtxIASetInputLayout(void*,void*){gtavdiag::checkpoint("compat-context-ia-set-input-layout");}
+static void compatCtxIASetVertexBuffers(void*,uint32_t,uint32_t,void* const*,const uint32_t*,const uint32_t*){gtavdiag::checkpoint("compat-context-ia-set-vertex-buffers");}
+static void compatCtxIASetIndexBuffer(void*,void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-ia-set-index-buffer");}
+static void compatCtxDrawIndexedInstanced(void*,uint32_t,uint32_t,uint32_t,int32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced");}
+static void compatCtxDrawInstanced(void*,uint32_t,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced");}
+static void compatCtxIASetPrimitiveTopology(void*,uint32_t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");}
+static void compatCtxOMSetRenderTargets(void*,uint32_t,void* const*,void*){gtavdiag::checkpoint("compat-context-om-set-render-targets");}
+static void compatCtxOMSetBlendState(void*,void*,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");}
+static void compatCtxOMSetDepthStencilState(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");}
+static void compatCtxDispatch(void*,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-dispatch");}
+static void compatCtxRSSetState(void*,void*){gtavdiag::checkpoint("compat-context-rs-set-state");}
+static void compatCtxRSSetViewports(void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-rs-set-viewports");}
+static void compatCtxRSSetScissorRects(void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");}
+static void compatCtxUpdateSubresource(void*,void*,uint32_t,const void*,const void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-update-subresource");}
+static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
+static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
 static int32_t compatDeviceGetPrivateData(void* s,const void* g,uint32_t* n,void* d){return compatChildGetPrivateData(s,g,n,d);}
 static int32_t compatDeviceSetPrivateDataInterface(void*,const void*,void*){return 0;}
 static uint32_t compatDeviceGetCreationFlags(void*){return 0;}
@@ -755,24 +782,24 @@ static void initCompatD3D11() {
   gD3DContextVtable[4]=(void*)compatContextSlot4;
   gD3DContextVtable[5]=(void*)compatContextSlot5;
   gD3DContextVtable[6]=(void*)compatContextSlot6;
-  gD3DContextVtable[7]=(void*)compatContextNoop;
-  gD3DContextVtable[8]=(void*)compatContextNoop;
-  gD3DContextVtable[9]=(void*)compatContextNoop;
-  gD3DContextVtable[10]=(void*)compatContextNoop;
-  gD3DContextVtable[11]=(void*)compatContextNoop;
-  gD3DContextVtable[12]=(void*)compatContextNoop;
-  gD3DContextVtable[13]=(void*)compatContextNoop;
+  gD3DContextVtable[7]=(void*)compatCtxVSSetConstantBuffers;
+  gD3DContextVtable[8]=(void*)compatCtxPSSetShaderResources;
+  gD3DContextVtable[9]=(void*)compatCtxPSSetShader;
+  gD3DContextVtable[10]=(void*)compatCtxPSSetSamplers;
+  gD3DContextVtable[11]=(void*)compatCtxVSSetShader;
+  gD3DContextVtable[12]=(void*)compatCtxDrawIndexed;
+  gD3DContextVtable[13]=(void*)compatCtxDraw;
   gD3DContextVtable[14]=(void*)compatContextSlot14;
   gD3DContextVtable[15]=(void*)compatContextSlot15;
-  gD3DContextVtable[16]=(void*)compatContextNoop;
-  gD3DContextVtable[17]=(void*)compatContextNoop;
-  gD3DContextVtable[18]=(void*)compatContextNoop;
-  gD3DContextVtable[19]=(void*)compatContextNoop;
-  gD3DContextVtable[20]=(void*)compatContextNoop;
-  gD3DContextVtable[21]=(void*)compatContextNoop;
+  gD3DContextVtable[16]=(void*)compatCtxPSSetConstantBuffers;
+  gD3DContextVtable[17]=(void*)compatCtxIASetInputLayout;
+  gD3DContextVtable[18]=(void*)compatCtxIASetVertexBuffers;
+  gD3DContextVtable[19]=(void*)compatCtxIASetIndexBuffer;
+  gD3DContextVtable[20]=(void*)compatCtxDrawIndexedInstanced;
+  gD3DContextVtable[21]=(void*)compatCtxDrawInstanced;
   gD3DContextVtable[22]=(void*)compatContextNoop;
   gD3DContextVtable[23]=(void*)compatContextNoop;
-  gD3DContextVtable[24]=(void*)compatContextNoop;
+  gD3DContextVtable[24]=(void*)compatCtxIASetPrimitiveTopology;
   gD3DContextVtable[25]=(void*)compatContextNoop;
   gD3DContextVtable[26]=(void*)compatContextNoop;
   gD3DContextVtable[27]=(void*)compatContextBegin;
@@ -781,27 +808,27 @@ static void initCompatD3D11() {
   gD3DContextVtable[30]=(void*)compatContextNoop;
   gD3DContextVtable[31]=(void*)compatContextNoop;
   gD3DContextVtable[32]=(void*)compatContextNoop;
-  gD3DContextVtable[33]=(void*)compatContextNoop;
+  gD3DContextVtable[33]=(void*)compatCtxOMSetRenderTargets;
   gD3DContextVtable[34]=(void*)compatContextNoop;
-  gD3DContextVtable[35]=(void*)compatContextNoop;
-  gD3DContextVtable[36]=(void*)compatContextNoop;
+  gD3DContextVtable[35]=(void*)compatCtxOMSetBlendState;
+  gD3DContextVtable[36]=(void*)compatCtxOMSetDepthStencilState;
   gD3DContextVtable[37]=(void*)compatContextNoop;
   gD3DContextVtable[38]=(void*)compatContextNoop;
   gD3DContextVtable[39]=(void*)compatContextNoop;
   gD3DContextVtable[40]=(void*)compatContextNoop;
-  gD3DContextVtable[41]=(void*)compatContextNoop;
+  gD3DContextVtable[41]=(void*)compatCtxDispatch;
   gD3DContextVtable[42]=(void*)compatContextNoop;
-  gD3DContextVtable[43]=(void*)compatContextNoop;
-  gD3DContextVtable[44]=(void*)compatContextNoop;
-  gD3DContextVtable[45]=(void*)compatContextNoop;
+  gD3DContextVtable[43]=(void*)compatCtxRSSetState;
+  gD3DContextVtable[44]=(void*)compatCtxRSSetViewports;
+  gD3DContextVtable[45]=(void*)compatCtxRSSetScissorRects;
   gD3DContextVtable[46]=(void*)compatContextNoop;
   gD3DContextVtable[47]=(void*)compatContextNoop;
-  gD3DContextVtable[48]=(void*)compatContextNoop;
+  gD3DContextVtable[48]=(void*)compatCtxUpdateSubresource;
   gD3DContextVtable[49]=(void*)compatContextNoop;
-  gD3DContextVtable[50]=(void*)compatContextNoop;
+  gD3DContextVtable[50]=(void*)compatCtxClearRenderTargetView;
   gD3DContextVtable[51]=(void*)compatContextNoop;
   gD3DContextVtable[52]=(void*)compatContextNoop;
-  gD3DContextVtable[53]=(void*)compatContextNoop;
+  gD3DContextVtable[53]=(void*)compatCtxClearDepthStencilView;
   gD3DContextVtable[54]=(void*)compatContextNoop;
   gD3DContextVtable[55]=(void*)compatContextNoop;
   gD3DContextVtable[56]=(void*)compatContextNoop;
