@@ -629,8 +629,8 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[26]=(void*)compatDeviceSlot26;
   gD3DDeviceVtable[27]=(void*)compatDeviceSlot27;
   gD3DDeviceVtable[28]=(void*)compatDeviceSlot28;
-  gD3DDeviceVtable[29]=(void*)compatDeviceSlot29;
-  gD3DDeviceVtable[30]=(void*)compatDeviceSlot30;
+  gD3DDeviceVtable[29]=(void*)compatCheckFormatSupport;
+  gD3DDeviceVtable[30]=(void*)compatCheckMSAA;
   gD3DDeviceVtable[31]=(void*)compatDeviceSlot31;
   gD3DDeviceVtable[32]=(void*)compatDeviceSlot32;
   gD3DDeviceVtable[33]=(void*)compatCheckFeatureSupport;
