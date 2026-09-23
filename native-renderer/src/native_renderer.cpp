@@ -1755,17 +1755,22 @@ static bool mirroredStateComplete(void* ctx){
  return m.inputLayout && m.vertexBuffers[0] && m.vs && m.ps && m.rtvCount>0 && m.rtv[0];
 }
 static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
- if(!s || !g.device || !g.queue) return false;
+ if(!s){gtavdiag::checkpoint("native-draw-fail-null-state");return false;}
+ if(!g.device || !g.queue){gtavdiag::checkpoint("native-draw-fail-no-runtime");return false;}
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
-   auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false; m=it->second; }
- if(!m.inputLayout || !m.vertexBuffers[0] || !m.vs || !m.ps || !m.rtvCount || !m.rtv[0]) return false;
+   auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
+ if(!m.inputLayout){gtavdiag::checkpoint("native-draw-fail-input-layout");return false;}
+ if(!m.vertexBuffers[0]){gtavdiag::checkpoint("native-draw-fail-vb0");return false;}
+ if(!m.vs){gtavdiag::checkpoint("native-draw-fail-vs");return false;}
+ if(!m.ps){gtavdiag::checkpoint("native-draw-fail-ps");return false;}
+ if(!m.rtvCount || !m.rtv[0]){gtavdiag::checkpoint("native-draw-fail-rtv");return false;}
  // Use GTA's own native wrappers to obtain real Vulkan images and materialize
  // reusable views for every active render target / depth target / sampled image.
  for(unsigned i=0;i<m.rtvCount&&i<8;i++){
    if(!m.rtv[i])continue;
-   if(!mapWrappedImage(m.rtv[i],NR_RTV,true))return false;
-   if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]))return false;
+   if(!mapWrappedImage(m.rtv[i],NR_RTV,true)){gtavdiag::checkpoint("native-draw-fail-map-rtv");return false;}
+   if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i])){gtavdiag::checkpoint("native-draw-fail-view-rtv");return false;}
  }
  if(m.dsv){
    if(!mapWrappedImage(m.dsv,NR_DSV,true))return false;
@@ -1778,7 +1783,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  }
  captureMappedState(ctx,m);
  VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
- if(cb==VK_NULL_HANDLE) return false;
+ if(cb==VK_NULL_HANDLE){gtavdiag::checkpoint("native-draw-fail-command-buffer");return false;}
  uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
  uint64_t vs=resolveMapped(m.vs,NR_VS), ps=resolveMapped(m.ps,NR_PS);
  uint64_t rt=resolveMapped(m.rtv[0],NR_RTV);
@@ -1788,7 +1793,13 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
  // Do not enter native draw until every GPU object required by that draw has a real Vulkan mapping.
  // This deliberately prevents raw RAGE/D3D pointers from ever reaching vkCmd*.
- if(!vb || !vs || !ps || !rt || !pipe || !layout || !desc) return false;
+ if(!vb){gtavdiag::checkpoint("native-draw-fail-map-vb");return false;}
+ if(!vs){gtavdiag::checkpoint("native-draw-fail-map-vs");return false;}
+ if(!ps){gtavdiag::checkpoint("native-draw-fail-map-ps");return false;}
+ if(!rt){gtavdiag::checkpoint("native-draw-fail-map-rt");return false;}
+ if(!pipe){gtavdiag::checkpoint("native-draw-fail-pipeline");return false;}
+ if(!layout){gtavdiag::checkpoint("native-draw-fail-pipeline-layout");return false;}
+ if(!desc){gtavdiag::checkpoint("native-draw-fail-descriptor");return false;}
  if(m.indexBuffer && !resolveMapped(m.indexBuffer,NR_INDEX_BUFFER)) return false;
  for(unsigned i=0;i<16;i++) if(m.vertexBuffers[i] && !resolveMapped(m.vertexBuffers[i],NR_VERTEX_BUFFER)) return false;
  for(unsigned i=0;i<16;i++) {
