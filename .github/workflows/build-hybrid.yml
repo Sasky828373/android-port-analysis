@@ -726,6 +726,7 @@ jobs:
           } > hybrid-report/gr-vulkan-submission-layout.txt
 
       - name: Full native migration extraction pass
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -780,6 +781,7 @@ jobs:
           echo "Full native extraction complete"
 
       - name: Extract native Vulkan runtime accessors
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -801,6 +803,7 @@ jobs:
           PY
 
       - name: Extract native Vulkan adapter bootstrap
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -872,6 +875,7 @@ jobs:
           du -h hybrid-report/native-adapter/isrequested-*.txt
 
       - name: Extract RAGE D3D11 migration targets
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -943,6 +947,7 @@ jobs:
           "$OBJDUMP" -d --demangle --start-address=0x622efc8 --stop-address=0x622efe0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so | tee hybrid-report/native-adapter/isrequested-enabled.disasm.txt
 
       - name: Extract full grcDevice bootstrap and native handoff
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -965,6 +970,7 @@ jobs:
           test -s hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
 
       - name: Resolve exact legacy device bootstrap imports
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -994,6 +1000,7 @@ jobs:
           PY
 
       - name: Trace D3D11 bootstrap pointer initialization
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1005,6 +1012,7 @@ jobs:
           readelf -W -r "$LIB" | grep -Ei 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory|8a74050|8a74058|6f31998|6f319a8' > hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt || true
 
       - name: Resolve native grcDevice candidates and exact D3D out objects
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1034,6 +1042,7 @@ jobs:
           "$OBJDUMP" -d --demangle --start-address=0x6158120 --stop-address=0x61584b0 "$LIB"             > hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
 
       - name: Trace grcDevice singleton and Vulkan handoff call sites
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1049,6 +1058,7 @@ jobs:
           "$OBJDUMP" -d --demangle "$LIB" | grep -n -B8 -A14 -E '622f884|622f0b8|622efc8|8aa76ce|8aa7998|8aa7860|8aa7868'             > hybrid-report/grc-device-bootstrap/native-handoff-xrefs.txt || true
 
       - name: Upload tiny grcDevice bootstrap evidence
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: grc-device-bootstrap-${{ github.run_number }}
@@ -1185,6 +1195,7 @@ jobs:
           if-no-files-found: error
 
       - name: Trace post-shader bootstrap crash
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1196,6 +1207,7 @@ jobs:
           "$NM" -n -C "$LIB" | awk '$1 <= "0000000006196748" {last=$0} END{print last}' || true
 
       - name: Trace post-shader bootstrap crash
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1207,6 +1219,7 @@ jobs:
           "$NM" -n -C "$LIB" | awk '$1 <= "0000000006196748" {last=$0} END{print last}' || true
 
       - name: Trace CreateViewsForTexture consumers
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1220,12 +1233,14 @@ jobs:
           } | tee createviews-consumers.txt
 
       - name: Upload CreateViewsForTexture trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: createviews-consumers-${{ github.run_number }}
           path: createviews-consumers.txt
 
       - name: Trace current Map consumer crash 0x61ba42c
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1239,12 +1254,14 @@ jobs:
           } | tee current-map-consumer.txt
 
       - name: Upload current Map consumer trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: current-map-consumer-${{ github.run_number }}
           path: current-map-consumer.txt
 
       - name: Trace post-Map crash 0x6bca36c
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1258,18 +1275,21 @@ jobs:
           } | tee post-map-crash.txt
 
       - name: Upload post-Map crash trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-map-crash-${{ github.run_number }}
           path: post-map-crash.txt
 
       - name: Upload post-GetBuffer crash trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-getbuffer-crash-${{ github.run_number }}
           path: post-getbuffer-crash.txt
 
       - name: Trace crash after shader compatibility phase
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1285,12 +1305,14 @@ jobs:
           } | tee post-shader-swapchain-crash.txt
 
       - name: Upload post-shader swapchain trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-shader-swapchain-trace-${{ github.run_number }}
           path: post-shader-swapchain-crash.txt
 
       - name: Trace native-runtime crash after D3D bootstrap
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1302,6 +1324,7 @@ jobs:
           "$NM" -n -C "$LIB" | awk '$1 <= "000000000618dbbc" {last=$0} END{print last}' || true
 
       - name: Trace post-swapchain crash LR
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1671,6 +1694,7 @@ jobs:
           echo "engine startup left intact; native renderer will attach only after runtime exists"
 
       - name: Trace crash after CreateDepthStencilView
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1682,12 +1706,14 @@ jobs:
           "$NM" -n -C "$LIB" 2>/dev/null | awk '$1 >= "00000000061bc000" && $1 <= "00000000061bd000"' > hybrid-report/post-inputlayout-crash/symbols.txt || true
 
       - name: Upload post-inputlayout crash trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-inputlayout-crash-${{ github.run_number }}
           path: hybrid-report/post-inputlayout-crash
 
       - name: Trace abort after resource/view bootstrap
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1699,12 +1725,14 @@ jobs:
           "$NM" -n -C "$LIB" 2>/dev/null | awk '$1 >= "00000000061bb000" && $1 <= "00000000061be000"' > hybrid-report/post-resource-abort/symbols.txt || true
 
       - name: Upload post-resource abort trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-resource-abort-${{ github.run_number }}
           path: hybrid-report/post-resource-abort
 
       - name: Upload black-screen crash trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: black-screen-crash-${{ github.run_number }}
