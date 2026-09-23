@@ -1178,6 +1178,29 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Audit remaining bootstrap crash surfaces
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/bootstrap-crash-audit
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$NM" -n -C "$LIB" | grep -Ei 'grcDevice::|grcAdapter|DXGI|D3D11|VulkanNative|VulkanRuntime|SwapChain' > "$OUT/bootstrap-symbols.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6157a00 --stop-address=0x61b2100 "$LIB" | grep -n -B16 -A36 -E 'blr|br[[:space:]]+x|ldr[[:space:]].*#0x(8|10|18|20|28|30|38|40|48|50|60|128)\]|cbz|cbnz|tbz|tbnz' > "$OUT/indirect-null-surfaces.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x615995c "$LIB" > "$OUT/initclass-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1c00 --stop-address=0x61b2100 "$LIB" > "$OUT/device-helpers-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x622ef00 --stop-address=0x6235400 "$LIB" > "$OUT/native-vulkan-bootstrap.txt"
+          "$READELF" -Ws "$LIB" | grep -E 'UND.*(D3D|DXGI|vk|Vulkan)' > "$OUT/unresolved-graphics-imports.txt" || true
+          grep -n -B20 -A60 -E 'CreateDevice|CreateDXGI|SwapChain|GetCurrentInner|AllocateSwapChain|blr|#0x10\]' "$OUT/initclass-full.txt" > "$OUT/initclass-risk-windows.txt" || true
+
+      - name: Upload bootstrap crash audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-crash-audit-${{ github.run_number }}
+          path: hybrid-report/bootstrap-crash-audit/
+
       - name: Resolve post-video-memory callers precisely
         run: |
           set -euo pipefail
