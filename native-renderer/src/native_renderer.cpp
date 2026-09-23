@@ -1893,6 +1893,42 @@ static bool mapCompatBuffer(void* p,uint32_t kind){
  if(it->second.mapped&&!r->backing.empty())std::memcpy(it->second.mapped,r->backing.data(),std::min<size_t>(r->backing.size(),(size_t)it->second.size));
  return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)it->second.buffer,kind,1);
 }
+static VkPrimitiveTopology compatVkTopology(uint32_t t){
+ switch(t){case 1:return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;case 2:return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;case 3:return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;case 4:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;case 5:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;default:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;}
+}
+static bool ensureCompatGraphicsState(const RageMirrorState& m){
+ if(!g.device||!m.vs||!m.ps||!m.rtvCount||!m.rtv[0])return false;
+ const uint64_t key=graphicsStateKey(m);
+ if(gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE))return true;
+ const VkShaderModule vs=(VkShaderModule)(uintptr_t)resolveMapped(m.vs,NR_VS);
+ const VkShaderModule ps=(VkShaderModule)(uintptr_t)resolveMapped(m.ps,NR_PS);
+ if(!vs||!ps){gtavdiag::checkpoint("native-pipeline-missing-shader");return false;}
+ NativeImageMeta rt{};{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.rtv[0]);if(it==imageMeta.end()){gtavdiag::checkpoint("native-pipeline-missing-rt-meta");return false;}rt=it->second;}
+ VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};VkDescriptorSetLayout dsl{};
+ if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-pipeline-descriptor-layout-failed");return false;}
+ VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;VkPipelineLayout layout{};
+ if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-layout-create-failed");return false;}
+ VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-alloc-failed");return false;}
+ VkPipelineShaderStageCreateInfo stages[2]{};
+ stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
+ stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
+ VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+ VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
+ VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
+ VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.lineWidth=1.0f;
+ VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+ VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+ VkPipelineColorBlendAttachmentState cba{};cba.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
+ VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};cb.attachmentCount=1;cb.pAttachments=&cba;
+ VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dyn.dynamicStateCount=2;dyn.pDynamicStates=dyns;
+ VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&rt.format;
+ NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
+ VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
+ VkPipeline pipe{};VkResult pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
+ if(pr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)pr);gtavdiag::checkpoint("native-pipeline-create-failed",d);vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ if(!gtav_native_renderer_register_graphics_state(key,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ gtavdiag::checkpoint("native-pipeline-created");return true;
+}
 static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!s){gtavdiag::checkpoint("native-draw-fail-null-state");return false;}
  if(!g.device || !g.queue){gtavdiag::checkpoint("native-draw-fail-no-runtime");return false;}
@@ -1921,6 +1957,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
    if(m.csSRV[i]){if(!mapWrappedImage(m.csSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.csSRV[i]))return false;}
  }
  mapCompatShader(m.vs,NR_VS);mapCompatShader(m.ps,NR_PS);if(m.cs)mapCompatShader(m.cs,NR_CS);
+ if(!ensureCompatGraphicsState(m)){gtavdiag::checkpoint("native-draw-fail-build-pipeline");return false;}
  for(unsigned i=0;i<16;i++)if(m.vertexBuffers[i])mapCompatBuffer(m.vertexBuffers[i],NR_VERTEX_BUFFER);
  if(m.indexBuffer)mapCompatBuffer(m.indexBuffer,NR_INDEX_BUFFER);
  for(unsigned i=0;i<16;i++){if(m.vsCB[i])mapCompatBuffer(m.vsCB[i],NR_CBUFFER);if(m.psCB[i])mapCompatBuffer(m.psCB[i],NR_CBUFFER);if(m.csCB[i])mapCompatBuffer(m.csCB[i],NR_CBUFFER);}
