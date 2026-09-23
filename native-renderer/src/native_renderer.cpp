@@ -770,7 +770,10 @@ static void initCompatStateVtables(){
   static bool once=false;if(once)return;once=true;
   {void* slots[16]={(void*)compatStateSlot0,(void*)compatStateSlot1,(void*)compatStateSlot2,(void*)compatStateSlot3,(void*)compatStateSlot4,(void*)compatStateSlot5,(void*)compatStateSlot6,(void*)compatStateSlot7,(void*)compatStateSlot8,(void*)compatStateSlot9,(void*)compatStateSlot10,(void*)compatStateSlot11,(void*)compatStateSlot12,(void*)compatStateSlot13,(void*)compatStateSlot14,(void*)compatStateSlot15};for(int i=0;i<16;i++)gCompatStateVtable[i]=slots[i];}
   {void* slots[16]={(void*)compatQuerySlot0,(void*)compatQuerySlot1,(void*)compatQuerySlot2,(void*)compatQuerySlot3,(void*)compatQuerySlot4,(void*)compatQuerySlot5,(void*)compatQuerySlot6,(void*)compatQuerySlot7,(void*)compatQuerySlot8,(void*)compatQuerySlot9,(void*)compatQuerySlot10,(void*)compatQuerySlot11,(void*)compatQuerySlot12,(void*)compatQuerySlot13,(void*)compatQuerySlot14,(void*)compatQuerySlot15};for(int i=0;i<16;i++)gCompatQueryVtable[i]=slots[i];}
-  for(void** t:{gCompatStateVtable,gCompatQueryVtable}){t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
+  for(void** t:{gCompatStateVtable,gCompatQueryVtable}){t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
+  // All ID3D11DeviceChild-derived state/query objects require slot 6
+  // SetPrivateDataInterface. Returning E_NOTIMPL here was consumed as a pointer
+  // by libgtav after Draw and caused the 0x80004001 crash.
   gCompatStateVtable[7]=(void*)compatStateGetDesc;
   gCompatQueryVtable[7]=(void*)compatQueryGetDataSize;
   gCompatQueryVtable[8]=(void*)compatQueryGetDesc;
@@ -1151,7 +1154,13 @@ static void initCompatBackBuffer(){
   gBackBufferVtable[0]=(void*)compatBackBufferQI;
   gBackBufferVtable[1]=(void*)compatBackBufferAddRef;
   gBackBufferVtable[2]=(void*)compatBackBufferRelease;
+  gBackBufferVtable[3]=(void*)compatBackBufferGetDevice;
+  gBackBufferVtable[4]=(void*)compatBackBufferGetPrivateData;
   gBackBufferVtable[5]=(void*)compatBackBufferSetPrivateData;
+  gBackBufferVtable[6]=(void*)compatBackBufferSetPrivateDataInterface;
+  gBackBufferVtable[7]=(void*)compatBackBufferGetType;
+  gBackBufferVtable[8]=(void*)compatBackBufferSetEvictionPriority;
+  gBackBufferVtable[9]=(void*)compatBackBufferGetEvictionPriority;
   // ID3D11Texture2D::GetDesc = slot 10 / +0x50.
   gBackBufferVtable[10]=(void*)compatBackBufferGetDesc;
   gCompatBackBuffer.vtbl=gBackBufferVtable;
