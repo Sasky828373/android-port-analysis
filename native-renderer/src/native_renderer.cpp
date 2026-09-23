@@ -1062,6 +1062,19 @@ static bool attachFromGtavRuntime(){
  auto gq=(GetQueueFn)(gtavBase+0x62328b4);
  auto gf=(GetQueueFamilyFn)(gtavBase+0x62328c0);
  VkInstance i=gi(); VkPhysicalDevice p=gp(); VkDevice d=gd(); VkQueue q=gq(); uint32_t family=gf();
+ if(!i||!p||!d||!q){
+   // Some Android launch paths reach the D3D-shaped bootstrap without invoking
+   // grVulkanNativeDeviceAdapter::Initialize. Retry the native adapter once after
+   // libgtav is fully loaded, then re-read the runtime handles.
+   static std::atomic<bool> initTried{false};
+   if(!initTried.exchange(true,std::memory_order_acq_rel)){
+     gtavdiag::checkpoint("vulkan-native-late-init");
+     using InitNativeFn=bool(*)();
+     auto initNative=(InitNativeFn)(gtavBase+0x622f0b8);
+     (void)initNative();
+     i=gi(); p=gp(); d=gd(); q=gq(); family=gf();
+   }
+ }
  if(!i||!p||!d||!q){ gtavdiag::checkpoint("vulkan-runtime-handles-not-ready"); if(attempt<=32 || (attempt%120)==0) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait attempt=%u i=%p p=%p d=%p q=%p family=%u",attempt,(void*)i,(void*)p,(void*)d,(void*)q,family); return false; }
  const bool ok=gtav_native_renderer_attach(i,p,d,q,family);
  if(ok) gtavdiag::checkpoint("vulkan-native-attached"); else gtavdiag::checkpoint("vulkan-native-attach-failed");
