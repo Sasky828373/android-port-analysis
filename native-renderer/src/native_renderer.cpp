@@ -1838,6 +1838,14 @@ static NativeImageMeta compatViewMeta(VkImage image,VkFormat resourceFormat,VkIm
    case 10:clampMip(d[2],d[3]);if(v->descSize>=24){m.baseLayer=d[4];m.layerCount=std::min(std::max(1u,d[5])*6u,std::max(1u,resourceLayers-m.baseLayer));}m.viewType=VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;break;
    default:break;
   }
+ }else if(kind==NR_DSV){
+  switch(dim){
+   case 3:if(v->descSize>=16)clampMip(d[3],1);break;
+   case 4:if(v->descSize>=24){clampMip(d[3],1);clampLayer(d[4],d[5]);}m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   case 5:break;
+   case 6:if(v->descSize>=20)clampLayer(d[3],d[4]);m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   default:break;
+  }
  }else{
   switch(dim){
    case 4:clampMip(d[2],1);break;
