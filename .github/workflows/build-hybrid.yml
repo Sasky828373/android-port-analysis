@@ -2,8 +2,6 @@ name: Build XHYN Vulkan Hybrid Performance
 # Hybrid build pipeline v1
 
 on:
-  push:
-    branches: [hybrid-apk-unpacked]
   workflow_dispatch:
 
 
