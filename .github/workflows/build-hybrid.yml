@@ -1714,6 +1714,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf native-renderer/third_party/dxbc-spirv
+          git clone --depth 1 https://github.com/doitsujin/dxbc-spirv.git native-renderer/third_party/dxbc-spirv
+          test -s native-renderer/third_party/dxbc-spirv/dxbc/dxbc_api.cpp
+          echo "dxbc-spirv revision: $(git -C native-renderer/third_party/dxbc-spirv rev-parse HEAD)" | tee hybrid-report/dxbc-spirv-revision.txt
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake
           : "${ANDROID_NDK_HOME:=${ANDROID_NDK_ROOT:-}}"
