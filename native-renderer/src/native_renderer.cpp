@@ -434,8 +434,8 @@ static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out)
 // They keep valid COM objects and descriptors alive while the actual draw path is
 // migrated to Vulkan. Returning E_NOTIMPL with a null out pointer here is unsafe:
 // GTA consumes the created RTV/DSV/SRV objects immediately.
-struct CompatResourceObject { void** vtbl; uint8_t desc[64]; };
-struct CompatViewObject { void** vtbl; CompatResourceObject* resource; uint8_t desc[64]; };
+struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; };
+struct CompatViewObject { void** vtbl; CompatResourceObject* resource; size_t descSize; uint8_t desc[32]; };
 static void* gCompatBufferVtable[16]{};
 static void* gCompatTexture1DVtable[16]{};
 static void* gCompatTexture2DVtable[16]{};
@@ -449,7 +449,7 @@ static uint32_t compatChildAddRef(void*){return 2;}
 static uint32_t compatChildRelease(void*){return 1;}
 static void compatResourceGetDesc(void* self,void* out){
   gtavdiag::checkpoint("compat-resource-get-desc");
-  if(self&&out)std::memcpy(out,((CompatResourceObject*)self)->desc,64);
+  if(self&&out){auto* o=(CompatResourceObject*)self;std::memcpy(out,o->desc,o->descSize);}
 }
 static void compatViewGetResource(void* self,void** out){
   gtavdiag::checkpoint("compat-view-get-resource");
@@ -457,7 +457,7 @@ static void compatViewGetResource(void* self,void** out){
 }
 static void compatViewGetDesc(void* self,void* out){
   gtavdiag::checkpoint("compat-view-get-desc");
-  if(self&&out)std::memcpy(out,((CompatViewObject*)self)->desc,64);
+  if(self&&out){auto* o=(CompatViewObject*)self;std::memcpy(out,o->desc,o->descSize);}
 }
 static void initCompatResourceVtables(){
   static bool once=false;if(once)return;once=true;
@@ -474,13 +474,13 @@ static void initCompatResourceVtables(){
 }
 static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
-  auto* o=new CompatResourceObject{};o->vtbl=vtbl;
+  auto* o=new CompatResourceObject{};o->vtbl=vtbl;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
 static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
-  auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;
+  auto* o=new CompatViewObject{};o->vtbl=gCompatViewVtable;o->resource=(CompatResourceObject*)resource;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatViews.push_back(o);return o;
 }
@@ -488,7 +488,7 @@ static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out)
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
 }
 static int32_t compatCreateTexture1D(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,40,"compat-d3d11-create-texture1d",gCompatTexture1DVtable);return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,32,"compat-d3d11-create-texture1d",gCompatTexture1DVtable);return 0;
 }
 static int32_t compatCreateTexture2D(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,44,"compat-d3d11-create-texture2d",gCompatTexture2DVtable);return 0;
@@ -497,25 +497,25 @@ static int32_t compatCreateTexture3D(void*,const void* desc,const void*,void** o
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,36,"compat-d3d11-create-texture3d",gCompatTexture3DVtable);return 0;
 }
 static int32_t compatCreateSRV(void*,void* resource,const void* desc,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-srv");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,24,"compat-d3d11-create-srv");return 0;
 }
 static int32_t compatCreateUAV(void*,void* resource,const void* desc,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-uav");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,20,"compat-d3d11-create-uav");return 0;
 }
 static int32_t compatCreateRTV(void*,void* resource,const void* desc,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-rtv");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,20,"compat-d3d11-create-rtv");return 0;
 }
 static int32_t compatCreateDSV(void*,void* resource,const void* desc,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,32,"compat-d3d11-create-dsv");return 0;
+  if(!out)return (int32_t)0x80004003u;*out=makeCompatView(resource,desc,24,"compat-d3d11-create-dsv");return 0;
 }
 
-struct CompatStateObject { void** vtbl; uint8_t desc[128]; };
+struct CompatStateObject { void** vtbl; size_t descSize; uint8_t desc[320]; };
 struct CompatQueryObject { void** vtbl; uint32_t query; uint32_t miscFlags; std::atomic<uint32_t> ended{0}; };
 static void* gCompatStateVtable[16]{};
 static void* gCompatQueryVtable[16]{};
 static std::vector<CompatStateObject*> gCompatStates;
 static std::vector<CompatQueryObject*> gCompatQueries;
-static void compatStateGetDesc(void* self,void* out){ if(self&&out)std::memcpy(out,((CompatStateObject*)self)->desc,128); }
+static void compatStateGetDesc(void* self,void* out){ if(self&&out){auto* o=(CompatStateObject*)self;std::memcpy(out,o->desc,o->descSize);} }
 static void compatQueryGetDesc(void* self,void* out){ if(self&&out){auto* q=(CompatQueryObject*)self;((uint32_t*)out)[0]=q->query;((uint32_t*)out)[1]=q->miscFlags;} }
 static void initCompatStateVtables(){
   static bool once=false;if(once)return;once=true;
@@ -527,13 +527,13 @@ static void initCompatStateVtables(){
 }
 static int32_t makeCompatState(const void* desc,size_t bytes,void** out,const char* cp){
   gtavdiag::checkpoint(cp); if(!out)return (int32_t)0x80004003u; initCompatStateVtables();
-  auto* o=new CompatStateObject{};o->vtbl=gCompatStateVtable;if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  auto* o=new CompatStateObject{};o->vtbl=gCompatStateVtable;o->descSize=std::min(bytes,sizeof(o->desc));if(desc)std::memcpy(o->desc,desc,o->descSize);
   {std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatStates.push_back(o);}*out=o;return 0;
 }
-static int32_t compatCreateBlendState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-blend-state");}
-static int32_t compatCreateDepthStencilState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-depth-stencil-state");}
-static int32_t compatCreateRasterizerState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-rasterizer-state");}
-static int32_t compatCreateSamplerState(void*,const void* d,void** o){return makeCompatState(d,64,o,"compat-d3d11-create-sampler-state");}
+static int32_t compatCreateBlendState(void*,const void* d,void** o){return makeCompatState(d,264,o,"compat-d3d11-create-blend-state");}
+static int32_t compatCreateDepthStencilState(void*,const void* d,void** o){return makeCompatState(d,52,o,"compat-d3d11-create-depth-stencil-state");}
+static int32_t compatCreateRasterizerState(void*,const void* d,void** o){return makeCompatState(d,40,o,"compat-d3d11-create-rasterizer-state");}
+static int32_t compatCreateSamplerState(void*,const void* d,void** o){return makeCompatState(d,52,o,"compat-d3d11-create-sampler-state");}
 static int32_t compatCreateQuery(void*,const void* d,void** out){
   gtavdiag::checkpoint("compat-d3d11-create-query");if(!out)return (int32_t)0x80004003u;initCompatStateVtables();
   auto* q=new CompatQueryObject{};q->vtbl=gCompatQueryVtable;if(d){q->query=((const uint32_t*)d)[0];q->miscFlags=((const uint32_t*)d)[1];}
