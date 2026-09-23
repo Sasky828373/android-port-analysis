@@ -589,7 +589,7 @@ static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
 // and later crashes on Release. Return a tiny COM object instead; actual shader
 // execution is intercepted by the native Vulkan renderer hooks.
 struct CompatShaderObject { void** vtbl; std::vector<uint8_t> bytecode; };
-struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; uint32_t elementCount{}; };
+struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; };
 static void* gCompatShaderVtable[8]{};
 static void* gCompatInputLayoutVtable[8]{};
 static std::mutex gCompatShaderMutex;
