@@ -1178,6 +1178,28 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace post-RetrieveVideoMemory crash path
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-video-memory
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          # Runtime proves RetrieveVideoMemory's QI/GetParent/GetDesc chain completes,
+          # then crashes on a null+0x10 dereference. Resolve the function and every
+          # caller so the next patch is based on the exact consumer.
+          "$NM" -n -C "$LIB" | grep -Ei 'RetrieveVideoMemory|DetermineAvailableMemory|DetermineManufacturer|grcDevice::InitClass|grcAdapter' > "$OUT/relevant-symbols.txt" || true
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B48 -A120 -E 'RetrieveVideoMemory|61b1d[0-9a-f]{2}|61a5ad8' > "$OUT/xrefs-and-callers.txt" || true
+          grep -n -B40 -A90 -E 'blr|cbz|cbnz|tbz|tbnz|#0x10\]' "$OUT/xrefs-and-callers.txt" > "$OUT/null-offset-consumers.txt" || true
+          test -s "$OUT/xrefs-and-callers.txt"
+
+      - name: Upload post-video-memory trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-video-memory-${{ github.run_number }}
+          path: hybrid-report/post-video-memory/
+
       - name: Trace g_D3D11CreateDevice indirect xrefs
         run: |
           set -euo pipefail
