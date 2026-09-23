@@ -278,12 +278,49 @@ extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
   if(context)*context=&gCompatD3DContext;
   return 0;
 }
+namespace {
+struct CompatSwapChainObject { void** vtbl; };
+static CompatSwapChainObject gCompatSwapChain{};
+static void* gSwapChainVtable[32]{};
+static int32_t compatSwapUnsupported(void*,...) {
+  gtavdiag::checkpoint("compat-swapchain-unsupported");
+  return (int32_t)0x80004001u;
+}
+static int32_t compatSwapQueryInterface(void* self,const void*,void** out) {
+  gtavdiag::checkpoint("compat-swapchain-query-interface");
+  if(!out)return (int32_t)0x80004003u; *out=self; return 0;
+}
+static uint32_t compatSwapAddRef(void*){return 2;}
+static uint32_t compatSwapRelease(void*){return 1;}
+static int32_t compatSwapGetDesc(void*,void* desc) {
+  gtavdiag::checkpoint("compat-swapchain-get-desc");
+  if(!desc)return (int32_t)0x80004003u;
+  memset(desc,0,0x100);
+  // Keep a sane bootstrap size. Android/Vulkan owns the real surface extent.
+  auto* p=(uint8_t*)desc; *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
+  return 0;
+}
+static void initCompatSwapChain() {
+  static bool once=false;if(once)return;once=true;
+  for(void*& p:gSwapChainVtable)p=(void*)compatSwapUnsupported;
+  gSwapChainVtable[0]=(void*)compatSwapQueryInterface;
+  gSwapChainVtable[1]=(void*)compatSwapAddRef;
+  gSwapChainVtable[2]=(void*)compatSwapRelease;
+  // Exact InitClass trace consumes swapchain vtable +0x60 immediately.
+  gSwapChainVtable[12]=(void*)compatSwapGetDesc;
+  gCompatSwapChain.vtbl=gSwapChainVtable;
+}
+}
 extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSwapChain(
     void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,const void*,
     void** swapchain,void** device,uint32_t* featureLevel,void** context) {
-  if(swapchain)*swapchain=nullptr; if(device)*device=nullptr;
-  if(featureLevel)*featureLevel=0; if(context)*context=nullptr;
-  return legacyD3DLeak("D3D11CreateDeviceAndSwapChain");
+  gtavdiag::checkpoint("compat-d3d11-create-device-and-swapchain");
+  initCompatD3D11(); initCompatSwapChain();
+  if(swapchain)*swapchain=&gCompatSwapChain;
+  if(device)*device=&gCompatD3DDevice;
+  if(featureLevel)*featureLevel=0xb000u;
+  if(context)*context=&gCompatD3DContext;
+  return 0;
 }
 
 namespace gtavnative {
