@@ -147,8 +147,11 @@ static int32_t compatOutputGetDisplayModeList(void*,uint32_t,uint32_t,uint32_t* 
   *count=1; return 0;
 }
 static int32_t compatOutputUnsupported(void*,...){
-  gtavdiag::checkpoint("compat-dxgi-output-unsupported");
-  return (int32_t)0x80004001u;
+  // Some engine paths probe optional IDXGIOutput methods and then treat the
+  // HRESULT as data. E_NOTIMPL (0x80004001) therefore becomes a bogus pointer.
+  // Keep unsupported output probes benign while the Android surface owns output state.
+  gtavdiag::checkpoint("compat-dxgi-output-unsupported-benign");
+  return 0;
 }
 static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
   gtavdiag::checkpoint("compat-dxgi-enum-outputs");
