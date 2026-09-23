@@ -1492,6 +1492,7 @@ static void resolveNativeMappingFns(){
  rageGetOrCreateShaderModule=(GetOrCreateShaderModuleFn)(gtavBase+0x62334b0);
 }
 static void registerImageMeta(void* rage,const NativeWrappedImage& w);
+static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish);
 extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget){
  if(!view||!resource)return false;
  // Preserve the COM view identity while also registering its underlying texture/resource.
