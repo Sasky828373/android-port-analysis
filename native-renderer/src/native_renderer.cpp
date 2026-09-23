@@ -1471,7 +1471,7 @@ static std::atomic<uint64_t> observedCommandBufferEpoch{0};
 static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source){
  if(!cb)return;
  tlsNativeCommandBuffer=cb;
- publishNativeCommandBuffer(cb,"native-command-buffer-submission");
+ observedNativeCommandBuffer.store(cb,std::memory_order_release);
  uint64_t e=observedCommandBufferEpoch.fetch_add(1,std::memory_order_relaxed)+1;
  if(e<=8 || (e%2048)==0)gtavdiag::checkpoint(source);
 }
