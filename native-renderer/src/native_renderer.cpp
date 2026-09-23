@@ -240,6 +240,19 @@ static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* v
 static int32_t compatDXGIDeviceGetParent(void*, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-parent");
   if(!out) return (int32_t)0x80004003u;
+  // RetrieveVideoMemory is the only bootstrap consumer that genuinely needs
+  // the adapter parent. SuppressAltEnter later asks for a different DXGI
+  // parent/interface chain that is Windows-only. Distinguish the calls by
+  // sequence: the first parent query supplies the adapter; later parent
+  // probes fail cleanly so the engine takes its fallback instead of invoking
+  // an unimplemented adapter vtable slot.
+  static uint32_t parentCalls=0;
+  ++parentCalls;
+  if(parentCalls > 1) {
+    *out=nullptr;
+    gtavdiag::checkpoint("compat-dxgi-device-get-parent-fallback");
+    return (int32_t)0x80004002u;
+  }
   initCompatDXGI();
   *out=&gCompatAdapter;
   return 0;
