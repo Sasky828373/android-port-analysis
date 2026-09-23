@@ -1968,7 +1968,7 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
-struct CompatShaderDescriptorDecl {uint32_t binding{};VkDescriptorType type{};uint32_t count{1};VkShaderStageFlags stages{};uint32_t space{},reg{},resourceKind{};};
+struct CompatShaderDescriptorDecl {uint32_t binding{};VkDescriptorType type{};uint32_t count{1};VkShaderStageFlags stages{};uint32_t scalarType{},space{},reg{},resourceKind{};};
 static std::mutex compatShaderDeclMutex;
 static std::unordered_map<uint64_t,std::vector<CompatShaderDescriptorDecl>> compatShaderDecls;
 static std::vector<CompatShaderDescriptorDecl> getCompatShaderDecls(void* shader){
@@ -2011,7 +2011,7 @@ static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,uint32_t kind,s
    default:continue;
   }
   uint32_t space=uint32_t(op.getOperand(1u)),reg=uint32_t(op.getOperand(2u)),count=std::max(1u,uint32_t(op.getOperand(3u)));
-  decls.push_back({compatDescriptorBinding(stage,scalar,space,reg),dt,count,vkStage,space,reg,rk});
+  decls.push_back({compatDescriptorBinding(stage,scalar,space,reg),dt,count,vkStage,scalar,space,reg,rk});
  }
  dxbc_spv::spirv::SpirvBuilder::Options so{};so.includeDebugNames=false;so.floatControls2=false;
  so.supportedRoundModesF16=so.supportedRoundModesF32=so.supportedRoundModesF64=dxbc_spv::ir::RoundMode::eNearestEven|dxbc_spv::ir::RoundMode::eZero;
@@ -2094,7 +2094,7 @@ static bool mapCompatBuffer(void* p,uint32_t kind){
  VkDeviceSize size=r->backing.size();if(r->descSize>=4){uint32_t declared=*(uint32_t*)r->desc;if(declared>size)size=declared;}if(!size)size=256;
  std::lock_guard<std::mutex> l(compatBufferMutex);auto it=compatOwnedBuffers.find((uint64_t)(uintptr_t)p);
  if(it==compatOwnedBuffers.end()){
-   VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=size;bi.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+   VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=size;bi.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
    CompatOwnedBuffer ob{};if(vkCreateBuffer(g.device,&bi,nullptr,&ob.buffer)!=VK_SUCCESS)return false;VkMemoryRequirements mr{};vkGetBufferMemoryRequirements(g.device,ob.buffer,&mr);
    uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX){vkDestroyBuffer(g.device,ob.buffer,nullptr);return false;}
    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;
@@ -2120,8 +2120,48 @@ static bool mapCompatSampler(void* p){
  if(it!=compatSamplers.end())sm=it->second;else{if(vkCreateSampler(g.device,&ci,nullptr,&sm)!=VK_SUCCESS)return false;compatSamplers[(uint64_t)(uintptr_t)p]=sm;}
  return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)sm,NR_SAMPLER,1);
 }
+static std::mutex compatBufferViewMutex;
+static std::unordered_map<uint64_t,VkBufferView> compatBufferViews;
+static VkBufferView mapCompatBufferView(void* view,bool storage){
+ if(!view||!g.device)return VK_NULL_HANDLE;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return VK_NULL_HANDLE;
+ if(!mapCompatBuffer(v->resource,storage?NR_UAV:NR_SRV))return VK_NULL_HANDLE;
+ uint64_t key=((uint64_t)(uintptr_t)view<<1)|(storage?1ull:0ull);{std::lock_guard<std::mutex> l(compatBufferViewMutex);auto it=compatBufferViews.find(key);if(it!=compatBufferViews.end())return it->second;}
+ uint32_t fmt=0,first=0,count=0;if(v->descSize>=16){const uint32_t* d=(const uint32_t*)v->desc;fmt=d[0];first=d[2];count=d[3];}
+ VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED)return VK_NULL_HANDLE;uint32_t bw=1,bh=1,bpe=4;compatFormatLayout(fmt,bw,bh,bpe);if(bw!=1||bh!=1||!bpe)return VK_NULL_HANDLE;
+ VkBufferViewCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};ci.buffer=(VkBuffer)(uintptr_t)resolveMapped(v->resource,storage?NR_UAV:NR_SRV);ci.format=vf;ci.offset=(VkDeviceSize)first*bpe;
+ VkDeviceSize total=v->resource->backing.size();ci.range=count?(VkDeviceSize)count*bpe:(total>ci.offset?total-ci.offset:VK_WHOLE_SIZE);if(ci.range==0)return VK_NULL_HANDLE;
+ VkBufferView bv=VK_NULL_HANDLE;if(vkCreateBufferView(g.device,&ci,nullptr,&bv)!=VK_SUCCESS)return VK_NULL_HANDLE;std::lock_guard<std::mutex> l(compatBufferViewMutex);compatBufferViews[key]=bv;return bv;
+}
 static VkPrimitiveTopology compatVkTopology(uint32_t t){
  switch(t){case 1:return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;case 2:return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;case 3:return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;case 4:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;case 5:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;default:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;}
+}
+static bool updateCompatGraphicsDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
+ if(!desc)return false;
+ std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;std::vector<VkBufferView> bvs;
+ bis.reserve(64);iis.reserve(96);bvs.reserve(32);writes.reserve(160);
+ auto processStage=[&](void* sh,uint32_t stage,void* const* cbs,void* const* srvs,void* const* samplers){
+  auto decls=getCompatShaderDecls(sh);
+  for(const auto& d:decls){
+   if(d.space!=0)continue;
+   for(uint32_t e=0;e<d.count;e++){
+    uint32_t reg=d.reg+e;void* p=nullptr;if(d.scalarType==23&&reg<16)p=cbs?cbs[reg]:nullptr;else if(d.scalarType==24&&reg<32)p=srvs?srvs[reg]:nullptr;else if(d.scalarType==22&&reg<16)p=samplers?samplers[reg]:nullptr;else continue;
+    if(!p)continue;VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=d.binding;w.dstArrayElement=e;w.descriptorCount=1;w.descriptorType=d.type;
+    if(d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER||d.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER){
+      void* resource=p;if(auto* v=(CompatViewObject*)p;v->vtbl==gCompatViewVtable&&v->resource)resource=v->resource;
+      if(!mapCompatBuffer(resource,d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV))return false;auto* rr=(CompatResourceObject*)resource;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)resolveMapped(resource,d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV),0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};bis.push_back(bi);w.pBufferInfo=&bis.back();
+    }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE||d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
+      uint32_t kind=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?NR_UAV:NR_SRV;if(!mapWrappedImage(p,kind,false))return false;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return false;VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);w.pImageInfo=&iis.back();
+    }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLER){
+      if(!mapCompatSampler(p))return false;VkDescriptorImageInfo ii{};ii.sampler=(VkSampler)(uintptr_t)resolveMapped(p,NR_SAMPLER);iis.push_back(ii);w.pImageInfo=&iis.back();
+    }else if(d.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER||d.type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER){
+      VkBufferView bv=mapCompatBufferView(p,d.type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);if(!bv)return false;bvs.push_back(bv);w.pTexelBufferView=&bvs.back();
+    }else continue;
+    writes.push_back(w);
+   }
+  }
+ };
+ processStage(m.vs,0,m.vsCB,m.vsSRV,m.vsSampler);processStage(m.ps,1,m.psCB,m.psSRV,m.psSampler);
+ if(!writes.empty())vkUpdateDescriptorSets(g.device,(uint32_t)writes.size(),writes.data(),0,nullptr);return true;
 }
 static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(!g.device||!m.vs||!m.ps||!m.rtvCount||!m.rtv[0])return false;
@@ -2147,14 +2187,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;lci.pushConstantRangeCount=1;lci.pPushConstantRanges=&push;VkPipelineLayout layout{};
  if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-layout-create-failed");return false;}
  VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-alloc-failed");return false;}
- std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;bis.reserve(32);iis.reserve(96);writes.reserve(128);
- auto wb=[&](uint32_t binding,void* p){if(!mapCompatBuffer(p,NR_CBUFFER))return;uint64_t h=resolveMapped(p,NR_CBUFFER);auto* rr=(CompatResourceObject*)p;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)h,0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};bis.push_back(bi);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;w.pBufferInfo=&bis.back();writes.push_back(w);};
- auto wi=[&](uint32_t binding,void* p){if(!mapWrappedImage(p,NR_SRV,false))return;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return;VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;w.pImageInfo=&iis.back();writes.push_back(w);};
- auto ws=[&](uint32_t binding,void* p){if(!mapCompatSampler(p))return;VkSampler sm=(VkSampler)(uintptr_t)resolveMapped(p,NR_SAMPLER);if(!sm)return;VkDescriptorImageInfo ii{};ii.sampler=sm;iis.push_back(ii);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;w.pImageInfo=&iis.back();writes.push_back(w);};
- for(uint32_t i=0;i<16;i++){if(m.vsCB[i])wb(compatDescriptorBinding(0,23,0,i),m.vsCB[i]);if(m.psCB[i])wb(compatDescriptorBinding(1,23,0,i),m.psCB[i]);}
- for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])wi(compatDescriptorBinding(0,24,0,i),m.vsSRV[i]);if(m.psSRV[i])wi(compatDescriptorBinding(1,24,0,i),m.psSRV[i]);}
- for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])ws(compatDescriptorBinding(0,22,0,i),m.vsSampler[i]);if(m.psSampler[i])ws(compatDescriptorBinding(1,22,0,i),m.psSampler[i]);}
- if(!writes.empty())vkUpdateDescriptorSets(g.device,(uint32_t)writes.size(),writes.data(),0,nullptr);
+ if(!updateCompatGraphicsDescriptors(m,desc)){vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-update-failed");return false;}
  VkPipelineShaderStageCreateInfo stages[2]{};
  stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
  stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
@@ -2251,6 +2284,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!pipe){gtavdiag::checkpoint("native-draw-fail-pipeline");return false;}
  if(!layout){gtavdiag::checkpoint("native-draw-fail-pipeline-layout");return false;}
  if(!desc){gtavdiag::checkpoint("native-draw-fail-descriptor");return false;}
+ if(!updateCompatGraphicsDescriptors(m,(VkDescriptorSet)(uintptr_t)desc)){gtavdiag::checkpoint("native-draw-fail-descriptor-update");return false;}
  VkCommandBuffer cb=currentNativeCommandBuffer();
  if(cb==VK_NULL_HANDLE){gtavdiag::checkpoint("native-draw-fail-command-buffer");return false;}
 
