@@ -242,6 +242,14 @@ static int32_t compatDXGIDeviceGetAdapter(void*, void** out) {
   *out=&gCompatAdapter;
   return 0;
 }
+static int32_t compatDXGIGetParentUnsupported(void*, const void*, void** out) {
+  gtavdiag::checkpoint("compat-dxgi-get-parent-unsupported");
+  if(out)*out=nullptr;
+  // SuppressAltEnter probes additional parent interfaces. Returning E_NOINTERFACE
+  // is the correct safe fallback and prevents it consuming a bogus object.
+  return (int32_t)0x80004002u;
+}
+
 static void initCompatD3D11() {
   static bool once=false; if(once)return; once=true;
   for(void*& p:gD3DDeviceVtable) p=(void*)compatD3DUnsupported;
@@ -255,6 +263,9 @@ static void initCompatD3D11() {
   gDXGIDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gDXGIDeviceVtable[1]=(void*)compatD3DAddRef;
   gDXGIDeviceVtable[2]=(void*)compatD3DRelease;
+  gDXGIDeviceVtable[3]=(void*)compatDXGIGetParentUnsupported;
+  gDXGIDeviceVtable[4]=(void*)compatDXGIGetParentUnsupported;
+  gDXGIDeviceVtable[5]=(void*)compatDXGIGetParentUnsupported;
   gDXGIDeviceVtable[6]=(void*)compatDXGIDeviceGetParent;
   gDXGIDeviceVtable[7]=(void*)compatDXGIDeviceGetAdapter;
   gCompatDXGIDevice.vtbl=gDXGIDeviceVtable;
