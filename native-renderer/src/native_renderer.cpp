@@ -386,7 +386,8 @@ static int32_t compatD3DMap(void*, void* resource, uint32_t subresource, uint32_
   mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch);
   mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
   extern bool compatMapResourceBacking(void*, CompatMappedSubresource*);
-  extern bool compatMapResourceBackingSubresource(void*, uint32_t, CompatMappedSubresource*);\n  (void)compatMapResourceBackingSubresource(resource,subresource,mapped);
+  extern bool compatMapResourceBackingSubresource(void*, uint32_t, CompatMappedSubresource*);
+  (void)compatMapResourceBackingSubresource(resource,subresource,mapped);
   return 0;
 }
 static void compatD3DUnmap(void*, void*, uint32_t) {
