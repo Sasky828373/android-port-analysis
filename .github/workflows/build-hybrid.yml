@@ -1184,6 +1184,17 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Trace post-shader bootstrap crash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== crash LR libgtav+0x6196748 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x6196400 --stop-address=0x6196b00 "$LIB"
+          echo "=== nearest symbol ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000006196748" {last=$0} END{print last}' || true
+
       - name: Trace native-runtime crash after D3D bootstrap
         run: |
           set -euo pipefail
