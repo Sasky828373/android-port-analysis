@@ -876,12 +876,16 @@ static int32_t compatSwapQueryInterface(void* self,const void*,void** out) {
 }
 static uint32_t compatSwapAddRef(void*){return 2;}
 static uint32_t compatSwapRelease(void*){return 1;}
-static int32_t compatSwapPresent(void*,uint32_t,uint32_t) {
+static int32_t compatSwapPresent(void*,uint32_t syncInterval,uint32_t flags) {
   static std::atomic<uint32_t> presents{0};
   uint32_t n=presents.fetch_add(1,std::memory_order_relaxed)+1;
-  if(n<=8 || (n%120)==0) gtavdiag::checkpoint("compat-swapchain-present");
-  // The native renderer records into GTA's Vulkan runtime. Advance its frame
-  // epoch here instead of returning E_NOTIMPL every frame.
+  if(n<=8 || (n%120)==0) {
+    gtavdiag::checkpoint("compat-swapchain-present");
+    __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","present=%u sync=%u flags=0x%x",n,syncInterval,flags);
+  }
+  // GTA's native Vulkan runtime owns the real Android surface/swapchain. The
+  // compatibility swapchain is only the D3D11-shaped engine frontend; never
+  // create or present a second Android/HWUI surface here.
   gtav_native_renderer_begin_frame();
   return 0;
 }
@@ -892,8 +896,14 @@ static int32_t compatSwapSetFullscreenState(void*,int,void*){return 0;}
 static int32_t compatSwapGetFullscreenState(void*,int* fullscreen,void** output){
   if(fullscreen)*fullscreen=0; if(output)*output=nullptr; return 0;
 }
-static int32_t compatSwapResizeBuffers(void*,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t){
-  gtavdiag::checkpoint("compat-swapchain-resize-buffers"); return 0;
+static std::atomic<uint32_t> gCompatSwapWidth{1920},gCompatSwapHeight{1080},gCompatSwapFormat{28};
+static int32_t compatSwapResizeBuffers(void*,uint32_t count,uint32_t width,uint32_t height,uint32_t format,uint32_t flags){
+  if(width)gCompatSwapWidth.store(width,std::memory_order_relaxed);
+  if(height)gCompatSwapHeight.store(height,std::memory_order_relaxed);
+  if(format)gCompatSwapFormat.store(format,std::memory_order_relaxed);
+  gtavdiag::checkpoint("compat-swapchain-resize-buffers");
+  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","resize count=%u extent=%ux%u fmt=%u flags=0x%x",count,width,height,format,flags);
+  return 0;
 }
 static int32_t compatSwapResizeTarget(void*,const void*){return 0;}
 static int32_t compatSwapGetFrameStatistics(void*,void*){return (int32_t)0x80004001u;}
@@ -905,7 +915,17 @@ static int32_t compatSwapGetDesc(void*,void* desc) {
   if(!desc)return (int32_t)0x80004003u;
   memset(desc,0,72);
   // Keep a sane bootstrap size. Android/Vulkan owns the real surface extent.
-  auto* p=(uint8_t*)desc; *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
+  auto* p=(uint8_t*)desc;
+  *(uint32_t*)(p+0)=gCompatSwapWidth.load(std::memory_order_relaxed);
+  *(uint32_t*)(p+4)=gCompatSwapHeight.load(std::memory_order_relaxed);
+  *(uint32_t*)(p+8)=60; // nominal refresh numerator
+  *(uint32_t*)(p+12)=1; // nominal refresh denominator
+  *(uint32_t*)(p+16)=gCompatSwapFormat.load(std::memory_order_relaxed);
+  *(uint32_t*)(p+28)=1; // sample count
+  *(uint32_t*)(p+32)=0; // sample quality
+  *(uint32_t*)(p+52)=2; // buffer count
+  *(uint32_t*)(p+56)=gCompatSwapWidth.load(std::memory_order_relaxed);
+  *(uint32_t*)(p+60)=gCompatSwapHeight.load(std::memory_order_relaxed);
   return 0;
 }
 
@@ -930,9 +950,9 @@ static void compatBackBufferGetDesc(void*,void* desc) {
   // D3D11_TEXTURE2D_DESC: Width, Height, MipLevels, ArraySize, Format,
   // SampleDesc{Count,Quality}, Usage, BindFlags, CPUAccessFlags, MiscFlags.
   auto* p=(uint8_t*)desc; memset(p,0,44);
-  *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
+  *(uint32_t*)(p+0)=gCompatSwapWidth.load(std::memory_order_relaxed); *(uint32_t*)(p+4)=gCompatSwapHeight.load(std::memory_order_relaxed);
   *(uint32_t*)(p+8)=1; *(uint32_t*)(p+12)=1;
-  *(uint32_t*)(p+16)=28; // DXGI_FORMAT_R8G8B8A8_UNORM
+  *(uint32_t*)(p+16)=gCompatSwapFormat.load(std::memory_order_relaxed); // DXGI_FORMAT_R8G8B8A8_UNORM
   *(uint32_t*)(p+20)=1; // sample count
   *(uint32_t*)(p+28)=0; // D3D11_USAGE_DEFAULT
   *(uint32_t*)(p+32)=0x28; // RENDER_TARGET | SHADER_RESOURCE
@@ -1667,7 +1687,15 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
  vkCmdDispatch(cb,x,y,z);return true;
 }
 
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){if(!g.device)attachFromGtavRuntime();g.frame.fetch_add(1,std::memory_order_relaxed);}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){
+ bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
+ uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
+ if(frame<=8 || (frame%120)==0){
+   gtavdiag::checkpoint(attached?"native-frame-attached":"native-frame-unattached");
+   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","frame=%llu attached=%d device=%p queue=%p hooks=%d",
+     (unsigned long long)frame,attached?1:0,(void*)g.device,(void*)g.queue,drawHooksInstalled.load(std::memory_order_acquire)?1:0);
+ }
+}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){
  if(!g.device)attachFromGtavRuntime();
  return g.device&&g.queue&&g.commands&&g.descriptors&&drawHooksInstalled.load(std::memory_order_acquire);
