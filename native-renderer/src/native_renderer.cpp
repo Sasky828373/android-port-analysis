@@ -546,6 +546,12 @@ static int32_t compatContextGetData(void*,void* q,void* data,uint32_t bytes,uint
   gtavdiag::checkpoint("compat-d3d11-query-get-data");if(data&&bytes)std::memset(data,0,bytes);
   if(data&&bytes>=4)*(uint32_t*)data=1;return (!q||((CompatQueryObject*)q)->ended.load())?0:1;
 }
+static int32_t compatCheckFormatSupport(void*,uint32_t,uint32_t* out){
+  gtavdiag::checkpoint("compat-d3d11-check-format-support");if(!out)return (int32_t)0x80004003u;*out=0xffffffffu;return 0;
+}
+static int32_t compatCheckMSAA(void*,uint32_t,uint32_t samples,uint32_t* out){
+  gtavdiag::checkpoint("compat-d3d11-check-msaa");if(!out)return (int32_t)0x80004003u;*out=samples?1u:0u;return 0;
+}
 static int32_t compatCheckFeatureSupport(void*,uint32_t feature,void* data,uint32_t bytes){
   gtavdiag::checkpoint("compat-d3d11-check-feature-support");if(data&&bytes)std::memset(data,0,bytes);
   return 0;
