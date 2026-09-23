@@ -644,6 +644,12 @@ static void* gCompatViewVtable[16]{};
 static std::mutex gCompatObjectMutex;
 static std::vector<CompatResourceObject*> gCompatResources;
 static std::vector<CompatViewObject*> gCompatViews;
+static CompatViewObject* compatViewObject(void* p){
+ if(!p)return nullptr;
+ std::lock_guard<std::mutex> l(gCompatObjectMutex);
+ auto* v=(CompatViewObject*)p;
+ return std::find(gCompatViews.begin(),gCompatViews.end(),v)!=gCompatViews.end()?v:nullptr;
+}
 static int32_t compatChildQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
 static uint32_t compatChildAddRef(void*){return 2;}
 static uint32_t compatChildRelease(void*){return 1;}
@@ -752,12 +758,12 @@ static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t 
 static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
 static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);((CompatResourceObject*)dst)->version++;}}
 static void compatClearRTVBacking(void* view,const float* color){
- if(!view||!color)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;
+ if(!view||!color)return;auto* v=compatViewObject(view);if(!v||!v->resource)return;auto* r=v->resource;
  for(int i=0;i<4;i++)r->pendingClearColor[i]=color[i];r->pendingClearFlags|=0x100u;
  if(!r->backing.empty()){uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());}
 }
 static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
- if(!view)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
+ if(!view)return;auto* v=compatViewObject(view);if(!v||!v->resource)return;auto* r=v->resource;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
  if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
  if((flags&1)&&fmt==40){for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&depth,4);}
  else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}
@@ -1588,10 +1594,8 @@ extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resour
  return true;
 }
 static void* compatUnderlyingResource(void* p){
- if(!p)return nullptr;
- auto* v=(CompatViewObject*)p;
- if(v->vtbl==gCompatViewVtable && v->resource)return v->resource;
- return nullptr;
+ auto* v=compatViewObject(p);
+ return v?v->resource:nullptr;
 }
 static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  if(!rage)return false;
