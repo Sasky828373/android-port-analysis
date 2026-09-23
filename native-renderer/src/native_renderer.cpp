@@ -242,6 +242,7 @@ static int32_t compatShaderQI(void* self,const void*,void** out){
 }
 static uint32_t compatShaderAddRef(void*){return 2;}
 static uint32_t compatShaderRelease(void*){return 1;}
+static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*);
 static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out){
   gtavdiag::checkpoint("compat-d3d11-create-shader");
   if(!out)return (int32_t)0x80004003u;
