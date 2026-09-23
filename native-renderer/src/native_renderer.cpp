@@ -260,6 +260,33 @@ static void compatCtxRSSetScissorRects(void*,uint32_t,const void*){gtavdiag::che
 static void compatCtxUpdateSubresource(void*,void*,uint32_t,const void*,const void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-update-subresource");}
 static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
 static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
+// Split the remaining high-frequency D3D11 context ABI instead of routing it
+// through a variadic no-op. These are state/copy/query operations used during
+// the bootstrap render loop; dedicated signatures avoid ABI ambiguity and make
+// the next trace actionable without changing ownership of engine objects.
+static void compatCtxGSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-constant-buffers");}
+static void compatCtxGSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-gs-set-shader");}
+static void compatCtxVSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-shader-resources");}
+static void compatCtxVSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-samplers");}
+static void compatCtxSetPredication(void*,void*,int){gtavdiag::checkpoint("compat-context-set-predication");}
+static void compatCtxGSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-shader-resources");}
+static void compatCtxGSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-samplers");}
+static void compatCtxOMSetRTUAV(void*,uint32_t,void* const*,void*,uint32_t,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-om-set-rt-uav");}
+static void compatCtxSOSetTargets(void*,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-so-set-targets");}
+static void compatCtxDrawAuto(void*){gtavdiag::checkpoint("compat-context-draw-auto");}
+static void compatCtxDrawIndexedInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced-indirect");}
+static void compatCtxDrawInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced-indirect");}
+static void compatCtxDispatchIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-dispatch-indirect");}
+static void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}
+static void compatCtxCopyResource(void*,void*,void*){gtavdiag::checkpoint("compat-context-copy-resource");}
+static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
+static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
+static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-uav-float");}
+static void compatCtxGenerateMips(void*,void*){gtavdiag::checkpoint("compat-context-generate-mips");}
+static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("compat-context-set-resource-min-lod");}
+static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
+static void compatCtxResolveSubresource(void*,void*,uint32_t,void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");}
+static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
 static int32_t compatDeviceGetPrivateData(void* s,const void* g,uint32_t* n,void* d){return compatChildGetPrivateData(s,g,n,d);}
 static int32_t compatDeviceSetPrivateDataInterface(void*,const void*,void*){return 0;}
 static uint32_t compatDeviceGetCreationFlags(void*){return 0;}
@@ -417,7 +444,11 @@ static int32_t compatD3DMap(void*, void* resource, uint32_t subresource, uint32_
   (void)compatMapResourceBackingSubresource(resource,subresource,mapped);
   return 0;
 }
-static void compatD3DUnmap(void*, void*, uint32_t) {
+static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
+  // Unmap is only a CPU-write completion marker in the compatibility bootstrap.
+  // Do not touch/release the opaque resource here: the backing vector remains
+  // owned by CompatResourceObject and the renderer consumes it later.
+  (void)resource; (void)subresource;
   gtavdiag::checkpoint("compat-d3d11-unmap");
 }
 // Shader creation is consumed as an object pointer by grcProgram::CreateShader.
@@ -797,43 +828,43 @@ static void initCompatD3D11() {
   gD3DContextVtable[19]=(void*)compatCtxIASetIndexBuffer;
   gD3DContextVtable[20]=(void*)compatCtxDrawIndexedInstanced;
   gD3DContextVtable[21]=(void*)compatCtxDrawInstanced;
-  gD3DContextVtable[22]=(void*)compatContextNoop;
-  gD3DContextVtable[23]=(void*)compatContextNoop;
+  gD3DContextVtable[22]=(void*)compatCtxGSSetConstantBuffers;
+  gD3DContextVtable[23]=(void*)compatCtxGSSetShader;
   gD3DContextVtable[24]=(void*)compatCtxIASetPrimitiveTopology;
-  gD3DContextVtable[25]=(void*)compatContextNoop;
-  gD3DContextVtable[26]=(void*)compatContextNoop;
+  gD3DContextVtable[25]=(void*)compatCtxVSSetShaderResources;
+  gD3DContextVtable[26]=(void*)compatCtxVSSetSamplers;
   gD3DContextVtable[27]=(void*)compatContextBegin;
   gD3DContextVtable[28]=(void*)compatContextEnd;
   gD3DContextVtable[29]=(void*)compatContextGetData;
-  gD3DContextVtable[30]=(void*)compatContextNoop;
-  gD3DContextVtable[31]=(void*)compatContextNoop;
-  gD3DContextVtable[32]=(void*)compatContextNoop;
+  gD3DContextVtable[30]=(void*)compatCtxSetPredication;
+  gD3DContextVtable[31]=(void*)compatCtxGSSetShaderResources;
+  gD3DContextVtable[32]=(void*)compatCtxGSSetSamplers;
   gD3DContextVtable[33]=(void*)compatCtxOMSetRenderTargets;
-  gD3DContextVtable[34]=(void*)compatContextNoop;
+  gD3DContextVtable[34]=(void*)compatCtxOMSetRTUAV;
   gD3DContextVtable[35]=(void*)compatCtxOMSetBlendState;
   gD3DContextVtable[36]=(void*)compatCtxOMSetDepthStencilState;
-  gD3DContextVtable[37]=(void*)compatContextNoop;
-  gD3DContextVtable[38]=(void*)compatContextNoop;
-  gD3DContextVtable[39]=(void*)compatContextNoop;
-  gD3DContextVtable[40]=(void*)compatContextNoop;
+  gD3DContextVtable[37]=(void*)compatCtxSOSetTargets;
+  gD3DContextVtable[38]=(void*)compatCtxDrawAuto;
+  gD3DContextVtable[39]=(void*)compatCtxDrawIndexedInstancedIndirect;
+  gD3DContextVtable[40]=(void*)compatCtxDrawInstancedIndirect;
   gD3DContextVtable[41]=(void*)compatCtxDispatch;
-  gD3DContextVtable[42]=(void*)compatContextNoop;
+  gD3DContextVtable[42]=(void*)compatCtxDispatchIndirect;
   gD3DContextVtable[43]=(void*)compatCtxRSSetState;
   gD3DContextVtable[44]=(void*)compatCtxRSSetViewports;
   gD3DContextVtable[45]=(void*)compatCtxRSSetScissorRects;
-  gD3DContextVtable[46]=(void*)compatContextNoop;
-  gD3DContextVtable[47]=(void*)compatContextNoop;
+  gD3DContextVtable[46]=(void*)compatCtxCopySubresourceRegion;
+  gD3DContextVtable[47]=(void*)compatCtxCopyResource;
   gD3DContextVtable[48]=(void*)compatCtxUpdateSubresource;
-  gD3DContextVtable[49]=(void*)compatContextNoop;
+  gD3DContextVtable[49]=(void*)compatCtxCopyStructureCount;
   gD3DContextVtable[50]=(void*)compatCtxClearRenderTargetView;
-  gD3DContextVtable[51]=(void*)compatContextNoop;
-  gD3DContextVtable[52]=(void*)compatContextNoop;
+  gD3DContextVtable[51]=(void*)compatCtxClearUAVUint;
+  gD3DContextVtable[52]=(void*)compatCtxClearUAVFloat;
   gD3DContextVtable[53]=(void*)compatCtxClearDepthStencilView;
-  gD3DContextVtable[54]=(void*)compatContextNoop;
-  gD3DContextVtable[55]=(void*)compatContextNoop;
-  gD3DContextVtable[56]=(void*)compatContextNoop;
-  gD3DContextVtable[57]=(void*)compatContextNoop;
-  gD3DContextVtable[58]=(void*)compatContextNoop;
+  gD3DContextVtable[54]=(void*)compatCtxGenerateMips;
+  gD3DContextVtable[55]=(void*)compatCtxSetResourceMinLOD;
+  gD3DContextVtable[56]=(void*)compatCtxGetResourceMinLOD;
+  gD3DContextVtable[57]=(void*)compatCtxResolveSubresource;
+  gD3DContextVtable[58]=(void*)compatCtxExecuteCommandList;
   gD3DContextVtable[59]=(void*)compatContextNoop;
   gD3DContextVtable[60]=(void*)compatContextNoop;
   gD3DContextVtable[61]=(void*)compatContextNoop;
