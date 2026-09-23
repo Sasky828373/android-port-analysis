@@ -232,31 +232,43 @@ static uint32_t compatD3DGetFeatureLevel(void*) {
 static int32_t compatChildGetPrivateData(void*,const void*,uint32_t* size,void*){gtavdiag::checkpoint("compat-child-get-private-data");if(size)*size=0;return (int32_t)0x80004005u;}
 static void compatChildGetDevice(void*,void** out){gtavdiag::checkpoint("compat-child-get-device");if(out)*out=&gCompatD3DDevice;}
 static int32_t compatChildSetPrivateDataInterface(void*,const void*,void*){gtavdiag::checkpoint("compat-child-set-private-data-interface");return 0;}
+extern "C" void gtavnative_compat_mirror_input_layout(void*,void*);
+extern "C" void gtavnative_compat_mirror_vertex_buffers(void*,uint32_t,uint32_t,void* const*,const uint32_t*,const uint32_t*);
+extern "C" void gtavnative_compat_mirror_index_buffer(void*,void*,uint32_t,uint32_t);
+extern "C" void gtavnative_compat_mirror_topology(void*,uint32_t);
+extern "C" void gtavnative_compat_mirror_shader(void*,uint32_t,void*);
+extern "C" void gtavnative_compat_mirror_viewports(void*,uint32_t,const void*);
+extern "C" void gtavnative_compat_mirror_scissors(void*,uint32_t,const void*);
+extern "C" void gtavnative_compat_mirror_objs(void*,uint32_t,uint32_t,uint32_t,void* const*);
+extern "C" void gtavnative_compat_mirror_render_targets(void*,uint32_t,void* const*,void*);
+extern "C" bool gtavnative_compat_draw(void*,uint32_t,uint32_t);
+extern "C" bool gtavnative_compat_draw_indexed(void*,uint32_t,uint32_t,int32_t);
+extern "C" bool gtavnative_compat_dispatch(void*,uint32_t,uint32_t,uint32_t);
 static void compatContextNoop(void*,...){gtavdiag::checkpoint("compat-context-noop");}
 // Render-path split diagnostics. Keep ABI-compatible signatures for the hot
 // ID3D11DeviceContext slots so the crash log identifies the command that GTA
 // actually issued instead of collapsing everything into compat-context-noop.
-static void compatCtxVSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-constant-buffers");}
-static void compatCtxPSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-shader-resources");}
-static void compatCtxPSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ps-set-shader");}
-static void compatCtxPSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-samplers");}
-static void compatCtxVSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-vs-set-shader");}
-static void compatCtxDrawIndexed(void*,uint32_t,uint32_t,int32_t){gtavdiag::checkpoint("compat-context-draw-indexed");}
-static void compatCtxDraw(void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw");}
-static void compatCtxPSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ps-set-constant-buffers");}
-static void compatCtxIASetInputLayout(void*,void*){gtavdiag::checkpoint("compat-context-ia-set-input-layout");}
-static void compatCtxIASetVertexBuffers(void*,uint32_t,uint32_t,void* const*,const uint32_t*,const uint32_t*){gtavdiag::checkpoint("compat-context-ia-set-vertex-buffers");}
-static void compatCtxIASetIndexBuffer(void*,void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-ia-set-index-buffer");}
+static void compatCtxVSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-vs-set-constant-buffers");gtavnative_compat_mirror_objs(c,0,f,n,v);}
+static void compatCtxPSSetShaderResources(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-shader-resources");gtavnative_compat_mirror_objs(c,4,f,n,v);}
+static void compatCtxPSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ps-set-shader");gtavnative_compat_mirror_shader(c,1,sh);}
+static void compatCtxPSSetSamplers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-samplers");gtavnative_compat_mirror_objs(c,7,f,n,v);}
+static void compatCtxVSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-vs-set-shader");gtavnative_compat_mirror_shader(c,0,sh);}
+static void compatCtxDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){gtavdiag::checkpoint("compat-context-draw-indexed");gtavnative_compat_draw_indexed(c,n,f,v);}
+static void compatCtxDraw(void* c,uint32_t n,uint32_t f){gtavdiag::checkpoint("compat-context-draw");gtavnative_compat_draw(c,n,f);}
+static void compatCtxPSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-constant-buffers");gtavnative_compat_mirror_objs(c,1,f,n,v);}
+static void compatCtxIASetInputLayout(void* c,void* v){gtavdiag::checkpoint("compat-context-ia-set-input-layout");gtavnative_compat_mirror_input_layout(c,v);}
+static void compatCtxIASetVertexBuffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){gtavdiag::checkpoint("compat-context-ia-set-vertex-buffers");gtavnative_compat_mirror_vertex_buffers(c,f,n,v,s,o);}
+static void compatCtxIASetIndexBuffer(void* c,void* b,uint32_t f,uint32_t o){gtavdiag::checkpoint("compat-context-ia-set-index-buffer");gtavnative_compat_mirror_index_buffer(c,b,f,o);}
 static void compatCtxDrawIndexedInstanced(void*,uint32_t,uint32_t,uint32_t,int32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced");}
 static void compatCtxDrawInstanced(void*,uint32_t,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced");}
-static void compatCtxIASetPrimitiveTopology(void*,uint32_t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");}
-static void compatCtxOMSetRenderTargets(void*,uint32_t,void* const*,void*){gtavdiag::checkpoint("compat-context-om-set-render-targets");}
+static void compatCtxIASetPrimitiveTopology(void* c,uint32_t t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");gtavnative_compat_mirror_topology(c,t);}
+static void compatCtxOMSetRenderTargets(void* c,uint32_t n,void* const* r,void* d){gtavdiag::checkpoint("compat-context-om-set-render-targets");gtavnative_compat_mirror_render_targets(c,n,r,d);}
 static void compatCtxOMSetBlendState(void*,void*,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");}
 static void compatCtxOMSetDepthStencilState(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");}
-static void compatCtxDispatch(void*,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-dispatch");}
+static void compatCtxDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){gtavdiag::checkpoint("compat-context-dispatch");gtavnative_compat_dispatch(c,x,y,z);}
 static void compatCtxRSSetState(void*,void*){gtavdiag::checkpoint("compat-context-rs-set-state");}
-static void compatCtxRSSetViewports(void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-rs-set-viewports");}
-static void compatCtxRSSetScissorRects(void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");}
+static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-viewports");gtavnative_compat_mirror_viewports(c,n,p);}
+static void compatCtxRSSetScissorRects(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");gtavnative_compat_mirror_scissors(c,n,p);}
 static void compatCtxUpdateSubresource(void*,void*,uint32_t,const void*,const void*,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-update-subresource");}
 static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
 static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
@@ -266,8 +278,8 @@ static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){g
 // the next trace actionable without changing ownership of engine objects.
 static void compatCtxGSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-constant-buffers");}
 static void compatCtxGSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-gs-set-shader");}
-static void compatCtxVSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-shader-resources");}
-static void compatCtxVSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-vs-set-samplers");}
+static void compatCtxVSSetShaderResources(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-vs-set-shader-resources");gtavnative_compat_mirror_objs(c,3,f,n,v);}
+static void compatCtxVSSetSamplers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-vs-set-samplers");gtavnative_compat_mirror_objs(c,6,f,n,v);}
 static void compatCtxSetPredication(void*,void*,int){gtavdiag::checkpoint("compat-context-set-predication");}
 static void compatCtxGSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-shader-resources");}
 static void compatCtxGSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-samplers");}
@@ -295,11 +307,11 @@ static void compatCtxDSSetShaderResources(void*,uint32_t,uint32_t,void* const*){
 static void compatCtxDSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ds-set-shader");}
 static void compatCtxDSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ds-set-samplers");}
 static void compatCtxDSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-ds-set-constant-buffers");}
-static void compatCtxCSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-shader-resources");}
-static void compatCtxCSSetUnorderedAccessViews(void*,uint32_t,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-cs-set-uavs");}
-static void compatCtxCSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-cs-set-shader");}
-static void compatCtxCSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-samplers");}
-static void compatCtxCSSetConstantBuffers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-cs-set-constant-buffers");}
+static void compatCtxCSSetShaderResources(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-cs-set-shader-resources");gtavnative_compat_mirror_objs(c,5,f,n,v);}
+static void compatCtxCSSetUnorderedAccessViews(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t*){gtavdiag::checkpoint("compat-context-cs-set-uavs");gtavnative_compat_mirror_objs(c,9,f,n,v);}
+static void compatCtxCSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-cs-set-shader");gtavnative_compat_mirror_shader(c,2,sh);}
+static void compatCtxCSSetSamplers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-cs-set-samplers");gtavnative_compat_mirror_objs(c,8,f,n,v);}
+static void compatCtxCSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-cs-set-constant-buffers");gtavnative_compat_mirror_objs(c,2,f,n,v);}
 static int32_t compatDeviceGetPrivateData(void* s,const void* g,uint32_t* n,void* d){return compatChildGetPrivateData(s,g,n,d);}
 static int32_t compatDeviceSetPrivateDataInterface(void*,const void*,void*){return 0;}
 static uint32_t compatDeviceGetCreationFlags(void*){return 0;}
@@ -1132,6 +1144,16 @@ static void capture(const char* kind,void* rage,uint64_t vk=0){
 }
 
 static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
+extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}
+extern "C" void gtavnative_compat_mirror_vertex_buffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);for(uint32_t i=0;i<n&&f+i<16;i++){m.vertexBuffers[f+i]=v?v[i]:nullptr;m.strides[f+i]=s?s[i]:0;m.offsets[f+i]=o?o[i]:0;}}
+extern "C" void gtavnative_compat_mirror_index_buffer(void* c,void* b,uint32_t f,uint32_t o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.indexBuffer=b;m.indexFormat=f;m.indexOffset=o;}
+extern "C" void gtavnative_compat_mirror_topology(void* c,uint32_t t){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).topology=t;}
+extern "C" void gtavnative_compat_mirror_shader(void* c,uint32_t stage,void* sh){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);if(stage==0)m.vs=sh;else if(stage==1)m.ps=sh;else if(stage==2)m.cs=sh;}
+extern "C" void gtavnative_compat_mirror_viewports(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.viewportCount=n>4?4:n;if(p)std::memcpy(m.viewports,p,m.viewportCount*24);}
+extern "C" void gtavnative_compat_mirror_scissors(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.scissorCount=n>16?16:n;if(p)std::memcpy(m.scissors,p,m.scissorCount*16);}
+extern "C" void gtavnative_compat_mirror_objs(void* c,uint32_t k,uint32_t f,uint32_t n,void* const* v){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);void** d=nullptr;uint32_t cap=16;switch(k){case 0:d=m.vsCB;break;case 1:d=m.psCB;break;case 2:d=m.csCB;break;case 3:d=m.vsSRV;cap=32;break;case 4:d=m.psSRV;cap=32;break;case 5:d=m.csSRV;cap=32;break;case 6:d=m.vsSampler;break;case 7:d=m.psSampler;break;case 8:d=m.csSampler;break;case 9:d=m.csUAV;break;default:return;}for(uint32_t i=0;i<n&&f+i<cap;i++)d[f+i]=v?v[i]:nullptr;}
+extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
+
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
 static uintptr_t gtavBase{};
@@ -1737,6 +1759,9 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  applyMirroredDynamicState(ctx,s.command_buffer);
  return true;
 }
+extern "C" bool gtavnative_compat_draw(void* c,uint32_t n,uint32_t f){return gtav_native_renderer_rage_draw(c,n,f);}
+extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int32_t v){return gtav_native_renderer_rage_draw_indexed(c,n,f,v);}
+extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
