@@ -108,7 +108,7 @@ static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
 }
 struct CompatDXGIOutput { void** vtbl; uint8_t pad[8]; uint32_t modeCount; };
 static CompatDXGIOutput gCompatOutput{};
-static void* gOutputVtable[16]{};
+static void* gOutputVtable[32]{};
 static int32_t compatOutputQueryInterface(void* self,const void*,void** out){ if(!out)return (int32_t)0x80004003u; *out=self; return 0; }
 static uint32_t compatOutputAddRef(void*){return 2;}
 static uint32_t compatOutputRelease(void*){return 1;}
@@ -118,14 +118,34 @@ static int32_t compatOutputGetDesc(void*,void* desc){
   memset(desc,0,0x80);
   return 0;
 }
+
+static int32_t compatOutputGetDisplayModeList(void*,uint32_t,uint32_t,uint32_t* count,void* modes){
+  gtavdiag::checkpoint("compat-dxgi-output-get-display-mode-list");
+  if(!count)return (int32_t)0x80004003u;
+  // Android surface owns the actual presentation modes. Expose one conservative
+  // mode so grcAdapterD3D11Output creates a valid engine-side output object.
+  if(!modes){*count=1;return 0;}
+  if(*count<1)return (int32_t)0x887A0003u;
+  memset(modes,0,28);
+  auto* p=(uint8_t*)modes;
+  *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
+  *(uint32_t*)(p+8)=60; *(uint32_t*)(p+12)=1;
+  *(uint32_t*)(p+16)=28; // DXGI_FORMAT_R8G8B8A8_UNORM
+  *(uint32_t*)(p+20)=0; *(uint32_t*)(p+24)=0;
+  *count=1; return 0;
+}
+static int32_t compatOutputUnsupported(void*,...){
+  gtavdiag::checkpoint("compat-dxgi-output-unsupported");
+  return (int32_t)0x80004001u;
+}
 static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
   gtavdiag::checkpoint("compat-dxgi-enum-outputs");
   if (!out) return (int32_t)0x80004003u;
   if(index!=0){*out=nullptr;return (int32_t)0x887A0002u;}
   static bool once=false;
-  if(!once){ once=true; for(void*& p:gOutputVtable)p=nullptr;
+  if(!once){ once=true; for(void*& p:gOutputVtable)p=(void*)compatOutputUnsupported;
     gOutputVtable[0]=(void*)compatOutputQueryInterface; gOutputVtable[1]=(void*)compatOutputAddRef; gOutputVtable[2]=(void*)compatOutputRelease;
-    gOutputVtable[7]=(void*)compatOutputGetDesc; gCompatOutput.vtbl=gOutputVtable; gCompatOutput.modeCount=0;
+    gOutputVtable[7]=(void*)compatOutputGetDesc; gOutputVtable[8]=(void*)compatOutputGetDisplayModeList; gCompatOutput.vtbl=gOutputVtable; gCompatOutput.modeCount=1;
   }
   *out=&gCompatOutput; return 0;
 }
