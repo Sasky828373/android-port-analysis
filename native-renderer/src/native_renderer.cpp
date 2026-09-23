@@ -1815,9 +1815,40 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
  {std::lock_guard<std::mutex> g2(pipelineCacheMutex);pipelineCache[key]={p,l,d};}
  return true;
 }
-struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; VkImageAspectFlags aspect{}; };
+struct NativeImageMeta {
+ VkImage image{};VkFormat format{VK_FORMAT_UNDEFINED};VkImageAspectFlags aspect{};
+ VkImageViewType viewType{VK_IMAGE_VIEW_TYPE_2D};uint32_t baseMip{},levelCount{1},baseLayer{},layerCount{1};
+};
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
+static NativeImageMeta compatViewMeta(VkImage image,VkFormat resourceFormat,VkImageAspectFlags aspect,void* publish,uint32_t kind,uint32_t resourceMips,uint32_t resourceLayers){
+ NativeImageMeta m{};m.image=image;m.format=resourceFormat;m.aspect=aspect;m.levelCount=std::max(1u,resourceMips);m.layerCount=std::max(1u,resourceLayers);
+ auto* v=(CompatViewObject*)publish;if(!publish||v->vtbl!=gCompatViewVtable||v->descSize<8){m.levelCount=1;m.layerCount=1;return m;}
+ const uint32_t* d=(const uint32_t*)v->desc;VkFormat vf=compatDxgiFormat(d[0]);if(vf!=VK_FORMAT_UNDEFINED)m.format=vf;uint32_t dim=d[1];
+ auto clampMip=[&](uint32_t base,uint32_t count){m.baseMip=std::min(base,resourceMips?resourceMips-1:0u);uint32_t avail=std::max(1u,resourceMips-m.baseMip);m.levelCount=(count==0xffffffffu||count==0)?avail:std::min(count,avail);};
+ auto clampLayer=[&](uint32_t base,uint32_t count){m.baseLayer=std::min(base,resourceLayers?resourceLayers-1:0u);uint32_t avail=std::max(1u,resourceLayers-m.baseLayer);m.layerCount=(count==0xffffffffu||count==0)?avail:std::min(count,avail);};
+ m.viewType=VK_IMAGE_VIEW_TYPE_2D;m.baseMip=0;m.levelCount=1;m.baseLayer=0;m.layerCount=1;
+ if(kind==NR_SRV){
+  switch(dim){
+   case 4:clampMip(d[2],d[3]);break;
+   case 5:clampMip(d[2],d[3]);if(v->descSize>=24)clampLayer(d[4],d[5]);m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   case 6:break;
+   case 7:if(v->descSize>=16)clampLayer(d[2],d[3]);m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   case 9:clampMip(d[2],d[3]);clampLayer(0,6);m.viewType=VK_IMAGE_VIEW_TYPE_CUBE;break;
+   case 10:clampMip(d[2],d[3]);if(v->descSize>=24){m.baseLayer=d[4];m.layerCount=std::min(std::max(1u,d[5])*6u,std::max(1u,resourceLayers-m.baseLayer));}m.viewType=VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;break;
+   default:break;
+  }
+ }else{
+  switch(dim){
+   case 4:clampMip(d[2],1);break;
+   case 5:clampMip(d[2],1);if(v->descSize>=20)clampLayer(d[3],d[4]);m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   case 6:break;
+   case 7:if(v->descSize>=16)clampLayer(d[2],d[3]);m.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY;break;
+   default:break;
+  }
+ }
+ return m;
+}
 static std::unordered_map<uint64_t,VkImageView> imageViews;
 struct CompatOwnedImage {
  VkImage image{};VkDeviceMemory memory{};VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
@@ -1836,13 +1867,13 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  const uint64_t key=(uint64_t)(uintptr_t)resource;
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it!=compatOwnedImages.end()){
    gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)it->second.image,kind,1);
-   imageMeta[(uint64_t)(uintptr_t)publish]={it->second.image,it->second.format,it->second.aspect};return true;
+   imageMeta[(uint64_t)(uintptr_t)publish]=compatViewMeta(it->second.image,it->second.format,it->second.aspect,publish,kind,it->second.mips,it->second.layers);return true;
  }}
- uint32_t w=0,h=0,fmt=28,mips=1,layers=1,samples=1,bindFlags=0x28u;
+ uint32_t w=0,h=0,fmt=28,mips=1,layers=1,samples=1,bindFlags=0x28u,miscFlags=0;
  if(resource==&gCompatBackBuffer){w=gCompatSwapWidth.load();h=gCompatSwapHeight.load();fmt=gCompatSwapFormat.load();bindFlags=0x20u;}
  else {
    auto* r=(CompatResourceObject*)resource;
-   if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=44){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];mips=std::max(1u,d[2]);layers=std::max(1u,d[3]);fmt=d[4];samples=std::max(1u,d[5]);bindFlags=d[8];}
+   if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=44){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];mips=std::max(1u,d[2]);layers=std::max(1u,d[3]);fmt=d[4];samples=std::max(1u,d[5]);bindFlags=d[8];miscFlags=d[10];}
    else return false;
  }
  if(!w||!h||w>16384||h>16384||mips>16||layers>2048){gtavdiag::checkpoint("native-compat-image-invalid-desc");return false;}
@@ -1863,7 +1894,7 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  switch(samples){case 1:sc=VK_SAMPLE_COUNT_1_BIT;break;case 2:sc=VK_SAMPLE_COUNT_2_BIT;break;case 4:sc=VK_SAMPLE_COUNT_4_BIT;break;case 8:sc=VK_SAMPLE_COUNT_8_BIT;break;default:gtavdiag::checkpoint("native-compat-image-samples-unsupported");return false;}
  VkImageAspectFlags aspect=depth?(vf==VK_FORMAT_D24_UNORM_S8_UINT?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_DEPTH_BIT):VK_IMAGE_ASPECT_COLOR_BIT;
  VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=vf;ci.extent={w,h,1};ci.mipLevels=mips;ci.arrayLayers=layers;ci.samples=sc;ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.usage=usage;ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
- if(layers==6)ci.flags|=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+ if((miscFlags&0x4u)&&layers>=6)ci.flags|=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
  VkImage img{};VkResult cr=vkCreateImage(g.device,&ci,nullptr,&img);if(cr!=VK_SUCCESS){gtavdiag::checkpoint("native-compat-image-create-failed");return false;}
  VkMemoryRequirements mr{};vkGetImageMemoryRequirements(g.device,img,&mr);uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(mt==UINT32_MAX){vkDestroyImage(g.device,img,nullptr);return false;}
  VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;VkDeviceMemory mem{};
@@ -1872,7 +1903,7 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  if(resource!=&gCompatBackBuffer){auto* rr=(CompatResourceObject*)resource;if(!rr->backing.empty()){VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=rr->backing.size();bi.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
    if(vkCreateBuffer(g.device,&bi,nullptr,&owned.staging)==VK_SUCCESS){VkMemoryRequirements sr{};vkGetBufferMemoryRequirements(g.device,owned.staging,&sr);uint32_t smt=compatMemoryType(sr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if(smt!=UINT32_MAX){VkMemoryAllocateInfo sai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};sai.allocationSize=sr.size;sai.memoryTypeIndex=smt;if(vkAllocateMemory(g.device,&sai,nullptr,&owned.stagingMemory)==VK_SUCCESS&&vkBindBufferMemory(g.device,owned.staging,owned.stagingMemory,0)==VK_SUCCESS&&vkMapMemory(g.device,owned.stagingMemory,0,bi.size,0,&owned.stagingMapped)==VK_SUCCESS)owned.stagingSize=bi.size;}}}}
- {std::lock_guard<std::mutex> l(imageMetaMutex);compatOwnedImages.emplace(key,owned);imageMeta[(uint64_t)(uintptr_t)publish]={img,vf,aspect};}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);compatOwnedImages.emplace(key,owned);imageMeta[(uint64_t)(uintptr_t)publish]=compatViewMeta(img,vf,aspect,publish,kind,mips,layers);}
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)resource,(uint64_t)(uintptr_t)img,kind,1);
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)img,kind,1);
  gtavdiag::checkpoint("native-compat-image-created");return true;
@@ -1951,8 +1982,8 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
  NativeImageMeta m{};
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto v=imageViews.find(rageResource);if(v!=imageViews.end())return v->second;auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return VK_NULL_HANDLE;m=it->second;}
  if(!m.image||m.format==VK_FORMAT_UNDEFINED||!m.aspect)return VK_NULL_HANDLE;
- VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};ci.image=m.image;ci.viewType=VK_IMAGE_VIEW_TYPE_2D;ci.format=m.format;
- ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=0;ci.subresourceRange.levelCount=1;ci.subresourceRange.baseArrayLayer=0;ci.subresourceRange.layerCount=1;
+ VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};ci.image=m.image;ci.viewType=m.viewType;ci.format=m.format;
+ ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=m.baseMip;ci.subresourceRange.levelCount=std::max(1u,m.levelCount);ci.subresourceRange.baseArrayLayer=m.baseLayer;ci.subresourceRange.layerCount=std::max(1u,m.layerCount);
  VkImageView view=VK_NULL_HANDLE;if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);view=it->second;}}
  // Publish the renderer-owned view into every image-backed role already known
