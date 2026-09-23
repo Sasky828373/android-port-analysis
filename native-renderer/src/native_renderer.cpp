@@ -780,6 +780,7 @@ extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDevice(
   return 0;
 }
 namespace {
+extern "C" void gtav_native_renderer_begin_frame();
 struct CompatSwapChainObject { void** vtbl; };
 static CompatSwapChainObject gCompatSwapChain{};
 static void* gSwapChainVtable[32]{};
@@ -793,10 +794,34 @@ static int32_t compatSwapQueryInterface(void* self,const void*,void** out) {
 }
 static uint32_t compatSwapAddRef(void*){return 2;}
 static uint32_t compatSwapRelease(void*){return 1;}
+static int32_t compatSwapPresent(void*,uint32_t,uint32_t) {
+  static std::atomic<uint32_t> presents{0};
+  uint32_t n=presents.fetch_add(1,std::memory_order_relaxed)+1;
+  if(n<=4 || (n%600)==0) gtavdiag::checkpoint("compat-swapchain-present");
+  // The native renderer records into GTA's Vulkan runtime. Advance its frame
+  // epoch here instead of returning E_NOTIMPL every frame.
+  gtav_native_renderer_begin_frame();
+  return 0;
+}
+static int32_t compatSwapGetDevice(void*,const void*,void** out){
+  if(!out)return (int32_t)0x80004003u; *out=&gCompatD3DDevice; return 0;
+}
+static int32_t compatSwapSetFullscreenState(void*,int,void*){return 0;}
+static int32_t compatSwapGetFullscreenState(void*,int* fullscreen,void** output){
+  if(fullscreen)*fullscreen=0; if(output)*output=nullptr; return 0;
+}
+static int32_t compatSwapResizeBuffers(void*,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t){
+  gtavdiag::checkpoint("compat-swapchain-resize-buffers"); return 0;
+}
+static int32_t compatSwapResizeTarget(void*,const void*){return 0;}
+static int32_t compatSwapGetFrameStatistics(void*,void*){return (int32_t)0x80004001u;}
+static int32_t compatSwapGetLastPresentCount(void*,uint32_t* out){
+  static std::atomic<uint32_t> count{0}; if(out)*out=count.fetch_add(1)+1; return 0;
+}
 static int32_t compatSwapGetDesc(void*,void* desc) {
   gtavdiag::checkpoint("compat-swapchain-get-desc");
   if(!desc)return (int32_t)0x80004003u;
-  memset(desc,0,0x100);
+  memset(desc,0,72);
   // Keep a sane bootstrap size. Android/Vulkan owns the real surface extent.
   auto* p=(uint8_t*)desc; *(uint32_t*)(p+0)=1920; *(uint32_t*)(p+4)=1080;
   return 0;
@@ -847,11 +872,19 @@ static void initCompatSwapChain() {
   gSwapChainVtable[0]=(void*)compatSwapQueryInterface;
   gSwapChainVtable[1]=(void*)compatSwapAddRef;
   gSwapChainVtable[2]=(void*)compatSwapRelease;
+  gSwapChainVtable[7]=(void*)compatSwapGetDevice;
+  gSwapChainVtable[8]=(void*)compatSwapPresent;
   // grcTextureFactoryDX11::Reset consumes IDXGISwapChain::GetBuffer at
   // slot 9/+0x48, then calls ID3D11Texture2D::GetDesc at +0x50.
   gSwapChainVtable[9]=(void*)compatSwapGetBuffer;
+  gSwapChainVtable[10]=(void*)compatSwapSetFullscreenState;
+  gSwapChainVtable[11]=(void*)compatSwapGetFullscreenState;
   // Exact InitClass trace consumes swapchain vtable +0x60 immediately.
   gSwapChainVtable[12]=(void*)compatSwapGetDesc;
+  gSwapChainVtable[13]=(void*)compatSwapResizeBuffers;
+  gSwapChainVtable[14]=(void*)compatSwapResizeTarget;
+  gSwapChainVtable[16]=(void*)compatSwapGetFrameStatistics;
+  gSwapChainVtable[17]=(void*)compatSwapGetLastPresentCount;
   gCompatSwapChain.vtbl=gSwapChainVtable;
 }
 }
