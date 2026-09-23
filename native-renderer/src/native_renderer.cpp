@@ -1,4 +1,12 @@
 #include <vulkan/vulkan.h>
+#if __has_include("dxbc/dxbc_api.h")
+#define GTAV_HAVE_DXBC_SPIRV 1
+#include "dxbc/dxbc_api.h"
+#include "spirv/spirv_builder.h"
+#include "spirv/spirv_mapping.h"
+#else
+#define GTAV_HAVE_DXBC_SPIRV 0
+#endif
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -1787,6 +1795,22 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
+#if GTAV_HAVE_DXBC_SPIRV
+static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,std::vector<uint32_t>& out){
+ if(!s||s->bytecode.empty())return false;
+ dxbc_spv::dxbc::Converter::Options co{};co.includeDebugNames=false;co.name="gtav-compat";
+ dxbc_spv::ir::CompileOptions io{};io.cseOptions.relocateDescriptorLoad=true;io.descriptorIndexing.optimizeDescriptorIndexing=true;
+ auto ir=dxbc_spv::dxbc::compileShaderToLegalizedIr(s->bytecode.data(),s->bytecode.size(),co,io);
+ if(!ir){gtavdiag::checkpoint("native-shader-dxbc-convert-failed");return false;}
+ dxbc_spv::spirv::BasicResourceMapping mapping{};
+ dxbc_spv::spirv::SpirvBuilder::Options so{};so.includeDebugNames=false;so.floatControls2=false;
+ so.supportedRoundModesF16=so.supportedRoundModesF32=so.supportedRoundModesF64=dxbc_spv::ir::RoundMode::eNearestEven|dxbc_spv::ir::RoundMode::eZero;
+ so.supportedDenormModesF16=so.supportedDenormModesF32=so.supportedDenormModesF64=dxbc_spv::ir::DenormMode::eFlush|dxbc_spv::ir::DenormMode::ePreserve;
+ dxbc_spv::spirv::SpirvBuilder sb(*ir,mapping,so);sb.buildSpirvBinary();out=sb.getSpirvBinary();
+ if(out.empty()){gtavdiag::checkpoint("native-shader-dxbc-spirv-empty");return false;}
+ gtavdiag::checkpoint("native-shader-dxbc-spirv-ok");return true;
+}
+#endif
 static std::mutex compatShaderMapMutex;
 static std::unordered_map<uint64_t,VkShaderModule> compatShaderModules;
 static bool mapCompatShader(void* p,uint32_t kind){
@@ -1794,19 +1818,24 @@ static bool mapCompatShader(void* p,uint32_t kind){
  if(gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)p,kind))return true;
  if(!compatShaderObject(p)){gtavdiag::checkpoint("native-shader-not-compat-object");return false;}
  auto* s=(CompatShaderObject*)p;
+ std::vector<uint32_t> translated;
+ const void* moduleCode=s->bytecode.data();size_t moduleBytes=s->bytecode.size();
  if(!compatShaderIsSpirv(s)){
-   // D3D11 Create*Shader normally receives DXBC/DXIL. Vulkan cannot consume that
-   // bytecode directly; never reinterpret it as SPIR-V or pass a fake module.
-   if(s->bytecode.size()>=4&&s->bytecode[0]=='D'&&s->bytecode[1]=='X'&&s->bytecode[2]=='B'&&s->bytecode[3]=='C')
-     gtavdiag::checkpoint("native-shader-bytecode-dxbc");
-   else gtavdiag::checkpoint("native-shader-bytecode-not-spirv");
-   return false;
+   bool dxbc=s->bytecode.size()>=4&&s->bytecode[0]=='D'&&s->bytecode[1]=='X'&&s->bytecode[2]=='B'&&s->bytecode[3]=='C';
+   if(!dxbc){gtavdiag::checkpoint("native-shader-bytecode-not-spirv");return false;}
+   gtavdiag::checkpoint("native-shader-bytecode-dxbc");
+#if GTAV_HAVE_DXBC_SPIRV
+   if(!compileCompatDxbcToSpirv(s,translated))return false;
+   moduleCode=translated.data();moduleBytes=translated.size()*sizeof(uint32_t);
+#else
+   gtavdiag::checkpoint("native-shader-dxbc-compiler-missing");return false;
+#endif
  }
  const uint64_t key=(uint64_t)(uintptr_t)p;std::lock_guard<std::mutex> l(compatShaderMapMutex);
  auto it=compatShaderModules.find(key);VkShaderModule m=VK_NULL_HANDLE;
  if(it!=compatShaderModules.end())m=it->second;
  else {
-   m=gtav_native_renderer_create_shader_module((const uint32_t*)s->bytecode.data(),s->bytecode.size());
+   m=gtav_native_renderer_create_shader_module((const uint32_t*)moduleCode,moduleBytes);
    if(!m){gtavdiag::checkpoint("native-shader-module-create-failed");return false;}
    compatShaderModules[key]=m;gtavdiag::checkpoint("native-shader-module-created");
  }
