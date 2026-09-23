@@ -915,6 +915,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p hybrid-report/native-adapter
           python3 - <<'PY'
           from pathlib import Path
           p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
