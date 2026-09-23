@@ -634,7 +634,7 @@ static bool compatShaderIsSpirv(const CompatShaderObject* s){
 // They keep valid COM objects and descriptors alive while the actual draw path is
 // migrated to Vulkan. Returning E_NOTIMPL with a null out pointer here is unsafe:
 // GTA consumes the created RTV/DSV/SRV objects immediately.
-struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; std::vector<uint8_t> backing; };
+struct CompatResourceObject { void** vtbl; size_t descSize; uint8_t desc[64]; std::vector<uint8_t> backing; uint64_t version{1}; };
 struct CompatViewObject { void** vtbl; CompatResourceObject* resource; size_t descSize; uint8_t desc[32]; };
 static void* gCompatBufferVtable[16]{};
 static void* gCompatTexture1DVtable[16]{};
@@ -746,19 +746,19 @@ static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t 
  if(!dst||!src)return;CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;auto* r=(CompatResourceObject*)dst;
  size_t base=(size_t)((uint8_t*)m.pData-r->backing.data());if(base>=r->backing.size())return;size_t cap=r->backing.size()-base;
  if(r->vtbl==gCompatTexture2DVtable&&m.rowPitch){uint32_t rows=m.depthPitch/m.rowPitch,sr=srcRow?srcRow:m.rowPitch;for(uint32_t y=0;y<rows;y++){size_t off=(size_t)y*m.rowPitch;if(off>=cap)break;std::memcpy((uint8_t*)m.pData+off,(const uint8_t*)src+(size_t)y*sr,std::min<size_t>(std::min(m.rowPitch,sr),cap-off));}}
- else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));
+ else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));r->version++;
 }
-static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());}
-static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n)std::memcpy(d.pData,s.pData,n);}
+static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
+static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);((CompatResourceObject*)dst)->version++;}}
 static void compatClearRTVBacking(void* view,const float* color){
  if(!view||!color)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;
  uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}
- else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());
+ else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());r->version++;
 }
 static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
  if(!view)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
  if((flags&1)&&fmt==40){for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&depth,4);}
- else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}
+ else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}r->version++;
 }
 static int32_t compatCreateBuffer(void*,const void* desc,const void* init,void** out){
   if(!out)return (int32_t)0x80004003u;auto* o=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);*out=o;
@@ -1814,7 +1814,11 @@ struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; 
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static std::unordered_map<uint64_t,VkImageView> imageViews;
-struct CompatOwnedImage { VkImage image{}; VkDeviceMemory memory{}; VkFormat format{VK_FORMAT_R8G8B8A8_UNORM}; VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT}; };
+struct CompatOwnedImage {
+ VkImage image{};VkDeviceMemory memory{};VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
+ VkBuffer staging{};VkDeviceMemory stagingMemory{};void* stagingMapped{};VkDeviceSize stagingSize{};
+ VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};uint64_t uploadedVersion{};uint32_t width{},height{},mips{1},layers{1};
+};
 static std::unordered_map<uint64_t,CompatOwnedImage> compatOwnedImages;
 static uint32_t compatMemoryType(uint32_t bits,VkMemoryPropertyFlags wanted){
  VkPhysicalDeviceMemoryProperties mp{};vkGetPhysicalDeviceMemoryProperties(g.physical,&mp);
@@ -1859,7 +1863,11 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  VkMemoryRequirements mr{};vkGetImageMemoryRequirements(g.device,img,&mr);uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(mt==UINT32_MAX){vkDestroyImage(g.device,img,nullptr);return false;}
  VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;VkDeviceMemory mem{};
  if(vkAllocateMemory(g.device,&ai,nullptr,&mem)!=VK_SUCCESS||vkBindImageMemory(g.device,img,mem,0)!=VK_SUCCESS){if(mem)vkFreeMemory(g.device,mem,nullptr);vkDestroyImage(g.device,img,nullptr);return false;}
- {std::lock_guard<std::mutex> l(imageMetaMutex);compatOwnedImages[key]={img,mem,vf,aspect};imageMeta[(uint64_t)(uintptr_t)publish]={img,vf,aspect};}
+ CompatOwnedImage owned{};owned.image=img;owned.memory=mem;owned.format=vf;owned.aspect=aspect;owned.width=w;owned.height=h;owned.mips=mips;owned.layers=layers;
+ if(resource!=&gCompatBackBuffer){auto* rr=(CompatResourceObject*)resource;if(!rr->backing.empty()){VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=rr->backing.size();bi.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+   if(vkCreateBuffer(g.device,&bi,nullptr,&owned.staging)==VK_SUCCESS){VkMemoryRequirements sr{};vkGetBufferMemoryRequirements(g.device,owned.staging,&sr);uint32_t smt=compatMemoryType(sr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if(smt!=UINT32_MAX){VkMemoryAllocateInfo sai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};sai.allocationSize=sr.size;sai.memoryTypeIndex=smt;if(vkAllocateMemory(g.device,&sai,nullptr,&owned.stagingMemory)==VK_SUCCESS&&vkBindBufferMemory(g.device,owned.staging,owned.stagingMemory,0)==VK_SUCCESS&&vkMapMemory(g.device,owned.stagingMemory,0,bi.size,0,&owned.stagingMapped)==VK_SUCCESS)owned.stagingSize=bi.size;}}}}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);compatOwnedImages.emplace(key,owned);imageMeta[(uint64_t)(uintptr_t)publish]={img,vf,aspect};}
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)resource,(uint64_t)(uintptr_t)img,kind,1);
  gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)img,kind,1);
  gtavdiag::checkpoint("native-compat-image-created");return true;
