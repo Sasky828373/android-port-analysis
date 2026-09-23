@@ -1178,6 +1178,17 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Disassemble mapped crash instruction
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== mapped crash VMA 0x4a6a910 / file 0x4a66910 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x4a6a780 --stop-address=0x4a6ab00 "$LIB"
+          echo "=== nearest symbols ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000004a6a910" {a[NR]=$0} END{for(i=NR-8;i<=NR+8;i++) if(i in a) print a[i]}' || true
+
       - name: Print ELF crash mapping inline
         run: |
           set -euo pipefail
