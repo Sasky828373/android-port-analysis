@@ -230,6 +230,24 @@ static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
 }
+
+// ID3D11DeviceContext::Map is slot 14/+0x70. ResetClipPlanes maps a
+// small dynamic constant buffer with D3D11_MAP_WRITE_DISCARD and immediately
+// memcpy()s into MAPPED_SUBRESOURCE::pData. The generic E_NOTIMPL stub left
+// pData null, causing the libc memcpy crash at grcDevice::ResetClipPlanes+0xe4.
+struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
+static alignas(64) uint8_t gCompatMapScratch[4 * 1024 * 1024]{};
+static int32_t compatD3DMap(void*, void*, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
+  gtavdiag::checkpoint("compat-d3d11-map");
+  if(!mapped) return (int32_t)0x80004003u;
+  mapped->pData=gCompatMapScratch;
+  mapped->rowPitch=(uint32_t)sizeof(gCompatMapScratch);
+  mapped->depthPitch=(uint32_t)sizeof(gCompatMapScratch);
+  return 0;
+}
+static void compatD3DUnmap(void*, void*, uint32_t) {
+  gtavdiag::checkpoint("compat-d3d11-unmap");
+}
 // Shader creation is consumed as an object pointer by grcProgram::CreateShader.
 // Returning E_NOTIMPL through the generic stub leaves the out-object undefined
 // and later crashes on Release. Return a tiny COM object instead; actual shader
@@ -309,6 +327,9 @@ static void initCompatD3D11() {
   static bool once=false; if(once)return; once=true;
   for(void*& p:gD3DDeviceVtable) p=(void*)compatD3DUnsupported;
   for(void*& p:gD3DContextVtable) p=(void*)compatD3DUnsupported;
+  // ID3D11DeviceContext: Map=14, Unmap=15.
+  gD3DContextVtable[14]=(void*)compatD3DMap;
+  gD3DContextVtable[15]=(void*)compatD3DUnmap;
   gD3DDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gD3DDeviceVtable[1]=(void*)compatD3DAddRef;
   gD3DDeviceVtable[2]=(void*)compatD3DRelease;
