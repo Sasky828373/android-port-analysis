@@ -1961,6 +1961,12 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
+struct CompatShaderDescriptorDecl {uint32_t binding{};VkDescriptorType type{};uint32_t count{1};VkShaderStageFlags stages{};uint32_t space{},reg{},resourceKind{};};
+static std::mutex compatShaderDeclMutex;
+static std::unordered_map<uint64_t,std::vector<CompatShaderDescriptorDecl>> compatShaderDecls;
+static std::vector<CompatShaderDescriptorDecl> getCompatShaderDecls(void* shader){
+ std::lock_guard<std::mutex> l(compatShaderDeclMutex);auto it=compatShaderDecls.find((uint64_t)(uintptr_t)shader);return it==compatShaderDecls.end()?std::vector<CompatShaderDescriptorDecl>{}:it->second;
+}
 #if GTAV_HAVE_DXBC_SPIRV
 static uint32_t compatDescriptorBinding(uint32_t stage,uint32_t type,uint32_t space,uint32_t reg){
  uint32_t base=stage*128u+space*512u;
@@ -1978,13 +1984,28 @@ public:
  }
 private:uint32_t stage;
 };
-static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,uint32_t kind,std::vector<uint32_t>& out){
+static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,uint32_t kind,std::vector<uint32_t>& out,std::vector<CompatShaderDescriptorDecl>& decls){
  if(!s||s->bytecode.empty())return false;
  dxbc_spv::dxbc::Converter::Options co{};co.includeDebugNames=false;co.name="gtav-compat";
  dxbc_spv::ir::CompileOptions io{};io.cseOptions.relocateDescriptorLoad=true;io.descriptorIndexing.optimizeDescriptorIndexing=true;
  auto ir=dxbc_spv::dxbc::compileShaderToLegalizedIr(s->bytecode.data(),s->bytecode.size(),co,io);
  if(!ir){gtavdiag::checkpoint("native-shader-dxbc-convert-failed");return false;}
  uint32_t stage=kind==NR_PS?1u:kind==NR_CS?2u:0u;CompatResourceMapping mapping(stage);
+ VkShaderStageFlags vkStage=kind==NR_PS?VK_SHADER_STAGE_FRAGMENT_BIT:kind==NR_CS?VK_SHADER_STAGE_COMPUTE_BIT:VK_SHADER_STAGE_VERTEX_BIT;
+ auto range=ir->getDeclarations();
+ for(auto it=range.first;it!=range.second;++it){
+  const auto& op=*it;uint32_t scalar=0;VkDescriptorType dt=VK_DESCRIPTOR_TYPE_MAX_ENUM;uint32_t rk=0;
+  switch(op.getOpCode()){
+   case dxbc_spv::ir::OpCode::eDclSampler:scalar=22;dt=VK_DESCRIPTOR_TYPE_SAMPLER;break;
+   case dxbc_spv::ir::OpCode::eDclCbv:scalar=23;dt=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;break;
+   case dxbc_spv::ir::OpCode::eDclSrv:scalar=24;rk=uint32_t(op.getOperand(4u));dt=(rk==0)?VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:(rk==1||rk==2)?VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;break;
+   case dxbc_spv::ir::OpCode::eDclUav:scalar=25;rk=uint32_t(op.getOperand(4u));dt=(rk==0)?VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:(rk==1||rk==2)?VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;break;
+   case dxbc_spv::ir::OpCode::eDclInputTarget:scalar=27;rk=uint32_t(op.getOperand(4u));dt=VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;break;
+   default:continue;
+  }
+  uint32_t space=uint32_t(op.getOperand(1u)),reg=uint32_t(op.getOperand(2u)),count=std::max(1u,uint32_t(op.getOperand(3u)));
+  decls.push_back({compatDescriptorBinding(stage,scalar,space,reg),dt,count,vkStage,space,reg,rk});
+ }
  dxbc_spv::spirv::SpirvBuilder::Options so{};so.includeDebugNames=false;so.floatControls2=false;
  so.supportedRoundModesF16=so.supportedRoundModesF32=so.supportedRoundModesF64=dxbc_spv::ir::RoundMode::eNearestEven|dxbc_spv::ir::RoundMode::eZero;
  so.supportedDenormModesF16=so.supportedDenormModesF32=so.supportedDenormModesF64=dxbc_spv::ir::DenormMode::eFlush|dxbc_spv::ir::DenormMode::ePreserve;
@@ -2007,7 +2028,8 @@ static bool mapCompatShader(void* p,uint32_t kind){
    if(!dxbc){gtavdiag::checkpoint("native-shader-bytecode-not-spirv");return false;}
    gtavdiag::checkpoint("native-shader-bytecode-dxbc");
 #if GTAV_HAVE_DXBC_SPIRV
-   if(!compileCompatDxbcToSpirv(s,kind,translated))return false;
+   std::vector<CompatShaderDescriptorDecl> decls;if(!compileCompatDxbcToSpirv(s,kind,translated,decls))return false;
+   {std::lock_guard<std::mutex> dl(compatShaderDeclMutex);compatShaderDecls[(uint64_t)(uintptr_t)p]=std::move(decls);}
    moduleCode=translated.data();moduleBytes=translated.size()*sizeof(uint32_t);
 #else
    gtavdiag::checkpoint("native-shader-dxbc-compiler-missing");return false;
@@ -2104,10 +2126,14 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  NativeImageMeta rt{};VkFormat colorFormats[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
  {std::lock_guard<std::mutex> l(imageMetaMutex);for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i]){colorFormats[i]=VK_FORMAT_UNDEFINED;continue;}auto it=imageMeta.find((uint64_t)(uintptr_t)m.rtv[i]);if(it==imageMeta.end()){gtavdiag::checkpoint("native-pipeline-missing-rt-meta");return false;}if(i==0)rt=it->second;colorFormats[i]=it->second.format;}}
  std::vector<VkDescriptorSetLayoutBinding> bindings;
- auto addBinding=[&](uint32_t binding,VkDescriptorType type,VkShaderStageFlags stages){VkDescriptorSetLayoutBinding b{};b.binding=binding;b.descriptorType=type;b.descriptorCount=1;b.stageFlags=stages;bindings.push_back(b);};
- for(uint32_t i=0;i<16;i++){if(m.vsCB[i])addBinding(compatDescriptorBinding(0,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psCB[i])addBinding(compatDescriptorBinding(1,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_FRAGMENT_BIT);}
- for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])addBinding(compatDescriptorBinding(0,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSRV[i])addBinding(compatDescriptorBinding(1,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_FRAGMENT_BIT);}
- for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])addBinding(compatDescriptorBinding(0,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSampler[i])addBinding(compatDescriptorBinding(1,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_FRAGMENT_BIT);}
+ auto addDecls=[&](void* sh){for(const auto& d:getCompatShaderDecls(sh)){VkDescriptorSetLayoutBinding b{};b.binding=d.binding;b.descriptorType=d.type;b.descriptorCount=d.count;b.stageFlags=d.stages;bindings.push_back(b);}};
+ addDecls(m.vs);addDecls(m.ps);
+ if(bindings.empty()){
+  auto addBinding=[&](uint32_t binding,VkDescriptorType type,VkShaderStageFlags stages){VkDescriptorSetLayoutBinding b{};b.binding=binding;b.descriptorType=type;b.descriptorCount=1;b.stageFlags=stages;bindings.push_back(b);};
+  for(uint32_t i=0;i<16;i++){if(m.vsCB[i])addBinding(compatDescriptorBinding(0,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psCB[i])addBinding(compatDescriptorBinding(1,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_FRAGMENT_BIT);}
+  for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])addBinding(compatDescriptorBinding(0,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSRV[i])addBinding(compatDescriptorBinding(1,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_FRAGMENT_BIT);}
+  for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])addBinding(compatDescriptorBinding(0,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSampler[i])addBinding(compatDescriptorBinding(1,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_FRAGMENT_BIT);}
+ }
  VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};dci.bindingCount=(uint32_t)bindings.size();dci.pBindings=bindings.empty()?nullptr:bindings.data();VkDescriptorSetLayout dsl{};
  if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-pipeline-descriptor-layout-failed");return false;}
  VkPushConstantRange push{};push.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;push.offset=0;push.size=128;
