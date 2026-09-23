@@ -144,13 +144,20 @@ namespace {
 struct CompatD3D11Object { void** vtbl; };
 static CompatD3D11Object gCompatD3DDevice{};
 static CompatD3D11Object gCompatD3DContext{};
+static CompatD3D11Object gCompatDXGIDevice{};
 static void* gD3DDeviceVtable[64]{};
 static void* gD3DContextVtable[128]{};
+static void* gDXGIDeviceVtable[16]{};
 
 static int32_t compatD3DQueryInterface(void* self,const void*,void** out) {
   gtavdiag::checkpoint("compat-d3d11-query-interface");
   if(!out) return (int32_t)0x80004003u;
-  *out=self; return 0;
+  // grcDevice::RetrieveVideoMemory queries the temporary ID3D11Device for a
+  // DXGI device interface, then immediately calls IDXGIObject::GetParent (+0x30).
+  // Returning the D3D device itself here gives that call the wrong vtable.
+  if(self==&gCompatD3DDevice) *out=&gCompatDXGIDevice;
+  else *out=self;
+  return 0;
 }
 static uint32_t compatD3DAddRef(void*) { return 2; }
 static uint32_t compatD3DRelease(void*) { return 1; }
@@ -161,6 +168,13 @@ static uint32_t compatD3DGetFeatureLevel(void*) {
 static int32_t compatD3DUnsupported(void*) {
   gtavdiag::checkpoint("compat-d3d11-unsupported-method");
   return (int32_t)0x80004001u;
+}
+static int32_t compatDXGIDeviceGetParent(void*, const void*, void** out) {
+  gtavdiag::checkpoint("compat-dxgi-device-get-parent");
+  if(!out) return (int32_t)0x80004003u;
+  initCompatDXGI();
+  *out=&gCompatAdapter;
+  return 0;
 }
 static int32_t compatDXGIDeviceGetAdapter(void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-adapter");
@@ -176,10 +190,15 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gD3DDeviceVtable[1]=(void*)compatD3DAddRef;
   gD3DDeviceVtable[2]=(void*)compatD3DRelease;
-  // QueryInterface is used to obtain IDXGIDevice during bootstrap. We intentionally
-  // expose the same compatibility object for that interface; IDXGIDevice::GetAdapter
-  // is slot 7 / +0x38 and must return the adapter object, not E_NOTIMPL/null.
-  gD3DDeviceVtable[7]=(void*)compatDXGIDeviceGetAdapter;
+  // RetrieveVideoMemory exact trace:
+  // device QI -> returned interface slot 6/+0x30 GetParent -> adapter slot 8/+0x40 GetDesc.
+  for(void*& p:gDXGIDeviceVtable) p=(void*)compatD3DUnsupported;
+  gDXGIDeviceVtable[0]=(void*)compatD3DQueryInterface;
+  gDXGIDeviceVtable[1]=(void*)compatD3DAddRef;
+  gDXGIDeviceVtable[2]=(void*)compatD3DRelease;
+  gDXGIDeviceVtable[6]=(void*)compatDXGIDeviceGetParent;
+  gDXGIDeviceVtable[7]=(void*)compatDXGIDeviceGetAdapter;
+  gCompatDXGIDevice.vtbl=gDXGIDeviceVtable;
   // ID3D11Device::GetFeatureLevel is slot 37 / byte offset 0x128.
   // libgtav's grcDevice::GetDXFeatureLevelSupported consumes this exact slot.
   gD3DDeviceVtable[37]=(void*)compatD3DGetFeatureLevel;
