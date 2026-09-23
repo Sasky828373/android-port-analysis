@@ -324,6 +324,103 @@ static int32_t compatD3DUnsupported(void*) {
   return (int32_t)0x80004001u;
 }
 #define GTAV_SLOT_STUB(kind,n) static int32_t compat##kind##Slot##n(void*, ...) { gtavdiag::checkpoint("compat-" #kind "-slot-" #n); return (int32_t)0x80004001u; }
+GTAV_SLOT_STUB(Resource,0)
+GTAV_SLOT_STUB(Resource,1)
+GTAV_SLOT_STUB(Resource,2)
+GTAV_SLOT_STUB(Resource,3)
+GTAV_SLOT_STUB(Resource,4)
+GTAV_SLOT_STUB(Resource,5)
+GTAV_SLOT_STUB(Resource,6)
+GTAV_SLOT_STUB(Resource,7)
+GTAV_SLOT_STUB(Resource,8)
+GTAV_SLOT_STUB(Resource,9)
+GTAV_SLOT_STUB(Resource,10)
+GTAV_SLOT_STUB(Resource,11)
+GTAV_SLOT_STUB(Resource,12)
+GTAV_SLOT_STUB(Resource,13)
+GTAV_SLOT_STUB(Resource,14)
+GTAV_SLOT_STUB(Resource,15)
+GTAV_SLOT_STUB(View,0)
+GTAV_SLOT_STUB(View,1)
+GTAV_SLOT_STUB(View,2)
+GTAV_SLOT_STUB(View,3)
+GTAV_SLOT_STUB(View,4)
+GTAV_SLOT_STUB(View,5)
+GTAV_SLOT_STUB(View,6)
+GTAV_SLOT_STUB(View,7)
+GTAV_SLOT_STUB(View,8)
+GTAV_SLOT_STUB(View,9)
+GTAV_SLOT_STUB(View,10)
+GTAV_SLOT_STUB(View,11)
+GTAV_SLOT_STUB(View,12)
+GTAV_SLOT_STUB(View,13)
+GTAV_SLOT_STUB(View,14)
+GTAV_SLOT_STUB(View,15)
+GTAV_SLOT_STUB(State,0)
+GTAV_SLOT_STUB(State,1)
+GTAV_SLOT_STUB(State,2)
+GTAV_SLOT_STUB(State,3)
+GTAV_SLOT_STUB(State,4)
+GTAV_SLOT_STUB(State,5)
+GTAV_SLOT_STUB(State,6)
+GTAV_SLOT_STUB(State,7)
+GTAV_SLOT_STUB(State,8)
+GTAV_SLOT_STUB(State,9)
+GTAV_SLOT_STUB(State,10)
+GTAV_SLOT_STUB(State,11)
+GTAV_SLOT_STUB(State,12)
+GTAV_SLOT_STUB(State,13)
+GTAV_SLOT_STUB(State,14)
+GTAV_SLOT_STUB(State,15)
+GTAV_SLOT_STUB(Query,0)
+GTAV_SLOT_STUB(Query,1)
+GTAV_SLOT_STUB(Query,2)
+GTAV_SLOT_STUB(Query,3)
+GTAV_SLOT_STUB(Query,4)
+GTAV_SLOT_STUB(Query,5)
+GTAV_SLOT_STUB(Query,6)
+GTAV_SLOT_STUB(Query,7)
+GTAV_SLOT_STUB(Query,8)
+GTAV_SLOT_STUB(Query,9)
+GTAV_SLOT_STUB(Query,10)
+GTAV_SLOT_STUB(Query,11)
+GTAV_SLOT_STUB(Query,12)
+GTAV_SLOT_STUB(Query,13)
+GTAV_SLOT_STUB(Query,14)
+GTAV_SLOT_STUB(Query,15)
+GTAV_SLOT_STUB(BackBuffer,0)
+GTAV_SLOT_STUB(BackBuffer,1)
+GTAV_SLOT_STUB(BackBuffer,2)
+GTAV_SLOT_STUB(BackBuffer,3)
+GTAV_SLOT_STUB(BackBuffer,4)
+GTAV_SLOT_STUB(BackBuffer,5)
+GTAV_SLOT_STUB(BackBuffer,6)
+GTAV_SLOT_STUB(BackBuffer,7)
+GTAV_SLOT_STUB(BackBuffer,8)
+GTAV_SLOT_STUB(BackBuffer,9)
+GTAV_SLOT_STUB(BackBuffer,10)
+GTAV_SLOT_STUB(BackBuffer,11)
+GTAV_SLOT_STUB(BackBuffer,12)
+GTAV_SLOT_STUB(BackBuffer,13)
+GTAV_SLOT_STUB(BackBuffer,14)
+GTAV_SLOT_STUB(BackBuffer,15)
+GTAV_SLOT_STUB(DXGIDevice,0)
+GTAV_SLOT_STUB(DXGIDevice,1)
+GTAV_SLOT_STUB(DXGIDevice,2)
+GTAV_SLOT_STUB(DXGIDevice,3)
+GTAV_SLOT_STUB(DXGIDevice,4)
+GTAV_SLOT_STUB(DXGIDevice,5)
+GTAV_SLOT_STUB(DXGIDevice,6)
+GTAV_SLOT_STUB(DXGIDevice,7)
+GTAV_SLOT_STUB(DXGIDevice,8)
+GTAV_SLOT_STUB(DXGIDevice,9)
+GTAV_SLOT_STUB(DXGIDevice,10)
+GTAV_SLOT_STUB(DXGIDevice,11)
+GTAV_SLOT_STUB(DXGIDevice,12)
+GTAV_SLOT_STUB(DXGIDevice,13)
+GTAV_SLOT_STUB(DXGIDevice,14)
+GTAV_SLOT_STUB(DXGIDevice,15)
+
 GTAV_SLOT_STUB(Device,3)
 GTAV_SLOT_STUB(Device,4)
 GTAV_SLOT_STUB(Device,5)
@@ -565,13 +662,13 @@ static void compatViewGetDesc(void* self,void* out){
 static void initCompatResourceVtables(){
   static bool once=false;if(once)return;once=true;
   void** tables[]={gCompatBufferVtable,gCompatTexture1DVtable,gCompatTexture2DVtable,gCompatTexture3DVtable};
-  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;t[7]=(void*)compatResourceGetType;t[8]=(void*)compatResourceSetEvictionPriority;t[9]=(void*)compatResourceGetEvictionPriority;}
+  for(void** t:tables){for(int i=0;i<16;i++){static void* slots[16]={(void*)compatResourceSlot0,(void*)compatResourceSlot1,(void*)compatResourceSlot2,(void*)compatResourceSlot3,(void*)compatResourceSlot4,(void*)compatResourceSlot5,(void*)compatResourceSlot6,(void*)compatResourceSlot7,(void*)compatResourceSlot8,(void*)compatResourceSlot9,(void*)compatResourceSlot10,(void*)compatResourceSlot11,(void*)compatResourceSlot12,(void*)compatResourceSlot13,(void*)compatResourceSlot14,(void*)compatResourceSlot15};t[i]=slots[i];}t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;t[7]=(void*)compatResourceGetType;t[8]=(void*)compatResourceSetEvictionPriority;t[9]=(void*)compatResourceGetEvictionPriority;}
   // ID3D11Buffer::GetDesc slot 10; Texture1D/2D/3D GetDesc slots 10/10/10.
   gCompatBufferVtable[10]=(void*)compatResourceGetDesc;
   gCompatTexture1DVtable[10]=(void*)compatResourceGetDesc;
   gCompatTexture2DVtable[10]=(void*)compatResourceGetDesc;
   gCompatTexture3DVtable[10]=(void*)compatResourceGetDesc;
-  for(void*& p:gCompatViewVtable)p=(void*)compatD3DUnsupported;
+  {void* slots[16]={(void*)compatViewSlot0,(void*)compatViewSlot1,(void*)compatViewSlot2,(void*)compatViewSlot3,(void*)compatViewSlot4,(void*)compatViewSlot5,(void*)compatViewSlot6,(void*)compatViewSlot7,(void*)compatViewSlot8,(void*)compatViewSlot9,(void*)compatViewSlot10,(void*)compatViewSlot11,(void*)compatViewSlot12,(void*)compatViewSlot13,(void*)compatViewSlot14,(void*)compatViewSlot15};for(int i=0;i<16;i++)gCompatViewVtable[i]=slots[i];}
   gCompatViewVtable[0]=(void*)compatChildQI; gCompatViewVtable[1]=(void*)compatChildAddRef; gCompatViewVtable[2]=(void*)compatChildRelease;
   gCompatViewVtable[3]=(void*)compatChildGetDevice; gCompatViewVtable[4]=(void*)compatChildGetPrivateData; gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[6]=(void*)compatChildSetPrivateDataInterface; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
 }
@@ -671,8 +768,8 @@ static uint32_t compatQueryGetDataSize(void* self){return self?compatQueryDataSi
 static void compatQueryGetDesc(void* self,void* out){ if(self&&out){auto* q=(CompatQueryObject*)self;((uint32_t*)out)[0]=q->query;((uint32_t*)out)[1]=q->miscFlags;} }
 static void initCompatStateVtables(){
   static bool once=false;if(once)return;once=true;
-  for(void*& p:gCompatStateVtable)p=(void*)compatD3DUnsupported;
-  for(void*& p:gCompatQueryVtable)p=(void*)compatD3DUnsupported;
+  {void* slots[16]={(void*)compatStateSlot0,(void*)compatStateSlot1,(void*)compatStateSlot2,(void*)compatStateSlot3,(void*)compatStateSlot4,(void*)compatStateSlot5,(void*)compatStateSlot6,(void*)compatStateSlot7,(void*)compatStateSlot8,(void*)compatStateSlot9,(void*)compatStateSlot10,(void*)compatStateSlot11,(void*)compatStateSlot12,(void*)compatStateSlot13,(void*)compatStateSlot14,(void*)compatStateSlot15};for(int i=0;i<16;i++)gCompatStateVtable[i]=slots[i];}
+  {void* slots[16]={(void*)compatQuerySlot0,(void*)compatQuerySlot1,(void*)compatQuerySlot2,(void*)compatQuerySlot3,(void*)compatQuerySlot4,(void*)compatQuerySlot5,(void*)compatQuerySlot6,(void*)compatQuerySlot7,(void*)compatQuerySlot8,(void*)compatQuerySlot9,(void*)compatQuerySlot10,(void*)compatQuerySlot11,(void*)compatQuerySlot12,(void*)compatQuerySlot13,(void*)compatQuerySlot14,(void*)compatQuerySlot15};for(int i=0;i<16;i++)gCompatQueryVtable[i]=slots[i];}
   for(void** t:{gCompatStateVtable,gCompatQueryVtable}){t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
   gCompatStateVtable[7]=(void*)compatStateGetDesc;
   gCompatQueryVtable[7]=(void*)compatQueryGetDataSize;
@@ -913,7 +1010,7 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[2]=(void*)compatD3DRelease;
   // RetrieveVideoMemory exact trace:
   // device QI -> returned interface slot 6/+0x30 GetParent -> adapter slot 8/+0x40 GetDesc.
-  for(void*& p:gDXGIDeviceVtable) p=(void*)compatD3DUnsupported;
+  {void* slots[16]={(void*)compatDXGIDeviceSlot0,(void*)compatDXGIDeviceSlot1,(void*)compatDXGIDeviceSlot2,(void*)compatDXGIDeviceSlot3,(void*)compatDXGIDeviceSlot4,(void*)compatDXGIDeviceSlot5,(void*)compatDXGIDeviceSlot6,(void*)compatDXGIDeviceSlot7,(void*)compatDXGIDeviceSlot8,(void*)compatDXGIDeviceSlot9,(void*)compatDXGIDeviceSlot10,(void*)compatDXGIDeviceSlot11,(void*)compatDXGIDeviceSlot12,(void*)compatDXGIDeviceSlot13,(void*)compatDXGIDeviceSlot14,(void*)compatDXGIDeviceSlot15};for(int i=0;i<16;i++)gDXGIDeviceVtable[i]=slots[i];}
   gDXGIDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gDXGIDeviceVtable[1]=(void*)compatD3DAddRef;
   gDXGIDeviceVtable[2]=(void*)compatD3DRelease;
@@ -1050,7 +1147,7 @@ static void compatBackBufferGetDesc(void*,void* desc) {
 }
 static void initCompatBackBuffer(){
   static bool once=false;if(once)return;once=true;
-  for(void*& p:gBackBufferVtable)p=(void*)compatD3DUnsupported;
+  {void* slots[16]={(void*)compatBackBufferSlot0,(void*)compatBackBufferSlot1,(void*)compatBackBufferSlot2,(void*)compatBackBufferSlot3,(void*)compatBackBufferSlot4,(void*)compatBackBufferSlot5,(void*)compatBackBufferSlot6,(void*)compatBackBufferSlot7,(void*)compatBackBufferSlot8,(void*)compatBackBufferSlot9,(void*)compatBackBufferSlot10,(void*)compatBackBufferSlot11,(void*)compatBackBufferSlot12,(void*)compatBackBufferSlot13,(void*)compatBackBufferSlot14,(void*)compatBackBufferSlot15};for(int i=0;i<16;i++)gBackBufferVtable[i]=slots[i];}
   gBackBufferVtable[0]=(void*)compatBackBufferQI;
   gBackBufferVtable[1]=(void*)compatBackBufferAddRef;
   gBackBufferVtable[2]=(void*)compatBackBufferRelease;
