@@ -61,7 +61,9 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
  signal(sig,SIG_DFL);syscall(SYS_tgkill,getpid(),syscall(SYS_gettid),sig);
 }
 __attribute__((constructor)) static void install(){
- ensureDir();int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
+ ensureDir();
+ setenv("GTAV_VULKAN_BACKEND","native",1);
+ int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
  struct sigaction sa{};sa.sa_sigaction=crashHandler;sigemptyset(&sa.sa_mask);sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
  int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGTRAP};for(int s:sigs)sigaction(s,&sa,nullptr);checkpoint("diagnostic-installed");
 }
@@ -373,7 +375,7 @@ GTAV_SLOT_STUB(Context,63)
 // memcpy()s into MAPPED_SUBRESOURCE::pData. The generic E_NOTIMPL stub left
 // pData null, causing the libc memcpy crash at grcDevice::ResetClipPlanes+0xe4.
 struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
-alignas(64) static uint8_t gCompatMapScratch[4 * 1024 * 1024]{};
+alignas(4096) static uint8_t gCompatMapScratch[32 * 1024 * 1024]{};
 static int32_t compatD3DMap(void*, void*, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
   gtavdiag::checkpoint("compat-d3d11-map");
   if(!mapped) return (int32_t)0x80004003u;
@@ -447,6 +449,18 @@ static std::vector<CompatViewObject*> gCompatViews;
 static int32_t compatChildQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
 static uint32_t compatChildAddRef(void*){return 2;}
 static uint32_t compatChildRelease(void*){return 1;}
+static void compatResourceGetType(void* self,uint32_t* out){
+  if(!out)return;
+  if(!self){*out=0;return;}
+  auto* o=(CompatResourceObject*)self;
+  if(o->vtbl==gCompatBufferVtable)*out=1;
+  else if(o->vtbl==gCompatTexture1DVtable)*out=2;
+  else if(o->vtbl==gCompatTexture2DVtable)*out=3;
+  else if(o->vtbl==gCompatTexture3DVtable)*out=4;
+  else *out=0;
+}
+static void compatResourceSetEvictionPriority(void*,uint32_t){}
+static uint32_t compatResourceGetEvictionPriority(void*){return 0;}
 static void compatResourceGetDesc(void* self,void* out){
   gtavdiag::checkpoint("compat-resource-get-desc");
   if(self&&out){auto* o=(CompatResourceObject*)self;std::memcpy(out,o->desc,o->descSize);}
@@ -462,7 +476,7 @@ static void compatViewGetDesc(void* self,void* out){
 static void initCompatResourceVtables(){
   static bool once=false;if(once)return;once=true;
   void** tables[]={gCompatBufferVtable,gCompatTexture1DVtable,gCompatTexture2DVtable,gCompatTexture3DVtable};
-  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
+  for(void** t:tables){for(int i=0;i<16;i++)t[i]=(void*)compatD3DUnsupported;t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;t[7]=(void*)compatResourceGetType;t[8]=(void*)compatResourceSetEvictionPriority;t[9]=(void*)compatResourceGetEvictionPriority;}
   // ID3D11Buffer::GetDesc slot 10; Texture1D/2D/3D GetDesc slots 10/10/10.
   gCompatBufferVtable[10]=(void*)compatResourceGetDesc;
   gCompatTexture1DVtable[10]=(void*)compatResourceGetDesc;
@@ -516,6 +530,10 @@ static void* gCompatQueryVtable[16]{};
 static std::vector<CompatStateObject*> gCompatStates;
 static std::vector<CompatQueryObject*> gCompatQueries;
 static void compatStateGetDesc(void* self,void* out){ if(self&&out){auto* o=(CompatStateObject*)self;std::memcpy(out,o->desc,o->descSize);} }
+static uint32_t compatQueryDataSize(uint32_t q){
+  switch(q){case 0:return 4;case 1:case 2:return 8;case 3:return 16;case 4:return 88;case 5:return 4;case 6:return 16;case 7:return 4;default:return 8;}
+}
+static uint32_t compatQueryGetDataSize(void* self){return self?compatQueryDataSize(((CompatQueryObject*)self)->query):0;}
 static void compatQueryGetDesc(void* self,void* out){ if(self&&out){auto* q=(CompatQueryObject*)self;((uint32_t*)out)[0]=q->query;((uint32_t*)out)[1]=q->miscFlags;} }
 static void initCompatStateVtables(){
   static bool once=false;if(once)return;once=true;
@@ -523,7 +541,8 @@ static void initCompatStateVtables(){
   for(void*& p:gCompatQueryVtable)p=(void*)compatD3DUnsupported;
   for(void** t:{gCompatStateVtable,gCompatQueryVtable}){t[0]=(void*)compatChildQI;t[1]=(void*)compatChildAddRef;t[2]=(void*)compatChildRelease;t[5]=(void*)compatSetPrivateData;}
   gCompatStateVtable[7]=(void*)compatStateGetDesc;
-  gCompatQueryVtable[7]=(void*)compatQueryGetDesc;
+  gCompatQueryVtable[7]=(void*)compatQueryGetDataSize;
+  gCompatQueryVtable[8]=(void*)compatQueryGetDesc;
 }
 static int32_t makeCompatState(const void* desc,size_t bytes,void** out,const char* cp){
   gtavdiag::checkpoint(cp); if(!out)return (int32_t)0x80004003u; initCompatStateVtables();
@@ -543,8 +562,19 @@ static int32_t compatCreatePredicate(void* d,const void* q,void** out){gtavdiag:
 static void compatContextBegin(void*,void* q){gtavdiag::checkpoint("compat-d3d11-query-begin");if(q)((CompatQueryObject*)q)->ended.store(0);}
 static void compatContextEnd(void*,void* q){gtavdiag::checkpoint("compat-d3d11-query-end");if(q)((CompatQueryObject*)q)->ended.store(1);}
 static int32_t compatContextGetData(void*,void* q,void* data,uint32_t bytes,uint32_t){
-  gtavdiag::checkpoint("compat-d3d11-query-get-data");if(data&&bytes)std::memset(data,0,bytes);
-  if(data&&bytes>=4)*(uint32_t*)data=1;return (!q||((CompatQueryObject*)q)->ended.load())?0:1;
+  gtavdiag::checkpoint("compat-d3d11-query-get-data");
+  if(!q)return 0;
+  auto* cq=(CompatQueryObject*)q;
+  if(!cq->ended.load())return 1;
+  if(data&&bytes){
+    std::memset(data,0,bytes);
+    uint32_t need=compatQueryDataSize(cq->query);
+    if(bytes>=4 && (cq->query==0 || cq->query==5 || cq->query==7)) *(uint32_t*)data=1;
+    else if(bytes>=8 && (cq->query==1 || cq->query==2)) *(uint64_t*)data=1;
+    else if(cq->query==3 && bytes>=16){((uint64_t*)data)[0]=1000000000ull;((uint32_t*)data)[2]=0;}
+    (void)need;
+  }
+  return 0;
 }
 static int32_t compatCheckFormatSupport(void*,uint32_t,uint32_t* out){
   gtavdiag::checkpoint("compat-d3d11-check-format-support");if(!out)return (int32_t)0x80004003u;*out=0xffffffffu;return 0;
