@@ -1384,6 +1384,13 @@ static uint64_t graphicsStateKey(const RageMirrorState& s){
  h=hashMix(h,(uintptr_t)s.blendState);h=hashMix(h,(uintptr_t)s.depthState);h=hashMix(h,(uintptr_t)s.rasterState);
  for(unsigned i=0;i<s.rtvCount&&i<8;i++)h=hashMix(h,(uintptr_t)s.rtv[i]);
  for(unsigned i=0;i<16;i++){h=hashMix(h,(uintptr_t)s.vertexBuffers[i]);h=hashMix(h,s.strides[i]);h=hashMix(h,s.offsets[i]);}
+ // Descriptor layout depends on which fallback slots exist, but not on the
+ // identity of the resource in each slot. Hash presence masks so a pipeline
+ // layout is rebuilt only when the descriptor shape changes.
+ uint64_t m0=0,m1=0,m2=0;
+ for(unsigned i=0;i<16;i++){if(s.vsCB[i])m0|=1ull<<i;if(s.psCB[i])m0|=1ull<<(16+i);if(s.vsSampler[i])m1|=1ull<<i;if(s.psSampler[i])m1|=1ull<<(16+i);}
+ for(unsigned i=0;i<32;i++){if(s.vsSRV[i])m2|=1ull<<i;if(s.psSRV[i])m2|=1ull<<(32+i);}
+ h=hashMix(h,m0);h=hashMix(h,m1);h=hashMix(h,m2);
  return h;
 }
 
@@ -2302,6 +2309,31 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);rw=std::min(rw,(uint32_t)std::max(1.0f,v[0].width));float vh=v[0].height<0.0f?-v[0].height:v[0].height;rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
  VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=hasStencil?dp:nullptr;pBeginRendering(cb,&ri);return true;
 }
+static bool refreshCompatDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
+ if(!g.device||!desc)return false;
+ std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;
+ bis.reserve(32);iis.reserve(96);writes.reserve(128);
+ auto wb=[&](uint32_t binding,void* p){
+   if(!p)return;if(!mapCompatBuffer(p,NR_CBUFFER))return;uint64_t h=resolveMapped(p,NR_CBUFFER);if(!h)return;
+   auto* rr=(CompatResourceObject*)p;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)h,0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};
+   bis.push_back(bi);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;w.pBufferInfo=&bis.back();writes.push_back(w);
+ };
+ auto wi=[&](uint32_t binding,void* p){
+   if(!p)return;if(!mapWrappedImage(p,NR_SRV,false))return;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return;
+   VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);
+   VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;w.pImageInfo=&iis.back();writes.push_back(w);
+ };
+ auto ws=[&](uint32_t binding,void* p){
+   if(!p)return;if(!mapCompatSampler(p))return;VkSampler sm=(VkSampler)(uintptr_t)resolveMapped(p,NR_SAMPLER);if(!sm)return;
+   VkDescriptorImageInfo ii{};ii.sampler=sm;iis.push_back(ii);
+   VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;w.pImageInfo=&iis.back();writes.push_back(w);
+ };
+ for(uint32_t i=0;i<16;i++){if(m.vsCB[i])wb(compatDescriptorBinding(0,23,0,i),m.vsCB[i]);if(m.psCB[i])wb(compatDescriptorBinding(1,23,0,i),m.psCB[i]);}
+ for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])wi(compatDescriptorBinding(0,24,0,i),m.vsSRV[i]);if(m.psSRV[i])wi(compatDescriptorBinding(1,24,0,i),m.psSRV[i]);}
+ for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])ws(compatDescriptorBinding(0,22,0,i),m.vsSampler[i]);if(m.psSampler[i])ws(compatDescriptorBinding(1,22,0,i),m.psSampler[i]);}
+ if(!writes.empty())vkUpdateDescriptorSets(g.device,(uint32_t)writes.size(),writes.data(),0,nullptr);
+ return true;
+}
 static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool indexed){
  if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
  if(indexed&&!s.index_buffer)return false;
@@ -2310,6 +2342,7 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  // multi-stream vertex input identical to the RAGE/D3D state before a draw.
  RageMirrorState m{};
  {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ if(!refreshCompatDescriptors(m,s.descriptor_set)){gtavdiag::checkpoint("native-draw-fail-descriptor-refresh");return false;}
  VkBuffer vbs[16]{}; VkDeviceSize offsets[16]{};
  uint32_t last=0;
  for(uint32_t i=0;i<16;i++){
