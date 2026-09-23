@@ -580,46 +580,31 @@ static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
 // Returning E_NOTIMPL through the generic stub leaves the out-object undefined
 // and later crashes on Release. Return a tiny COM object instead; actual shader
 // execution is intercepted by the native Vulkan renderer hooks.
-struct CompatShaderObject { void** vtbl; };
-static CompatShaderObject gCompatShader{};
+struct CompatShaderObject { void** vtbl; std::vector<uint8_t> bytecode; };
+struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; };
 static void* gCompatShaderVtable[8]{};
-static int32_t compatShaderQI(void* self,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u; *out=self; return 0;
-}
+static void* gCompatInputLayoutVtable[8]{};
+static std::mutex gCompatShaderMutex;
+static std::vector<CompatShaderObject*> gCompatShaders;
+static std::vector<CompatInputLayoutObject*> gCompatInputLayouts;
+static int32_t compatShaderQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
 static uint32_t compatShaderAddRef(void*){return 2;}
 static uint32_t compatShaderRelease(void*){return 1;}
 static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*);
-struct CompatDeviceChildObject { void** vtbl; };
-static CompatDeviceChildObject gCompatDeviceChild{};
-static void* gCompatDeviceChildVtable[8]{};
-static int32_t compatDeviceChildQI(void* self,const void*,void** out){ if(!out)return (int32_t)0x80004003u; *out=self; return 0; }
-static uint32_t compatDeviceChildAddRef(void*){return 2;}
-static uint32_t compatDeviceChildRelease(void*){return 1;}
-static int32_t compatCreateInputLayout(void*,const void*,size_t,const void*,uint32_t,void** out){
-  gtavdiag::checkpoint("compat-d3d11-create-input-layout");
-  if(!out)return (int32_t)0x80004003u;
-  gCompatDeviceChildVtable[0]=(void*)compatDeviceChildQI;
-  gCompatDeviceChildVtable[1]=(void*)compatDeviceChildAddRef;
-  gCompatDeviceChildVtable[2]=(void*)compatDeviceChildRelease;
-  gCompatDeviceChildVtable[5]=(void*)compatSetPrivateData;
-  gCompatDeviceChild.vtbl=gCompatDeviceChildVtable;
-  *out=&gCompatDeviceChild;
-  return 0;
+static void initCompatShaderVtables(){
+ static bool once=false;if(once)return;once=true;
+ for(void** t:{gCompatShaderVtable,gCompatInputLayoutVtable}){t[0]=(void*)compatShaderQI;t[1]=(void*)compatShaderAddRef;t[2]=(void*)compatShaderRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
 }
-static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out){
-  gtavdiag::checkpoint("compat-d3d11-create-shader");
-  if(!out)return (int32_t)0x80004003u;
-  gCompatShaderVtable[0]=(void*)compatShaderQI;
-  gCompatShaderVtable[1]=(void*)compatShaderAddRef;
-  gCompatShaderVtable[2]=(void*)compatShaderRelease;
-  // ID3D11DeviceChild: GetDevice=3, GetPrivateData=4, SetPrivateData=5,
-  // SetPrivateDataInterface=6. PIX labels use slot 5 / +0x28.
-  gCompatShaderVtable[5]=(void*)compatSetPrivateData;
-  gCompatShader.vtbl=gCompatShaderVtable;
-  *out=&gCompatShader;
-  return 0;
+static int32_t compatCreateInputLayout(void*,const void*,size_t,const void* shader,size_t shaderBytes,void** out){
+ gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
+ auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
+ {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}*out=o;return 0;
 }
-
+static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void** out){
+ gtavdiag::checkpoint("compat-d3d11-create-shader");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
+ auto* o=new CompatShaderObject{};o->vtbl=gCompatShaderVtable;if(code&&bytes)o->bytecode.assign((const uint8_t*)code,(const uint8_t*)code+bytes);
+ {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatShaders.push_back(o);}*out=o;return 0;
+}
 
 // Minimal D3D11 resource/view shells used only for the engine bootstrap ABI.
 // They keep valid COM objects and descriptors alive while the actual draw path is
@@ -1555,6 +1540,7 @@ static VkCommandBuffer hookSubmissionBegin(void* self,bool external){
  VkCommandBuffer cb=origSubmissionBegin?origSubmissionBegin(self,external):VK_NULL_HANDLE;
  observedNativeCommandBuffer.store(cb,std::memory_order_release);
  static std::atomic<bool> once{false};
+ if(cb==VK_NULL_HANDLE)gtavdiag::checkpoint("native-submission-begin-null-cb");
  if(cb!=VK_NULL_HANDLE && !once.exchange(true,std::memory_order_acq_rel))
    __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","NATIVE-CB connected=%p",(void*)cb);
  return cb;
@@ -1824,7 +1810,26 @@ static bool mirroredStateComplete(void* ctx){
  std::lock_guard<std::mutex> l(mirrorMutex);
  auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()) return false;
  const auto& m=it->second;
- return m.inputLayout && m.vertexBuffers[0] && m.vs && m.ps && m.rtvCount>0 && m.rtv[0];
+ return m.vertexBuffers[0] && m.vs && m.ps && m.rtvCount>0 && m.rtv[0];
+}
+struct CompatOwnedBuffer { VkBuffer buffer{}; VkDeviceMemory memory{}; VkDeviceSize size{}; void* mapped{}; };
+static std::mutex compatBufferMutex;
+static std::unordered_map<uint64_t,CompatOwnedBuffer> compatOwnedBuffers;
+static bool mapCompatBuffer(void* p,uint32_t kind){
+ if(!p||!g.device||!g.physical)return false;auto* r=(CompatResourceObject*)p;if(r->vtbl!=gCompatBufferVtable)return false;
+ if(gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)p,kind))return true;
+ VkDeviceSize size=r->backing.size();if(r->descSize>=4){uint32_t declared=*(uint32_t*)r->desc;if(declared>size)size=declared;}if(!size)size=256;
+ std::lock_guard<std::mutex> l(compatBufferMutex);auto it=compatOwnedBuffers.find((uint64_t)(uintptr_t)p);
+ if(it==compatOwnedBuffers.end()){
+   VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=size;bi.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+   CompatOwnedBuffer ob{};if(vkCreateBuffer(g.device,&bi,nullptr,&ob.buffer)!=VK_SUCCESS)return false;VkMemoryRequirements mr{};vkGetBufferMemoryRequirements(g.device,ob.buffer,&mr);
+   uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX){vkDestroyBuffer(g.device,ob.buffer,nullptr);return false;}
+   VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;
+   if(vkAllocateMemory(g.device,&ai,nullptr,&ob.memory)!=VK_SUCCESS||vkBindBufferMemory(g.device,ob.buffer,ob.memory,0)!=VK_SUCCESS){if(ob.memory)vkFreeMemory(g.device,ob.memory,nullptr);vkDestroyBuffer(g.device,ob.buffer,nullptr);return false;}
+   ob.size=size;if(vkMapMemory(g.device,ob.memory,0,size,0,&ob.mapped)!=VK_SUCCESS)ob.mapped=nullptr;it=compatOwnedBuffers.emplace((uint64_t)(uintptr_t)p,ob).first;gtavdiag::checkpoint("native-compat-buffer-created");
+ }
+ if(it->second.mapped&&!r->backing.empty())std::memcpy(it->second.mapped,r->backing.data(),std::min<size_t>(r->backing.size(),(size_t)it->second.size));
+ return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)it->second.buffer,kind,1);
 }
 static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!s){gtavdiag::checkpoint("native-draw-fail-null-state");return false;}
@@ -1853,9 +1858,10 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
    if(m.psSRV[i]){if(!mapWrappedImage(m.psSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.psSRV[i]))return false;}
    if(m.csSRV[i]){if(!mapWrappedImage(m.csSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.csSRV[i]))return false;}
  }
+ for(unsigned i=0;i<16;i++)if(m.vertexBuffers[i])mapCompatBuffer(m.vertexBuffers[i],NR_VERTEX_BUFFER);
+ if(m.indexBuffer)mapCompatBuffer(m.indexBuffer,NR_INDEX_BUFFER);
+ for(unsigned i=0;i<16;i++){if(m.vsCB[i])mapCompatBuffer(m.vsCB[i],NR_CBUFFER);if(m.psCB[i])mapCompatBuffer(m.psCB[i],NR_CBUFFER);if(m.csCB[i])mapCompatBuffer(m.csCB[i],NR_CBUFFER);}
  captureMappedState(ctx,m);
- VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
- if(cb==VK_NULL_HANDLE){gtavdiag::checkpoint("native-draw-fail-command-buffer");return false;}
  uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
  uint64_t vs=resolveMapped(m.vs,NR_VS), ps=resolveMapped(m.ps,NR_PS);
  uint64_t rt=resolveMapped(m.rtv[0],NR_RTV);
@@ -1872,17 +1878,20 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!pipe){gtavdiag::checkpoint("native-draw-fail-pipeline");return false;}
  if(!layout){gtavdiag::checkpoint("native-draw-fail-pipeline-layout");return false;}
  if(!desc){gtavdiag::checkpoint("native-draw-fail-descriptor");return false;}
- if(m.indexBuffer && !resolveMapped(m.indexBuffer,NR_INDEX_BUFFER)) return false;
- for(unsigned i=0;i<16;i++) if(m.vertexBuffers[i] && !resolveMapped(m.vertexBuffers[i],NR_VERTEX_BUFFER)) return false;
+ VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
+ if(cb==VK_NULL_HANDLE){gtavdiag::checkpoint("native-draw-fail-command-buffer");return false;}
+
+ if(m.indexBuffer&&!resolveMapped(m.indexBuffer,NR_INDEX_BUFFER)){gtavdiag::checkpoint("native-draw-fail-map-ib");return false;}
+ for(unsigned i=0;i<16;i++)if(m.vertexBuffers[i]&&!resolveMapped(m.vertexBuffers[i],NR_VERTEX_BUFFER)){gtavdiag::checkpoint("native-draw-fail-map-vb-extra");return false;}
  for(unsigned i=0;i<16;i++) {
-   if(m.vsCB[i]&&!resolveMapped(m.vsCB[i],NR_CBUFFER))return false;
-   if(m.psCB[i]&&!resolveMapped(m.psCB[i],NR_CBUFFER))return false;
-   if(m.vsSampler[i]&&!resolveMapped(m.vsSampler[i],NR_SAMPLER))return false;
-   if(m.psSampler[i]&&!resolveMapped(m.psSampler[i],NR_SAMPLER))return false;
+   if(m.vsCB[i]&&!resolveMapped(m.vsCB[i],NR_CBUFFER)){gtavdiag::checkpoint("native-draw-fail-map-vscb");return false;}
+   if(m.psCB[i]&&!resolveMapped(m.psCB[i],NR_CBUFFER)){gtavdiag::checkpoint("native-draw-fail-map-pscb");return false;}
+   if(m.vsSampler[i]&&!resolveMapped(m.vsSampler[i],NR_SAMPLER)){gtavdiag::checkpoint("native-draw-fail-map-vssampler");return false;}
+   if(m.psSampler[i]&&!resolveMapped(m.psSampler[i],NR_SAMPLER)){gtavdiag::checkpoint("native-draw-fail-map-pssampler");return false;}
  }
  for(unsigned i=0;i<32;i++) {
-   if(m.vsSRV[i]&&!resolveMapped(m.vsSRV[i],NR_SRV))return false;
-   if(m.psSRV[i]&&!resolveMapped(m.psSRV[i],NR_SRV))return false;
+   if(m.vsSRV[i]&&!resolveMapped(m.vsSRV[i],NR_SRV)){gtavdiag::checkpoint("native-draw-fail-map-vssrv");return false;}
+   if(m.psSRV[i]&&!resolveMapped(m.psSRV[i],NR_SRV)){gtavdiag::checkpoint("native-draw-fail-map-pssrv");return false;}
  }
  std::memset(s,0,sizeof(*s));
  s->command_buffer=cb;
