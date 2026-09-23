@@ -1465,6 +1465,19 @@ static OrigDraw origDraw{}; static OrigDrawIndexed origDrawIndexed{}; static Ori
 using OrigSubmissionBegin=VkCommandBuffer(*)(void*,bool);
 static OrigSubmissionBegin origSubmissionBegin{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
+static thread_local VkCommandBuffer tlsNativeCommandBuffer=VK_NULL_HANDLE;
+static std::atomic<uint64_t> observedCommandBufferEpoch{0};
+static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source){
+ if(!cb)return;
+ tlsNativeCommandBuffer=cb;
+ publishNativeCommandBuffer(cb,"native-command-buffer-submission");
+ uint64_t e=observedCommandBufferEpoch.fetch_add(1,std::memory_order_relaxed)+1;
+ if(e<=8 || (e%2048)==0)gtavdiag::checkpoint(source);
+}
+static inline VkCommandBuffer currentNativeCommandBuffer(){
+ if(tlsNativeCommandBuffer)return tlsNativeCommandBuffer;
+ return observedNativeCommandBuffer.load(std::memory_order_acquire);
+}
 struct NativeWrappedImage {
  VkImage image;
  uint32_t format;
@@ -1978,7 +1991,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!pipe){gtavdiag::checkpoint("native-draw-fail-pipeline");return false;}
  if(!layout){gtavdiag::checkpoint("native-draw-fail-pipeline-layout");return false;}
  if(!desc){gtavdiag::checkpoint("native-draw-fail-descriptor");return false;}
- VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
+ VkCommandBuffer cb=currentNativeCommandBuffer();
  if(cb==VK_NULL_HANDLE){gtavdiag::checkpoint("native-draw-fail-command-buffer");return false;}
 
  if(m.indexBuffer&&!resolveMapped(m.indexBuffer,NR_INDEX_BUFFER)){gtavdiag::checkpoint("native-draw-fail-map-ib");return false;}
