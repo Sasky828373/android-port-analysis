@@ -3,6 +3,10 @@ name: Build XHYN Vulkan Hybrid Performance
 
 on:
   workflow_dispatch:
+  push:
+    branches: [hybrid-apk-unpacked]
+    paths:
+      - ".github/trigger-build"
 
 
 permissions:
