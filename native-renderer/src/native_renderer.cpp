@@ -605,6 +605,14 @@ static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void
  auto* o=new CompatShaderObject{};o->vtbl=gCompatShaderVtable;if(code&&bytes)o->bytecode.assign((const uint8_t*)code,(const uint8_t*)code+bytes);
  {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatShaders.push_back(o);}*out=o;return 0;
 }
+static bool compatShaderObject(void* p){
+ if(!p)return false;std::lock_guard<std::mutex> l(gCompatShaderMutex);
+ return std::find(gCompatShaders.begin(),gCompatShaders.end(),(CompatShaderObject*)p)!=gCompatShaders.end();
+}
+static bool compatShaderIsSpirv(const CompatShaderObject* s){
+ if(!s||s->bytecode.size()<20||(s->bytecode.size()&3))return false;
+ uint32_t magic=0;std::memcpy(&magic,s->bytecode.data(),sizeof(magic));return magic==0x07230203u;
+}
 
 // Minimal D3D11 resource/view shells used only for the engine bootstrap ABI.
 // They keep valid COM objects and descriptors alive while the actual draw path is
@@ -1779,6 +1787,31 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
 static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
+static std::mutex compatShaderMapMutex;
+static std::unordered_map<uint64_t,VkShaderModule> compatShaderModules;
+static bool mapCompatShader(void* p,uint32_t kind){
+ if(!p||!g.device||(kind!=NR_VS&&kind!=NR_PS&&kind!=NR_CS))return false;
+ if(gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)p,kind))return true;
+ if(!compatShaderObject(p)){gtavdiag::checkpoint("native-shader-not-compat-object");return false;}
+ auto* s=(CompatShaderObject*)p;
+ if(!compatShaderIsSpirv(s)){
+   // D3D11 Create*Shader normally receives DXBC/DXIL. Vulkan cannot consume that
+   // bytecode directly; never reinterpret it as SPIR-V or pass a fake module.
+   if(s->bytecode.size()>=4&&s->bytecode[0]=='D'&&s->bytecode[1]=='X'&&s->bytecode[2]=='B'&&s->bytecode[3]=='C')
+     gtavdiag::checkpoint("native-shader-bytecode-dxbc");
+   else gtavdiag::checkpoint("native-shader-bytecode-not-spirv");
+   return false;
+ }
+ const uint64_t key=(uint64_t)(uintptr_t)p;std::lock_guard<std::mutex> l(compatShaderMapMutex);
+ auto it=compatShaderModules.find(key);VkShaderModule m=VK_NULL_HANDLE;
+ if(it!=compatShaderModules.end())m=it->second;
+ else {
+   m=gtav_native_renderer_create_shader_module((const uint32_t*)s->bytecode.data(),s->bytecode.size());
+   if(!m){gtavdiag::checkpoint("native-shader-module-create-failed");return false;}
+   compatShaderModules[key]=m;gtavdiag::checkpoint("native-shader-module-created");
+ }
+ return gtav_native_renderer_register_resource(key,(uint64_t)(uintptr_t)m,kind,1);
+}
 static void captureMappedState(void* ctx,const RageMirrorState& m){
  auto reg=[&](const char* tag,void* rage,uint32_t kind){
    if(!rage)return;
@@ -1858,6 +1891,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
    if(m.psSRV[i]){if(!mapWrappedImage(m.psSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.psSRV[i]))return false;}
    if(m.csSRV[i]){if(!mapWrappedImage(m.csSRV[i],NR_SRV,false))return false;if(!gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.csSRV[i]))return false;}
  }
+ mapCompatShader(m.vs,NR_VS);mapCompatShader(m.ps,NR_PS);if(m.cs)mapCompatShader(m.cs,NR_CS);
  for(unsigned i=0;i<16;i++)if(m.vertexBuffers[i])mapCompatBuffer(m.vertexBuffers[i],NR_VERTEX_BUFFER);
  if(m.indexBuffer)mapCompatBuffer(m.indexBuffer,NR_INDEX_BUFFER);
  for(unsigned i=0;i<16;i++){if(m.vsCB[i])mapCompatBuffer(m.vsCB[i],NR_CBUFFER);if(m.psCB[i])mapCompatBuffer(m.psCB[i],NR_CBUFFER);if(m.csCB[i])mapCompatBuffer(m.csCB[i],NR_CBUFFER);}
