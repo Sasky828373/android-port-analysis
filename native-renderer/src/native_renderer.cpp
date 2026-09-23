@@ -1690,10 +1690,31 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){
  bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
  uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
+
+ // Hook installation was deliberately removed from the ELF constructor because
+ // libgtav's graphics bootstrap is not ready there. Present is the first verified
+ // late point where the native Vulkan runtime is alive, so arm the draw cutover here.
+ static std::atomic<bool> hookAttempted{false};
+ if(attached && !drawHooksInstalled.load(std::memory_order_acquire) &&
+    !hookAttempted.exchange(true,std::memory_order_acq_rel)){
+   gtavdiag::checkpoint("native-draw-hooks-install-attempt");
+   bool hooks=gtav_native_renderer_install_draw_hooks();
+   gtavdiag::checkpoint(hooks?"native-draw-hooks-installed":"native-draw-hooks-failed");
+   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","late draw hooks installed=%d",hooks?1:0);
+ }
+
  if(frame<=8 || (frame%120)==0){
+   uint64_t native=nativeDraws.load(std::memory_order_relaxed)+nativeIndexedDraws.load(std::memory_order_relaxed)+nativeDispatches.load(std::memory_order_relaxed);
+   uint64_t fallback=fallbackDraws.load(std::memory_order_relaxed);
+   VkCommandBuffer cb=observedNativeCommandBuffer.load(std::memory_order_acquire);
    gtavdiag::checkpoint(attached?"native-frame-attached":"native-frame-unattached");
-   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","frame=%llu attached=%d device=%p queue=%p hooks=%d",
-     (unsigned long long)frame,attached?1:0,(void*)g.device,(void*)g.queue,drawHooksInstalled.load(std::memory_order_acquire)?1:0);
+   if(drawHooksInstalled.load(std::memory_order_acquire))
+     gtavdiag::checkpoint(cb?"native-draw-path-command-buffer":"native-draw-path-waiting-command-buffer");
+   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT",
+     "frame=%llu attached=%d device=%p queue=%p hooks=%d cb=%p native=%llu fallback=%llu",
+     (unsigned long long)frame,attached?1:0,(void*)g.device,(void*)g.queue,
+     drawHooksInstalled.load(std::memory_order_acquire)?1:0,(void*)cb,
+     (unsigned long long)native,(unsigned long long)fallback);
  }
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_ready(){
