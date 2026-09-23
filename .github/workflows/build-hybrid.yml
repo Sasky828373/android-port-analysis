@@ -1178,6 +1178,26 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Resolve post-video-memory callers precisely
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-video-memory-exact
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # The previous grep mixed symbol bodies with textual matches. Emit bounded
+          # functions and direct BL callsites around the confirmed bootstrap region.
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x615995c "$LIB" > "$OUT/initclass-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1c80 --stop-address=0x61b1f40 "$LIB" > "$OUT/device-helper-window.txt"
+          grep -n -B24 -A70 -E 'bl[[:space:]]+0x61b1|blr|#0x10\]|cbz|cbnz|tbz|tbnz' "$OUT/initclass-full.txt" > "$OUT/initclass-consumers.txt" || true
+          grep -n -B20 -A60 -E 'blr|#0x10\]|ret|bl[[:space:]]' "$OUT/device-helper-window.txt" > "$OUT/helper-consumers.txt" || true
+
+      - name: Upload exact post-video-memory callers
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-video-memory-exact-${{ github.run_number }}
+          path: hybrid-report/post-video-memory-exact/
+
       - name: Trace post-RetrieveVideoMemory crash path
         run: |
           set -euo pipefail
