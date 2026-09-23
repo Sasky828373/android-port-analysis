@@ -1517,6 +1517,12 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
    if(original!=rage)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)original,existing,kind,1);
    return true;
  }
+ // Compat D3D objects are our own shells, not RAGE native wrapper objects.
+ // Materialize a real Vulkan image for them instead of passing their address
+ // into grcTexture/grcRenderTarget wrapper code.
+ bool compatObject=(rage==&gCompatBackBuffer);
+ if(!compatObject){auto* rr=(CompatResourceObject*)rage;compatObject=(rr->vtbl==gCompatTexture2DVtable);}
+ if(compatObject && createCompatOwnedImage(rage,kind,original))return true;
  resolveNativeMappingFns();
  NativeWrappedImage w{};
  if(renderTarget){if(!rageWrapRenderTarget)return false;rageWrapRenderTarget(rage,&w);}
@@ -1694,6 +1700,45 @@ struct NativeImageMeta { VkImage image{}; VkFormat format{VK_FORMAT_UNDEFINED}; 
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static std::unordered_map<uint64_t,VkImageView> imageViews;
+struct CompatOwnedImage { VkImage image{}; VkDeviceMemory memory{}; VkFormat format{VK_FORMAT_R8G8B8A8_UNORM}; VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT}; };
+static std::unordered_map<uint64_t,CompatOwnedImage> compatOwnedImages;
+static uint32_t compatMemoryType(uint32_t bits,VkMemoryPropertyFlags wanted){
+ VkPhysicalDeviceMemoryProperties mp{};vkGetPhysicalDeviceMemoryProperties(g.physical,&mp);
+ for(uint32_t i=0;i<mp.memoryTypeCount;i++)if((bits&(1u<<i))&&((mp.memoryTypes[i].propertyFlags&wanted)==wanted))return i;
+ for(uint32_t i=0;i<mp.memoryTypeCount;i++)if(bits&(1u<<i))return i;
+ return UINT32_MAX;
+}
+static VkFormat compatDxgiFormat(uint32_t f){
+ switch(f){case 28:return VK_FORMAT_R8G8B8A8_UNORM;case 29:return VK_FORMAT_R8G8B8A8_SRGB;case 87:return VK_FORMAT_B8G8R8A8_UNORM;case 88:return VK_FORMAT_B8G8R8A8_UNORM;case 40:return VK_FORMAT_D32_SFLOAT;case 45:return VK_FORMAT_D24_UNORM_S8_UINT;default:return VK_FORMAT_R8G8B8A8_UNORM;}
+}
+static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
+ if(!resource||!publish||!g.device||!g.physical)return false;
+ const uint64_t key=(uint64_t)(uintptr_t)resource;
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it!=compatOwnedImages.end()){
+   gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)it->second.image,kind,1);
+   imageMeta[(uint64_t)(uintptr_t)publish]={it->second.image,it->second.format,it->second.aspect};return true;
+ }}
+ uint32_t w=0,h=0,fmt=28;bool depth=(kind==NR_DSV);
+ if(resource==&gCompatBackBuffer){w=gCompatSwapWidth.load();h=gCompatSwapHeight.load();fmt=gCompatSwapFormat.load();}
+ else {
+   auto* r=(CompatResourceObject*)resource;
+   if(r->vtbl==gCompatTexture2DVtable&&r->descSize>=20){auto* d=(uint32_t*)r->desc;w=d[0];h=d[1];fmt=d[4];}
+   else return false;
+ }
+ if(!w||!h)return false;
+ VkFormat vf=compatDxgiFormat(fmt);VkImageAspectFlags aspect=depth?(vf==VK_FORMAT_D24_UNORM_S8_UINT?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_DEPTH_BIT):VK_IMAGE_ASPECT_COLOR_BIT;
+ VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=vf;ci.extent={w,h,1};ci.mipLevels=1;ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
+ ci.usage=depth?(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT):(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT);ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+ VkImage img{};if(vkCreateImage(g.device,&ci,nullptr,&img)!=VK_SUCCESS)return false;
+ VkMemoryRequirements mr{};vkGetImageMemoryRequirements(g.device,img,&mr);uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(mt==UINT32_MAX){vkDestroyImage(g.device,img,nullptr);return false;}
+ VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;VkDeviceMemory mem{};
+ if(vkAllocateMemory(g.device,&ai,nullptr,&mem)!=VK_SUCCESS||vkBindImageMemory(g.device,img,mem,0)!=VK_SUCCESS){if(mem)vkFreeMemory(g.device,mem,nullptr);vkDestroyImage(g.device,img,nullptr);return false;}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);compatOwnedImages[key]={img,mem,vf,aspect};imageMeta[(uint64_t)(uintptr_t)publish]={img,vf,aspect};}
+ gtav_native_renderer_register_resource((uint64_t)(uintptr_t)resource,(uint64_t)(uintptr_t)img,kind,1);
+ gtav_native_renderer_register_resource((uint64_t)(uintptr_t)publish,(uint64_t)(uintptr_t)img,kind,1);
+ gtavdiag::checkpoint("native-compat-image-created");return true;
+}
+
 static void invalidateImageResource(uint64_t rage){
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto v=imageViews.find(rage);
