@@ -1436,8 +1436,8 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
  VkResult poolResult=vkCreateCommandPool(d,&ci,nullptr,&g.commands); if(poolResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateCommandPool failed=%d family=%u",(int)poolResult,family);g.commands=VK_NULL_HANDLE;return false;}
- VkDescriptorPoolSize s[]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,4096},{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,8192},{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,2048},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,2048}};
- VkDescriptorPoolCreateInfo di{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};di.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;di.maxSets=8192;di.poolSizeCount=4;di.pPoolSizes=s;
+ VkDescriptorPoolSize s[]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,8192},{VK_DESCRIPTOR_TYPE_SAMPLER,8192},{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,16384},{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,4096},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,4096},{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,2048},{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,2048}};
+ VkDescriptorPoolCreateInfo di{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};di.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;di.maxSets=8192;di.poolSizeCount=7;di.pPoolSizes=s;
  VkResult descResult=vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors); if(descResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateDescriptorPool failed=%d",(int)descResult);vkDestroyCommandPool(d,g.commands,nullptr);g.commands=VK_NULL_HANDLE;g.descriptors=VK_NULL_HANDLE;return false;} return true;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
@@ -1909,13 +1909,29 @@ static uint64_t resolveMapped(void* rage,uint32_t kind){
  return rage?gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind):0;
 }
 #if GTAV_HAVE_DXBC_SPIRV
-static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,std::vector<uint32_t>& out){
+static uint32_t compatDescriptorBinding(uint32_t stage,uint32_t type,uint32_t space,uint32_t reg){
+ uint32_t base=stage*128u+space*512u;
+ switch(type){case 23:return base+reg;case 24:return base+32u+reg;case 22:return base+64u+reg;case 25:return base+96u+reg;case 26:return base+112u+reg;default:return base+120u+reg;}
+}
+class CompatResourceMapping final: public dxbc_spv::spirv::ResourceMapping {
+public:
+ explicit CompatResourceMapping(uint32_t s):stage(s){}
+ dxbc_spv::spirv::DescriptorBinding mapDescriptor(dxbc_spv::ir::ScalarType type,uint32_t space,uint32_t reg) override {
+  return {0u,compatDescriptorBinding(stage,(uint32_t)type,space,reg)};
+ }
+ uint32_t mapPushData(dxbc_spv::ir::ShaderStageMask stages) override {
+  if(stages!=stages.first()||stages==dxbc_spv::ir::ShaderStage::eCompute)return 0u;
+  return 64u+32u*dxbc_spv::util::tzcnt(uint32_t(stages));
+ }
+private:uint32_t stage;
+};
+static bool compileCompatDxbcToSpirv(const CompatShaderObject* s,uint32_t kind,std::vector<uint32_t>& out){
  if(!s||s->bytecode.empty())return false;
  dxbc_spv::dxbc::Converter::Options co{};co.includeDebugNames=false;co.name="gtav-compat";
  dxbc_spv::ir::CompileOptions io{};io.cseOptions.relocateDescriptorLoad=true;io.descriptorIndexing.optimizeDescriptorIndexing=true;
  auto ir=dxbc_spv::dxbc::compileShaderToLegalizedIr(s->bytecode.data(),s->bytecode.size(),co,io);
  if(!ir){gtavdiag::checkpoint("native-shader-dxbc-convert-failed");return false;}
- dxbc_spv::spirv::BasicResourceMapping mapping{};
+ uint32_t stage=kind==NR_PS?1u:kind==NR_CS?2u:0u;CompatResourceMapping mapping(stage);
  dxbc_spv::spirv::SpirvBuilder::Options so{};so.includeDebugNames=false;so.floatControls2=false;
  so.supportedRoundModesF16=so.supportedRoundModesF32=so.supportedRoundModesF64=dxbc_spv::ir::RoundMode::eNearestEven|dxbc_spv::ir::RoundMode::eZero;
  so.supportedDenormModesF16=so.supportedDenormModesF32=so.supportedDenormModesF64=dxbc_spv::ir::DenormMode::eFlush|dxbc_spv::ir::DenormMode::ePreserve;
@@ -1938,7 +1954,7 @@ static bool mapCompatShader(void* p,uint32_t kind){
    if(!dxbc){gtavdiag::checkpoint("native-shader-bytecode-not-spirv");return false;}
    gtavdiag::checkpoint("native-shader-bytecode-dxbc");
 #if GTAV_HAVE_DXBC_SPIRV
-   if(!compileCompatDxbcToSpirv(s,translated))return false;
+   if(!compileCompatDxbcToSpirv(s,kind,translated))return false;
    moduleCode=translated.data();moduleBytes=translated.size()*sizeof(uint32_t);
 #else
    gtavdiag::checkpoint("native-shader-dxbc-compiler-missing");return false;
@@ -2006,6 +2022,22 @@ static bool mapCompatBuffer(void* p,uint32_t kind){
  if(it->second.mapped&&!r->backing.empty())std::memcpy(it->second.mapped,r->backing.data(),std::min<size_t>(r->backing.size(),(size_t)it->second.size));
  return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)it->second.buffer,kind,1);
 }
+static std::mutex compatSamplerMutex;
+static std::unordered_map<uint64_t,VkSampler> compatSamplers;
+static bool mapCompatSampler(void* p){
+ if(!p||!g.device)return false;if(resolveMapped(p,NR_SAMPLER))return true;auto* s=compatStateObject(p);if(!s||s->descSize<52)return false;
+ const uint32_t* d=(const uint32_t*)s->desc;VkSamplerCreateInfo ci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+ uint32_t filter=d[0];ci.magFilter=(filter&0x4)?VK_FILTER_LINEAR:VK_FILTER_NEAREST;ci.minFilter=(filter&0x10)?VK_FILTER_LINEAR:VK_FILTER_NEAREST;
+ ci.mipmapMode=(filter&0x1)?VK_SAMPLER_MIPMAP_MODE_LINEAR:VK_SAMPLER_MIPMAP_MODE_NEAREST;
+ auto addr=[](uint32_t a){switch(a){case 1:return VK_SAMPLER_ADDRESS_MODE_REPEAT;case 2:return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;case 3:return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;case 4:return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;default:return VK_SAMPLER_ADDRESS_MODE_REPEAT;}};
+ ci.addressModeU=addr(d[1]);ci.addressModeV=addr(d[2]);ci.addressModeW=addr(d[3]);std::memcpy(&ci.mipLodBias,&d[4],4);
+ ci.anisotropyEnable=(filter&0x55)==0x55?VK_TRUE:VK_FALSE;ci.maxAnisotropy=ci.anisotropyEnable?std::max(1u,d[5]):1.0f;
+ ci.compareEnable=(filter&0x80)?VK_TRUE:VK_FALSE;ci.compareOp=VK_COMPARE_OP_ALWAYS;
+ std::memcpy(&ci.minLod,&d[10],4);std::memcpy(&ci.maxLod,&d[11],4);ci.borderColor=VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+ std::lock_guard<std::mutex> l(compatSamplerMutex);auto it=compatSamplers.find((uint64_t)(uintptr_t)p);VkSampler sm=VK_NULL_HANDLE;
+ if(it!=compatSamplers.end())sm=it->second;else{if(vkCreateSampler(g.device,&ci,nullptr,&sm)!=VK_SUCCESS)return false;compatSamplers[(uint64_t)(uintptr_t)p]=sm;}
+ return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)sm,NR_SAMPLER,1);
+}
 static VkPrimitiveTopology compatVkTopology(uint32_t t){
  switch(t){case 1:return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;case 2:return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;case 3:return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;case 4:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;case 5:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;default:return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;}
 }
@@ -2018,11 +2050,25 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(!vs||!ps){gtavdiag::checkpoint("native-pipeline-missing-shader");return false;}
  NativeImageMeta rt{};VkFormat colorFormats[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
  {std::lock_guard<std::mutex> l(imageMetaMutex);for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i]){colorFormats[i]=VK_FORMAT_UNDEFINED;continue;}auto it=imageMeta.find((uint64_t)(uintptr_t)m.rtv[i]);if(it==imageMeta.end()){gtavdiag::checkpoint("native-pipeline-missing-rt-meta");return false;}if(i==0)rt=it->second;colorFormats[i]=it->second.format;}}
- VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};VkDescriptorSetLayout dsl{};
+ std::vector<VkDescriptorSetLayoutBinding> bindings;
+ auto addBinding=[&](uint32_t binding,VkDescriptorType type,VkShaderStageFlags stages){VkDescriptorSetLayoutBinding b{};b.binding=binding;b.descriptorType=type;b.descriptorCount=1;b.stageFlags=stages;bindings.push_back(b);};
+ for(uint32_t i=0;i<16;i++){if(m.vsCB[i])addBinding(compatDescriptorBinding(0,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psCB[i])addBinding(compatDescriptorBinding(1,23,0,i),VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_FRAGMENT_BIT);}
+ for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])addBinding(compatDescriptorBinding(0,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSRV[i])addBinding(compatDescriptorBinding(1,24,0,i),VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_SHADER_STAGE_FRAGMENT_BIT);}
+ for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])addBinding(compatDescriptorBinding(0,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_VERTEX_BIT);if(m.psSampler[i])addBinding(compatDescriptorBinding(1,22,0,i),VK_DESCRIPTOR_TYPE_SAMPLER,VK_SHADER_STAGE_FRAGMENT_BIT);}
+ VkDescriptorSetLayoutCreateInfo dci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};dci.bindingCount=(uint32_t)bindings.size();dci.pBindings=bindings.empty()?nullptr:bindings.data();VkDescriptorSetLayout dsl{};
  if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-pipeline-descriptor-layout-failed");return false;}
- VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;VkPipelineLayout layout{};
+ VkPushConstantRange push{};push.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;push.offset=0;push.size=128;
+ VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;lci.pushConstantRangeCount=1;lci.pPushConstantRanges=&push;VkPipelineLayout layout{};
  if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-layout-create-failed");return false;}
  VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-alloc-failed");return false;}
+ std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;bis.reserve(32);iis.reserve(96);writes.reserve(128);
+ auto wb=[&](uint32_t binding,void* p){if(!mapCompatBuffer(p,NR_CBUFFER))return;uint64_t h=resolveMapped(p,NR_CBUFFER);auto* rr=(CompatResourceObject*)p;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)h,0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};bis.push_back(bi);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;w.pBufferInfo=&bis.back();writes.push_back(w);};
+ auto wi=[&](uint32_t binding,void* p){if(!mapWrappedImage(p,NR_SRV,false))return;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return;VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;w.pImageInfo=&iis.back();writes.push_back(w);};
+ auto ws=[&](uint32_t binding,void* p){if(!mapCompatSampler(p))return;VkSampler sm=(VkSampler)(uintptr_t)resolveMapped(p,NR_SAMPLER);if(!sm)return;VkDescriptorImageInfo ii{};ii.sampler=sm;iis.push_back(ii);VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=binding;w.descriptorCount=1;w.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;w.pImageInfo=&iis.back();writes.push_back(w);};
+ for(uint32_t i=0;i<16;i++){if(m.vsCB[i])wb(compatDescriptorBinding(0,23,0,i),m.vsCB[i]);if(m.psCB[i])wb(compatDescriptorBinding(1,23,0,i),m.psCB[i]);}
+ for(uint32_t i=0;i<32;i++){if(m.vsSRV[i])wi(compatDescriptorBinding(0,24,0,i),m.vsSRV[i]);if(m.psSRV[i])wi(compatDescriptorBinding(1,24,0,i),m.psSRV[i]);}
+ for(uint32_t i=0;i<16;i++){if(m.vsSampler[i])ws(compatDescriptorBinding(0,22,0,i),m.vsSampler[i]);if(m.psSampler[i])ws(compatDescriptorBinding(1,22,0,i),m.psSampler[i]);}
+ if(!writes.empty())vkUpdateDescriptorSets(g.device,(uint32_t)writes.size(),writes.data(),0,nullptr);
  VkPipelineShaderStageCreateInfo stages[2]{};
  stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
  stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
