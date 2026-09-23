@@ -1178,6 +1178,30 @@ jobs:
           path: hybrid-report/dxgi-adapter-object/
           if-no-files-found: error
 
+      - name: Print ELF crash mapping inline
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          echo "=== PT_LOAD mapping for runtime offset 0x4a6a910 ==="
+          "$READELF" -lW "$LIB" | grep -E 'LOAD|Type|FileSiz'
+          python3 - <<'PY'
+          import re,subprocess
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"; pc=0x4a6a910
+          out=subprocess.check_output(["readelf","-lW",lib],text=True)
+          for line in out.splitlines():
+              if line.lstrip().startswith("LOAD"):
+                  xs=re.findall(r'0x[0-9a-fA-F]+',line)
+                  if len(xs)>=5:
+                      off,va,pa,fs,ms=map(lambda x:int(x,16),xs[:5])
+                      if va<=pc<va+ms:
+                          fo=off+pc-va
+                          print(f"MATCH va=0x{va:x} off=0x{off:x} filesz=0x{fs:x} memsz=0x{ms:x} => file=0x{fo:x}")
+          PY
+          echo "=== section table ==="
+          "$OBJDUMP" -h "$LIB" | grep -E 'text|plt|LOAD|CODE' || true
+
       - name: Map crash PC through ELF segments
         run: |
           set -euo pipefail
