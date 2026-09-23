@@ -1664,6 +1664,21 @@ jobs:
           test -s "$LIB"
           echo "engine startup left intact; native renderer will attach only after runtime exists"
 
+      - name: Trace crash after CreateDepthStencilView
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/post-inputlayout-crash
+          LIB="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          llvm-objdump -d --demangle --start-address=0x61bc900 --stop-address=0x61bce00 "$LIB" > hybrid-report/post-inputlayout-crash/61bcb4c.disasm.txt
+          llvm-nm -n -C "$LIB" 2>/dev/null | awk '$1 >= "00000000061bc000" && $1 <= "00000000061bd000"' > hybrid-report/post-inputlayout-crash/symbols.txt || true
+
+      - name: Upload post-inputlayout crash trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-inputlayout-crash-${{ github.run_number }}
+          path: hybrid-report/post-inputlayout-crash
+
       - name: Build native Vulkan compatibility renderer
         shell: bash
         run: |
