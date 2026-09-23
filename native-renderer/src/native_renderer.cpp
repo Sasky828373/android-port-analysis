@@ -371,9 +371,10 @@ GTAV_SLOT_STUB(Context,63)
 
 
 // ID3D11DeviceContext::Map is slot 14/+0x70. ResetClipPlanes maps a
-// small dynamic constant buffer with D3D11_MAP_WRITE_DISCARD and immediately
-// memcpy()s into MAPPED_SUBRESOURCE::pData. The generic E_NOTIMPL stub left
-// pData null, causing the libc memcpy crash at grcDevice::ResetClipPlanes+0xe4.
+// dynamic buffers with D3D11_MAP_WRITE_DISCARD. Scaleform BeginVertices can
+// consume roughly 20 MiB from a mapped streaming vertex buffer before discard;
+// keep a 32 MiB guarded-compatible arena so returned pointers cannot run past
+// the old 4 MiB scratch boundary.
 struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
 alignas(4096) static uint8_t gCompatMapScratch[32 * 1024 * 1024]{};
 static int32_t compatD3DMap(void*, void*, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
