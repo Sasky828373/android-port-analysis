@@ -281,13 +281,8 @@ static void compatCtxDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){gtavdiag
 static void compatCtxRSSetState(void* c,void* state){gtavdiag::checkpoint("compat-context-rs-set-state");gtavnative_compat_mirror_objs(c,12,0,1,&state);}
 static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-viewports");gtavnative_compat_mirror_viewports(c,n,p);}
 static void compatCtxRSSetScissorRects(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");gtavnative_compat_mirror_scissors(c,n,p);}
-static void compatCtxUpdateSubresource(void*,void* dst,uint32_t sub,const void*,const void* src,uint32_t srcRow,uint32_t srcDepth){
- gtavdiag::checkpoint("compat-context-update-subresource");if(!dst||!src)return;CompatMappedSubresource m{};
- if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;auto* r=(CompatResourceObject*)dst;
- size_t base=(size_t)((uint8_t*)m.pData-r->backing.data());if(base>=r->backing.size())return;size_t cap=r->backing.size()-base;
- if(r->vtbl==gCompatTexture2DVtable&&m.rowPitch){uint32_t rows=m.depthPitch/m.rowPitch,sr=srcRow?srcRow:m.rowPitch;for(uint32_t y=0;y<rows;y++){size_t off=(size_t)y*m.rowPitch;if(off>=cap)break;std::memcpy((uint8_t*)m.pData+off,(const uint8_t*)src+(size_t)y*sr,std::min<size_t>(std::min(m.rowPitch,sr),cap-off));}}
- else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));
-}
+static void compatUpdateBacking(void*,uint32_t,const void*,uint32_t,uint32_t);
+static void compatCtxUpdateSubresource(void*,void* dst,uint32_t sub,const void*,const void* src,uint32_t srcRow,uint32_t srcDepth){gtavdiag::checkpoint("compat-context-update-subresource");compatUpdateBacking(dst,sub,src,srcRow,srcDepth);}
 static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
 static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
 // Split the remaining high-frequency D3D11 context ABI instead of routing it
@@ -308,14 +303,14 @@ static void compatCtxDrawIndexedInstancedIndirect(void*,void*,uint32_t){gtavdiag
 static void compatCtxDrawInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced-indirect");}
 static void compatCtxDispatchIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-dispatch-indirect");}
 static void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}
-static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());}
+static void compatCopyBacking(void*,void*); static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");compatCopyBacking(dst,src);}
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
 static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-uav-float");}
 static void compatCtxGenerateMips(void*,void*){gtavdiag::checkpoint("compat-context-generate-mips");}
 static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("compat-context-set-resource-min-lod");}
 static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
-static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n)std::memcpy(d.pData,s.pData,n);}
+static void compatResolveBacking(void*,uint32_t,void*,uint32_t); static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");compatResolveBacking(dst,ds,src,ss);}
 static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
 static void compatCtxHSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-shader-resources");}
 static void compatCtxHSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-hs-set-shader");}
@@ -741,6 +736,14 @@ bool compatMapResourceBackingSubresource(void* resource,uint32_t subresource,Com
   mapped->pData=o->backing.data();mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;return true;
 }
 bool compatMapResourceBacking(void* resource,CompatMappedSubresource* mapped){return compatMapResourceBackingSubresource(resource,0,mapped);}
+static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t srcRow,uint32_t srcDepth){
+ if(!dst||!src)return;CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;auto* r=(CompatResourceObject*)dst;
+ size_t base=(size_t)((uint8_t*)m.pData-r->backing.data());if(base>=r->backing.size())return;size_t cap=r->backing.size()-base;
+ if(r->vtbl==gCompatTexture2DVtable&&m.rowPitch){uint32_t rows=m.depthPitch/m.rowPitch,sr=srcRow?srcRow:m.rowPitch;for(uint32_t y=0;y<rows;y++){size_t off=(size_t)y*m.rowPitch;if(off>=cap)break;std::memcpy((uint8_t*)m.pData+off,(const uint8_t*)src+(size_t)y*sr,std::min<size_t>(std::min(m.rowPitch,sr),cap-off));}}
+ else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));
+}
+static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());}
+static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n)std::memcpy(d.pData,s.pData,n);}
 static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
 }
