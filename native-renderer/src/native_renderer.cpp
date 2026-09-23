@@ -236,7 +236,7 @@ static int32_t compatD3DUnsupported(void*) {
 // memcpy()s into MAPPED_SUBRESOURCE::pData. The generic E_NOTIMPL stub left
 // pData null, causing the libc memcpy crash at grcDevice::ResetClipPlanes+0xe4.
 struct CompatMappedSubresource { void* pData; uint32_t rowPitch; uint32_t depthPitch; };
-static alignas(64) uint8_t gCompatMapScratch[4 * 1024 * 1024]{};
+alignas(64) static uint8_t gCompatMapScratch[4 * 1024 * 1024]{};
 static int32_t compatD3DMap(void*, void*, uint32_t, uint32_t, uint32_t, CompatMappedSubresource* mapped) {
   gtavdiag::checkpoint("compat-d3d11-map");
   if(!mapped) return (int32_t)0x80004003u;
