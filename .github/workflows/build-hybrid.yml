@@ -1079,6 +1079,7 @@ jobs:
 
 
       - name: Trace exact DXGI factory consumer and adapter calls
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1123,6 +1124,7 @@ jobs:
           } > "$OUT/README.txt"
 
       - name: Upload DXGI factory consumer trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: dxgi-factory-trace-${{ github.run_number }}
@@ -1135,6 +1137,7 @@ jobs:
           if-no-files-found: error
 
       - name: Trace D3D11 adapter manager factory usage
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1150,6 +1153,7 @@ jobs:
           } > "$OUT/README.txt"
 
       - name: Upload D3D11 adapter manager trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: dxgi-adapter-manager-${{ github.run_number }}
@@ -1157,6 +1161,7 @@ jobs:
           if-no-files-found: error
 
       - name: Trace grcAdapterD3D11 constructor and post-GetDesc calls
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1172,6 +1177,7 @@ jobs:
           } > "$OUT/README.txt"
 
       - name: Upload DXGI adapter object trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: dxgi-adapter-object-${{ github.run_number }}
@@ -1187,6 +1193,7 @@ jobs:
           "$OBJDUMP" -d --demangle --start-address=0x61abb80 --stop-address=0x61abe80 "$LIB"
 
       - name: Trace output-enumeration crash LR
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1198,6 +1205,7 @@ jobs:
           "$NM" -n -C "$LIB" | awk '$1 <= "00000000061a45c8" {last=$0} END{print last}' || true
 
       - name: Disassemble mapped crash instruction
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1209,6 +1217,7 @@ jobs:
           "$NM" -n -C "$LIB" | awk '$1 <= "0000000004a6a910" {a[NR]=$0} END{for(i=NR-8;i<=NR+8;i++) if(i in a) print a[i]}' || true
 
       - name: Print ELF crash mapping inline
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1233,6 +1242,7 @@ jobs:
           "$OBJDUMP" -h "$LIB" | grep -E 'text|plt|LOAD|CODE' || true
 
       - name: Map crash PC through ELF segments
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1262,12 +1272,14 @@ jobs:
           "$OBJDUMP" -h "$LIB" > "$OUT/objdump-sections.txt"
 
       - name: Upload crash ELF mapping
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: runtime-crash-elf-map-${{ github.run_number }}
           path: hybrid-report/runtime-crash-elf-map/
 
       - name: Resolve runtime crash PC 0x4a6a910
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1284,12 +1296,14 @@ jobs:
           cat "$OUT/crash-window.txt"
 
       - name: Upload resolved runtime crash
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: runtime-crash-4a6a910-${{ github.run_number }}
           path: hybrid-report/runtime-crash-4a6a910/
 
       - name: Audit remaining bootstrap crash surfaces
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1307,12 +1321,14 @@ jobs:
           grep -n -B20 -A60 -E 'CreateDevice|CreateDXGI|SwapChain|GetCurrentInner|AllocateSwapChain|blr|#0x10\]' "$OUT/initclass-full.txt" > "$OUT/initclass-risk-windows.txt" || true
 
       - name: Upload bootstrap crash audit
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: bootstrap-crash-audit-${{ github.run_number }}
           path: hybrid-report/bootstrap-crash-audit/
 
       - name: Resolve post-video-memory callers precisely
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1327,12 +1343,14 @@ jobs:
           grep -n -B20 -A60 -E 'blr|#0x10\]|ret|bl[[:space:]]' "$OUT/device-helper-window.txt" > "$OUT/helper-consumers.txt" || true
 
       - name: Upload exact post-video-memory callers
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-video-memory-exact-${{ github.run_number }}
           path: hybrid-report/post-video-memory-exact/
 
       - name: Trace post-RetrieveVideoMemory crash path
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1349,12 +1367,14 @@ jobs:
           test -s "$OUT/xrefs-and-callers.txt"
 
       - name: Upload post-video-memory trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-video-memory-${{ github.run_number }}
           path: hybrid-report/post-video-memory/
 
       - name: Trace g_D3D11CreateDevice indirect xrefs
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1369,12 +1389,14 @@ jobs:
           test -s "$OUT/got-xrefs.txt"
 
       - name: Upload D3D11CreateDevice indirect xrefs
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: d3d11-create-device-xrefs-${{ github.run_number }}
           path: hybrid-report/d3d11-create-device-xrefs/
 
       - name: Trace exact QueryInterface consumer and failing virtual
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1390,12 +1412,14 @@ jobs:
           grep -n -B24 -A48 -E 'blr|QueryInterface|DXGI|D3D|SwapChain' "$OUT/initclass-tail.txt" > "$OUT/tail-highlights.txt" || true
 
       - name: Upload exact QueryInterface consumer trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: d3d11-qi-consumer-${{ github.run_number }}
           path: hybrid-report/d3d11-qi-consumer/
 
       - name: Trace post-D3D11CreateDevice object consumers
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1410,12 +1434,14 @@ jobs:
           grep -n -B16 -A36 -E 'QueryInterface|SwapChain|GetCurrentInner|AllocateSwapChain|D3D11|DXGI|blr' "$OUT/initclass-after-device.txt" > "$OUT/bootstrap-highlights.txt" || true
 
       - name: Upload post-D3D11CreateDevice trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: post-d3d11-device-${{ github.run_number }}
           path: hybrid-report/post-d3d11-device/
 
       - name: Trace D3D11CreateDevice-only callsites and consumers
+        if: ${{ false }}
         run: |
           set -euo pipefail
           LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
@@ -1431,12 +1457,14 @@ jobs:
           grep -n -B16 -A36 -E 'blr|cbz|cbnz|tbz|tbnz|ldr.*\[x[0-9]+.*#0x' "$OUT/initclass-device-region.txt" > "$OUT/indirect-consumers.txt" || true
 
       - name: Upload D3D11CreateDevice-only trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: d3d11-device-only-${{ github.run_number }}
           path: hybrid-report/d3d11-device-only/
 
       - name: Trace full D3D11 bootstrap compatibility surface
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1458,6 +1486,7 @@ jobs:
           } > "$OUT/README.txt"
 
       - name: Upload full D3D11 bootstrap trace
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: full-d3d11-bootstrap-${{ github.run_number }}
@@ -1733,6 +1762,7 @@ jobs:
             hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
 
       - name: Upload APK and native migration evidence
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: XHYN-V0.17-NATIVE-MIGRATION
