@@ -30,30 +30,38 @@ static void ensureDir(){ mkdir("/storage/emulated/0/Games",0775); mkdir("/storag
 static void append(const char* s){ ensureDir(); int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664); if(fd>=0){write(fd,s,strlen(s));close(fd);} }
 static void checkpoint(const char* name,const char* detail=nullptr){
  last.store(name,std::memory_order_relaxed); char b[768];
- int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s\n",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
+ int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s
+",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
  if(n>0) append(b); __android_log_print(ANDROID_LOG_INFO,"GTAV-DIAG","%s%s%s",name,detail?" ":"",detail?detail:"");
 }
 static char* puthex(char* p,uint64_t v){static const char h[]="0123456789abcdef";*p++='0';*p++='x';bool s=false;for(int i=15;i>=0;--i){unsigned d=(v>>(i*4))&15;if(d||s||i==0){*p++=h[d];s=true;}}return p;}
 static char* putdec(char* p,unsigned v){char t[16];int n=0;do{t[n++]=char('0'+v%10);v/=10;}while(v);while(n)*p++=t[--n];return p;}
 static void crashHandler(int sig,siginfo_t* si,void* ctx){
- char b[512],*p=b; const char* a="\n=== GTAV NATIVE CRASH ===\nsignal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
+ char b[512],*p=b; const char* a="
+=== GTAV NATIVE CRASH ===
+signal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
  const char* q=" fault=";memcpy(p,q,strlen(q));p+=strlen(q);p=puthex(p,(uint64_t)(uintptr_t)(si?si->si_addr:nullptr));
 #if defined(__aarch64__)
  ucontext_t* uc=(ucontext_t*)ctx;const char* r=" pc=";memcpy(p,r,strlen(r));p+=strlen(r);p=puthex(p,(uint64_t)uc->uc_mcontext.pc);
  const char* s=" sp=";memcpy(p,s,strlen(s));p+=strlen(s);p=puthex(p,(uint64_t)uc->uc_mcontext.sp);
  const char* l=" lr=";memcpy(p,l,strlen(l));p+=strlen(l);p=puthex(p,(uint64_t)uc->uc_mcontext.regs[30]);
 #endif
- const char* x=" last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=last.load(std::memory_order_relaxed);size_t zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='\n';
+ const char* x=" last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=last.load(std::memory_order_relaxed);size_t zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='
+';
  int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664);if(fd>=0){
    write(fd,b,p-b);
 #if defined(__aarch64__)
    char d[4096]; int n=0; Dl_info pi{},li{};
    if(dladdr((void*)uc->uc_mcontext.pc,&pi)&&pi.dli_fbase)
-     n+=snprintf(d+n,sizeof(d)-n,"pc_module=%s pc_base=%p pc_offset=0x%llx\n",pi.dli_fname?pi.dli_fname:"?",pi.dli_fbase,(unsigned long long)(uc->uc_mcontext.pc-(uintptr_t)pi.dli_fbase));
+     n+=snprintf(d+n,sizeof(d)-n,"pc_module=%s pc_base=%p pc_offset=0x%llx
+",pi.dli_fname?pi.dli_fname:"?",pi.dli_fbase,(unsigned long long)(uc->uc_mcontext.pc-(uintptr_t)pi.dli_fbase));
    if(dladdr((void*)uc->uc_mcontext.regs[30],&li)&&li.dli_fbase)
-     n+=snprintf(d+n,sizeof(d)-n,"lr_module=%s lr_base=%p lr_offset=0x%llx\n",li.dli_fname?li.dli_fname:"?",li.dli_fbase,(unsigned long long)(uc->uc_mcontext.regs[30]-(uintptr_t)li.dli_fbase));
-   for(int i=0;i<31&&n<(int)sizeof(d)-80;i++) n+=snprintf(d+n,sizeof(d)-n,"x%d=%p%s",i,(void*)uc->uc_mcontext.regs[i],(i%4)==3?"\n":" ");
-   n+=snprintf(d+n,sizeof(d)-n,"\n");
+     n+=snprintf(d+n,sizeof(d)-n,"lr_module=%s lr_base=%p lr_offset=0x%llx
+",li.dli_fname?li.dli_fname:"?",li.dli_fbase,(unsigned long long)(uc->uc_mcontext.regs[30]-(uintptr_t)li.dli_fbase));
+   for(int i=0;i<31&&n<(int)sizeof(d)-80;i++) n+=snprintf(d+n,sizeof(d)-n,"x%d=%p%s",i,(void*)uc->uc_mcontext.regs[i],(i%4)==3?"
+":" ");
+   n+=snprintf(d+n,sizeof(d)-n,"
+");
    if(n>0) write(fd,d,(size_t)n);
 #endif
    close(fd);
@@ -63,7 +71,8 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
 __attribute__((constructor)) static void install(){
  ensureDir();
  setenv("GTAV_VULKAN_BACKEND","native",1);
- int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
+ int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2
+";write(fd,h,strlen(h));close(fd);}
  struct sigaction sa{};sa.sa_sigaction=crashHandler;sigemptyset(&sa.sa_mask);sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
  int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGTRAP};for(int s:sigs)sigaction(s,&sa,nullptr);checkpoint("diagnostic-installed");
 }
@@ -494,7 +503,8 @@ static void initCompatResourceVtables(){
 static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
   auto* o=new CompatResourceObject{};o->vtbl=vtbl;o->descSize=std::min(bytes,sizeof(o->desc));
-  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));\n  size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
+  if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
+  size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
 static CompatViewObject* makeCompatView(void* resource,const void* desc,size_t bytes,const char* checkpoint){
@@ -780,7 +790,8 @@ static void initCompatD3D11() {
   gD3DContextVtable[60]=(void*)compatContextNoop;
   gD3DContextVtable[61]=(void*)compatContextNoop;
   gD3DContextVtable[62]=(void*)compatContextNoop;
-  gD3DContextVtable[63]=(void*)compatContextNoop;\n  for(int i=64;i<128;i++) gD3DContextVtable[i]=(void*)compatContextNoop;
+  gD3DContextVtable[63]=(void*)compatContextNoop;
+  for(int i=64;i<128;i++) gD3DContextVtable[i]=(void*)compatContextNoop;
 
   // ID3D11DeviceContext: Map=14, Unmap=15.
   gD3DContextVtable[14]=(void*)compatD3DMap;
