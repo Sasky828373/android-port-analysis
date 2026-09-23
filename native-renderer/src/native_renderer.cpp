@@ -579,12 +579,9 @@ static int32_t compatD3DMap(void*, void* resource, uint32_t subresource, uint32_
   (void)compatMapResourceBackingSubresource(resource,subresource,mapped);
   return 0;
 }
+static void compatMarkDirty(void*);
 static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
-  // Unmap is only a CPU-write completion marker in the compatibility bootstrap.
-  // Do not touch/release the opaque resource here: the backing vector remains
-  // owned by CompatResourceObject and the renderer consumes it later.
-  (void)resource; (void)subresource;
-  gtavdiag::checkpoint("compat-d3d11-unmap");
+  (void)subresource;compatMarkDirty(resource);gtavdiag::checkpoint("compat-d3d11-unmap");
 }
 // Shader creation is consumed as an object pointer by grcProgram::CreateShader.
 // Returning E_NOTIMPL through the generic stub leaves the out-object undefined
@@ -742,6 +739,7 @@ bool compatMapResourceBackingSubresource(void* resource,uint32_t subresource,Com
   mapped->pData=o->backing.data();mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;return true;
 }
 bool compatMapResourceBacking(void* resource,CompatMappedSubresource* mapped){return compatMapResourceBackingSubresource(resource,0,mapped);}
+static void compatMarkDirty(void* resource){if(!resource)return;auto* r=(CompatResourceObject*)resource;if(r->vtbl==gCompatBufferVtable||r->vtbl==gCompatTexture1DVtable||r->vtbl==gCompatTexture2DVtable||r->vtbl==gCompatTexture3DVtable)r->version++;}
 static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t srcRow,uint32_t srcDepth){
  if(!dst||!src)return;CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;auto* r=(CompatResourceObject*)dst;
  size_t base=(size_t)((uint8_t*)m.pData-r->backing.data());if(base>=r->backing.size())return;size_t cap=r->backing.size()-base;
@@ -1873,6 +1871,43 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  gtavdiag::checkpoint("native-compat-image-created");return true;
 }
 
+static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLayout target){
+ if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;const uint64_t key=(uint64_t)(uintptr_t)resource;
+ std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it==compatOwnedImages.end())return true;auto& o=it->second;if(o.layout==target)return true;
+ VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.oldLayout=o.layout;b.newLayout=target;b.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.image=o.image;
+ b.subresourceRange.aspectMask=o.aspect;b.subresourceRange.baseMipLevel=0;b.subresourceRange.levelCount=o.mips;b.subresourceRange.baseArrayLayer=0;b.subresourceRange.layerCount=o.layers;
+ VkPipelineStageFlags src=VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,dst=VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+ if(o.layout==VK_IMAGE_LAYOUT_UNDEFINED){src=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;b.srcAccessMask=0;}
+ else if(o.layout==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL){src=VK_PIPELINE_STAGE_TRANSFER_BIT;b.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;}
+ else if(o.layout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL){src=VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;b.srcAccessMask=VK_ACCESS_SHADER_READ_BIT;}
+ else if(o.layout==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL){src=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;b.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;}
+ else if(o.layout==VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){src=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;b.srcAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;}
+ if(target==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL){dst=VK_PIPELINE_STAGE_TRANSFER_BIT;b.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;}
+ else if(target==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL){dst=VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;b.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;}
+ else if(target==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL){dst=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;b.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;}
+ else if(target==VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){dst=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;b.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;}
+ vkCmdPipelineBarrier(cb,src,dst,0,0,nullptr,0,nullptr,1,&b);o.layout=target;return true;
+}
+static bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
+ if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;if(resource==&gCompatBackBuffer)return true;
+ auto* rr=(CompatResourceObject*)resource;if(rr->vtbl!=gCompatTexture2DVtable)return true;const uint64_t key=(uint64_t)(uintptr_t)resource;
+ uint64_t version=rr->version;{
+  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it==compatOwnedImages.end())return true;if(it->second.uploadedVersion==version)return true;
+  if(!it->second.stagingMapped||!it->second.staging||rr->backing.empty()||it->second.stagingSize<rr->backing.size())return false;
+  std::memcpy(it->second.stagingMapped,rr->backing.data(),rr->backing.size());
+ }
+ if(!transitionCompatOwnedImage(cb,object,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;
+ std::vector<VkBufferImageCopy> regions;{
+  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it==compatOwnedImages.end())return true;auto& o=it->second;
+  if(o.aspect!=VK_IMAGE_ASPECT_COLOR_BIT){o.uploadedVersion=version;return true;}
+  const uint32_t* d=(const uint32_t*)rr->desc;uint32_t count=std::min<uint32_t>(o.mips*o.layers,4096u);regions.reserve(count);
+  for(uint32_t s=0;s<count;s++){uint32_t row=0,depth=0;size_t off=0;compatTexture2DLayout(d,s,&row,&depth,&off);uint32_t mip=s%o.mips,layer=s/o.mips;
+   VkBufferImageCopy x{};x.bufferOffset=off;x.imageSubresource.aspectMask=o.aspect;x.imageSubresource.mipLevel=mip;x.imageSubresource.baseArrayLayer=layer;x.imageSubresource.layerCount=1;
+   x.imageExtent={std::max(1u,o.width>>std::min(mip,31u)),std::max(1u,o.height>>std::min(mip,31u)),1};regions.push_back(x);}
+  if(!regions.empty())vkCmdCopyBufferToImage(cb,o.staging,o.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,(uint32_t)regions.size(),regions.data());o.uploadedVersion=version;
+ }
+ return true;
+}
 static void invalidateImageResource(uint64_t rage){
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto v=imageViews.find(rage);
@@ -2231,6 +2266,15 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
    vkCmdSetScissor(cb,0,n,reinterpret_cast<const VkRect2D*>(m.scissors));
  }
 }
+static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
+ if(!cb||!pBeginRendering||!pEndRendering)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ for(uint32_t i=0;i<32;i++){if(m.vsSRV[i]){if(!syncCompatOwnedImage(cb,m.vsSRV[i]))return false;transitionCompatOwnedImage(cb,m.vsSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}if(m.psSRV[i]){if(!syncCompatOwnedImage(cb,m.psSRV[i]))return false;transitionCompatOwnedImage(cb,m.psSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}}
+ VkRenderingAttachmentInfo colors[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
+ for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i])continue;if(!syncCompatOwnedImage(cb,m.rtv[i]))return false;transitionCompatOwnedImage(cb,m.rtv[i],VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);if(!v)return false;colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;}
+ VkRenderingAttachmentInfo depth{};VkRenderingAttachmentInfo* dp=nullptr;if(m.dsv){transitionCompatOwnedImage(cb,m.dsv,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv);if(!v)return false;depth.sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;depth.imageView=v;depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;dp=&depth;}
+ uint32_t rw=gCompatSwapWidth.load(),rh=gCompatSwapHeight.load();if(m.rtvCount&&m.rtv[0]){void* u=compatUnderlyingResource(m.rtv[0]);if(u){auto* rr=(CompatResourceObject*)u;if(rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){rw=((uint32_t*)rr->desc)[0];rh=((uint32_t*)rr->desc)[1];}}}
+ VkRect2D area{{0,0},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=(dp&&depth.imageView)?dp:nullptr;pBeginRendering(cb,&ri);return true;
+}
 static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool indexed){
  if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
  if(indexed&&!s.index_buffer)return false;
@@ -2265,8 +2309,8 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
 extern "C" bool gtavnative_compat_draw(void* c,uint32_t n,uint32_t f){return gtav_native_renderer_rage_draw(c,n,f);}
 extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int32_t v){return gtav_native_renderer_rage_draw_indexed(c,n,f,v);}
 extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);pEndRendering(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);pEndRendering(s.command_buffer);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
  if(!ctx||!x||!y||!z||!g.device)return false;
  RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
