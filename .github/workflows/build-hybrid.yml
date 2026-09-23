@@ -1934,11 +1934,22 @@ jobs:
           TAG="native-capture-${GITHUB_RUN_NUMBER}"
           APK="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk"
           SUM="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256"
-          gh release create "$TAG" "$APK" "$SUM" \
+          if ! gh release create "$TAG" "$APK" "$SUM" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "XHYN Native Capture ${GITHUB_RUN_NUMBER}" \
-            --notes "Direct APK download. Built from ${GITHUB_SHA} and validated with zipalign, apksigner and unzip -t."
+            --notes "Direct APK download. Built from ${GITHUB_SHA} and validated with zipalign, apksigner and unzip -t."; then
+            echo "::warning::GitHub Release unavailable for this token; APK build itself succeeded."
+          fi
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V0.17-NATIVE-${{ github.run_number }}
+          compression-level: 0
+          path: |
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
 
       - name: Upload tiny Vulkan switch evidence
         uses: actions/upload-artifact@v4
