@@ -267,11 +267,20 @@ static void compatCtxVSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdia
 static void compatCtxDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){gtavdiag::checkpoint("compat-context-draw-indexed");gtavnative_compat_draw_indexed(c,n,f,v);}
 static void compatCtxDraw(void* c,uint32_t n,uint32_t f){gtavdiag::checkpoint("compat-context-draw");gtavnative_compat_draw(c,n,f);}
 static void compatCtxPSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-constant-buffers");gtavnative_compat_mirror_objs(c,1,f,n,v);}
+static bool getDrawState(void*,GtavNativeDrawState*);static bool bindMappedGraphicsState(void*,const GtavNativeDrawState&,bool);
 static void compatCtxIASetInputLayout(void* c,void* v){gtavdiag::checkpoint("compat-context-ia-set-input-layout");gtavnative_compat_mirror_input_layout(c,v);}
 static void compatCtxIASetVertexBuffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){gtavdiag::checkpoint("compat-context-ia-set-vertex-buffers");gtavnative_compat_mirror_vertex_buffers(c,f,n,v,s,o);}
 static void compatCtxIASetIndexBuffer(void* c,void* b,uint32_t f,uint32_t o){gtavdiag::checkpoint("compat-context-ia-set-index-buffer");gtavnative_compat_mirror_index_buffer(c,b,f,o);}
-static void compatCtxDrawIndexedInstanced(void*,uint32_t,uint32_t,uint32_t,int32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced");}
-static void compatCtxDrawInstanced(void*,uint32_t,uint32_t,uint32_t,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced");}
+static void compatCtxDrawIndexedInstanced(void* c,uint32_t ic,uint32_t instances,uint32_t first,int32_t vo,uint32_t firstInstance){
+ gtavdiag::checkpoint("compat-context-draw-indexed-instanced");
+ GtavNativeDrawState s{};if(!instances||!getDrawState(c,&s)||!bindMappedGraphicsState(c,s,true))return;
+ vkCmdDrawIndexed(s.command_buffer,ic,instances,first,vo,firstInstance);
+}
+static void compatCtxDrawInstanced(void* c,uint32_t vc,uint32_t instances,uint32_t first,uint32_t firstInstance){
+ gtavdiag::checkpoint("compat-context-draw-instanced");
+ GtavNativeDrawState s{};if(!instances||!getDrawState(c,&s)||!bindMappedGraphicsState(c,s,false))return;
+ vkCmdDraw(s.command_buffer,vc,instances,first,firstInstance);
+}
 static void compatCtxIASetPrimitiveTopology(void* c,uint32_t t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");gtavnative_compat_mirror_topology(c,t);}
 static void compatCtxOMSetRenderTargets(void* c,uint32_t n,void* const* r,void* d){gtavdiag::checkpoint("compat-context-om-set-render-targets");gtavnative_compat_mirror_render_targets(c,n,r,d);}
 static void compatCtxOMSetBlendState(void* c,void* state,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");gtavnative_compat_mirror_objs(c,10,0,1,&state);}
@@ -815,8 +824,16 @@ static int32_t compatContextGetData(void*,void* q,void* data,uint32_t bytes,uint
   }
   return 0;
 }
-static int32_t compatCheckFormatSupport(void*,uint32_t,uint32_t* out){
-  gtavdiag::checkpoint("compat-d3d11-check-format-support");if(!out)return (int32_t)0x80004003u;*out=0xffffffffu;return 0;
+static int32_t compatCheckFormatSupport(void*,uint32_t fmt,uint32_t* out){
+  gtavdiag::checkpoint("compat-d3d11-check-format-support");if(!out)return (int32_t)0x80004003u;
+  VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED){*out=0;return (int32_t)0x80070057u;}
+  VkFormatProperties p{};if(g.physical)vkGetPhysicalDeviceFormatProperties(g.physical,vf,&p);
+  // D3D11_FORMAT_SUPPORT_BUFFER|IA_VERTEX_BUFFER|TEXTURE2D|SHADER_LOAD|SHADER_SAMPLE
+  // plus render/depth target only when Vulkan reports the matching capability.
+  uint32_t s=0x1u|0x2u|0x20u|0x100u|0x200u;
+  if(p.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)s|=0x4000u;
+  if(p.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)s|=0x10000u;
+  *out=s;return 0;
 }
 static int32_t compatCheckMSAA(void*,uint32_t,uint32_t samples,uint32_t* out){
   gtavdiag::checkpoint("compat-d3d11-check-msaa");if(!out)return (int32_t)0x80004003u;*out=samples?1u:0u;return 0;
@@ -1326,8 +1343,9 @@ static uint64_t graphicsStateKey(const RageMirrorState& s){
  uint64_t h=0xcbf29ce484222325ull;
  h=hashMix(h,(uintptr_t)s.inputLayout); h=hashMix(h,(uintptr_t)s.vs); h=hashMix(h,(uintptr_t)s.ps);
  h=hashMix(h,s.topology); h=hashMix(h,s.rtvCount); h=hashMix(h,(uintptr_t)s.dsv);
+ h=hashMix(h,(uintptr_t)s.blendState); h=hashMix(h,(uintptr_t)s.depthState); h=hashMix(h,(uintptr_t)s.rasterState);
  for(unsigned i=0;i<s.rtvCount&&i<8;i++)h=hashMix(h,(uintptr_t)s.rtv[i]);
- for(unsigned i=0;i<16;i++){h=hashMix(h,(uintptr_t)s.vertexBuffers[i]);h=hashMix(h,s.strides[i]);}
+ for(unsigned i=0;i<16;i++){h=hashMix(h,(uintptr_t)s.vertexBuffers[i]);h=hashMix(h,s.strides[i]);h=hashMix(h,s.offsets[i]);}
  return h;
 }
 
