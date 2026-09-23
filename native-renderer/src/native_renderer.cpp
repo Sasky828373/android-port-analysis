@@ -283,8 +283,8 @@ static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::
 static void compatCtxRSSetScissorRects(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-scissor-rects");gtavnative_compat_mirror_scissors(c,n,p);}
 static void compatUpdateBacking(void*,uint32_t,const void*,uint32_t,uint32_t);
 static void compatCtxUpdateSubresource(void*,void* dst,uint32_t sub,const void*,const void* src,uint32_t srcRow,uint32_t srcDepth){gtavdiag::checkpoint("compat-context-update-subresource");compatUpdateBacking(dst,sub,src,srcRow,srcDepth);}
-static void compatCtxClearRenderTargetView(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-rtv");}
-static void compatCtxClearDepthStencilView(void*,void*,uint32_t,float,uint8_t){gtavdiag::checkpoint("compat-context-clear-dsv");}
+static void compatClearRTVBacking(void*,const float*); static void compatCtxClearRenderTargetView(void*,void* v,const float* c){gtavdiag::checkpoint("compat-context-clear-rtv");compatClearRTVBacking(v,c);}
+static void compatClearDSVBacking(void*,uint32_t,float,uint8_t); static void compatCtxClearDepthStencilView(void*,void* v,uint32_t f,float d,uint8_t s){gtavdiag::checkpoint("compat-context-clear-dsv");compatClearDSVBacking(v,f,d,s);}
 // Split the remaining high-frequency D3D11 context ABI instead of routing it
 // through a variadic no-op. These are state/copy/query operations used during
 // the bootstrap render loop; dedicated signatures avoid ABI ambiguity and make
@@ -591,7 +591,8 @@ static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
 // and later crashes on Release. Return a tiny COM object instead; actual shader
 // execution is intercepted by the native Vulkan renderer hooks.
 struct CompatShaderObject { void** vtbl; std::vector<uint8_t> bytecode; };
-struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; };
+struct CompatInputElement { uint32_t format{},slot{},offset{},inputClass{},stepRate{}; };
+struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; std::vector<CompatInputElement> elements; };
 static void* gCompatShaderVtable[8]{};
 static void* gCompatInputLayoutVtable[8]{};
 static std::mutex gCompatShaderMutex;
@@ -605,9 +606,10 @@ static void initCompatShaderVtables(){
  static bool once=false;if(once)return;once=true;
  for(void** t:{gCompatShaderVtable,gCompatInputLayoutVtable}){t[0]=(void*)compatShaderQI;t[1]=(void*)compatShaderAddRef;t[2]=(void*)compatShaderRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
 }
-static int32_t compatCreateInputLayout(void*,const void*,size_t,const void* shader,size_t shaderBytes,void** out){
+static int32_t compatCreateInputLayout(void*,const void* raw,size_t count,const void* shader,size_t shaderBytes,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
  auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
+ if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);o->elements.push_back(x);}}
  {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}*out=o;return 0;
 }
 static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void** out){
@@ -618,6 +620,10 @@ static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void
 static bool compatShaderObject(void* p){
  if(!p)return false;std::lock_guard<std::mutex> l(gCompatShaderMutex);
  return std::find(gCompatShaders.begin(),gCompatShaders.end(),(CompatShaderObject*)p)!=gCompatShaders.end();
+}
+static CompatInputLayoutObject* compatInputLayoutObject(void* p){
+ if(!p)return nullptr;std::lock_guard<std::mutex> l(gCompatShaderMutex);
+ auto* x=(CompatInputLayoutObject*)p;return std::find(gCompatInputLayouts.begin(),gCompatInputLayouts.end(),x)!=gCompatInputLayouts.end()?x:nullptr;
 }
 static bool compatShaderIsSpirv(const CompatShaderObject* s){
  if(!s||s->bytecode.size()<20||(s->bytecode.size()&3))return false;
@@ -744,14 +750,28 @@ static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t 
 }
 static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());}
 static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n)std::memcpy(d.pData,s.pData,n);}
-static int32_t compatCreateBuffer(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);return 0;
+static void compatClearRTVBacking(void* view,const float* color){
+ if(!view||!color)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;
+ uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}
+ else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());
+}
+static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
+ if(!view)return;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return;auto* r=v->resource;if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
+ if((flags&1)&&fmt==40){for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&depth,4);}
+ else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}
+}
+static int32_t compatCreateBuffer(void*,const void* desc,const void* init,void** out){
+  if(!out)return (int32_t)0x80004003u;auto* o=makeCompatResource(desc,24,"compat-d3d11-create-buffer",gCompatBufferVtable);*out=o;
+  if(init&&o){const void* p=nullptr;uint32_t pitch=0,slice=0;std::memcpy(&p,init,8);std::memcpy(&pitch,(const uint8_t*)init+8,4);std::memcpy(&slice,(const uint8_t*)init+12,4);if(p&&!o->backing.empty())std::memcpy(o->backing.data(),p,std::min<size_t>(o->backing.size(),slice?slice:(pitch?pitch:o->backing.size())));}
+  return 0;
 }
 static int32_t compatCreateTexture1D(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,32,"compat-d3d11-create-texture1d",gCompatTexture1DVtable);return 0;
 }
-static int32_t compatCreateTexture2D(void*,const void* desc,const void*,void** out){
-  if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,44,"compat-d3d11-create-texture2d",gCompatTexture2DVtable);return 0;
+static int32_t compatCreateTexture2D(void*,const void* desc,const void* init,void** out){
+  if(!out)return (int32_t)0x80004003u;auto* o=makeCompatResource(desc,44,"compat-d3d11-create-texture2d",gCompatTexture2DVtable);*out=o;
+  if(init&&desc&&o){const uint32_t* d=(const uint32_t*)desc;uint32_t count=std::min<uint32_t>(std::max(1u,d[2])*std::max(1u,d[3]),4096u);for(uint32_t s=0;s<count;s++){const uint8_t* sd=(const uint8_t*)init+s*16;const void* p=nullptr;uint32_t row=0,slice=0;std::memcpy(&p,sd,8);std::memcpy(&row,sd+8,4);std::memcpy(&slice,sd+12,4);if(p)compatUpdateBacking(o,s,p,row,slice);}}
+  return 0;
 }
 static int32_t compatCreateTexture3D(void*,const void* desc,const void*,void** out){
   if(!out)return (int32_t)0x80004003u;*out=makeCompatResource(desc,36,"compat-d3d11-create-texture3d",gCompatTexture3DVtable);return 0;
