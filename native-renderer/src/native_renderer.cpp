@@ -386,6 +386,23 @@ static int32_t compatShaderQI(void* self,const void*,void** out){
 static uint32_t compatShaderAddRef(void*){return 2;}
 static uint32_t compatShaderRelease(void*){return 1;}
 static int32_t compatSetPrivateData(void*, const void*, uint32_t, const void*);
+struct CompatDeviceChildObject { void** vtbl; };
+static CompatDeviceChildObject gCompatDeviceChild{};
+static void* gCompatDeviceChildVtable[8]{};
+static int32_t compatDeviceChildQI(void* self,const void*,void** out){ if(!out)return (int32_t)0x80004003u; *out=self; return 0; }
+static uint32_t compatDeviceChildAddRef(void*){return 2;}
+static uint32_t compatDeviceChildRelease(void*){return 1;}
+static int32_t compatCreateInputLayout(void*,const void*,size_t,const void*,uint32_t,void** out){
+  gtavdiag::checkpoint("compat-d3d11-create-input-layout");
+  if(!out)return (int32_t)0x80004003u;
+  gCompatDeviceChildVtable[0]=(void*)compatDeviceChildQI;
+  gCompatDeviceChildVtable[1]=(void*)compatDeviceChildAddRef;
+  gCompatDeviceChildVtable[2]=(void*)compatDeviceChildRelease;
+  gCompatDeviceChildVtable[5]=(void*)compatSetPrivateData;
+  gCompatDeviceChild.vtbl=gCompatDeviceChildVtable;
+  *out=&gCompatDeviceChild;
+  return 0;
+}
 static int32_t compatCreateShader(void*, const void*, size_t, void*, void** out){
   gtavdiag::checkpoint("compat-d3d11-create-shader");
   if(!out)return (int32_t)0x80004003u;
@@ -460,7 +477,7 @@ static void initCompatD3D11() {
   gD3DDeviceVtable[8]=(void*)compatDeviceSlot8;
   gD3DDeviceVtable[9]=(void*)compatDeviceSlot9;
   gD3DDeviceVtable[10]=(void*)compatDeviceSlot10;
-  gD3DDeviceVtable[11]=(void*)compatDeviceSlot11;
+  gD3DDeviceVtable[11]=(void*)compatCreateInputLayout;
   gD3DDeviceVtable[12]=(void*)compatDeviceSlot12;
   gD3DDeviceVtable[13]=(void*)compatDeviceSlot13;
   gD3DDeviceVtable[14]=(void*)compatDeviceSlot14;
