@@ -80,7 +80,6 @@ endian = 'little'
 
 [properties]
 needs_exe_wrapper = true
-sys_root = '$TOOLCHAIN/sysroot'
 
 [built-in options]
 c_args = ['-O3', '-fPIC', '-ffunction-sections', '-fdata-sections']
@@ -89,9 +88,11 @@ c_link_args = ['-Wl,--gc-sections']
 cpp_link_args = ['-Wl,--gc-sections']
 EOF
 
+# NDK clang carries its own sysroot. Do not let Meson/pkg-config prepend it
+# to absolute headers installed in our target prefix.
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
-export PKG_CONFIG_SYSROOT_DIR="/"
+unset PKG_CONFIG_SYSROOT_DIR
 
 echo "==> Configuring DXVK Native for Android ARM64"
 meson setup "$ROOT/dxvk-build" "$ROOT/dxvk" \
