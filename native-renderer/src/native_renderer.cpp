@@ -2383,6 +2383,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
 struct NativeImageMeta {
  VkImage image{};VkFormat format{VK_FORMAT_UNDEFINED};VkImageAspectFlags aspect{};
  VkImageViewType viewType{VK_IMAGE_VIEW_TYPE_2D};uint32_t baseMip{},levelCount{1},baseLayer{},layerCount{1};
+ uint32_t width{},height{};VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};VkImageUsageFlags usage{};VkImageLayout observedLayout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
@@ -2487,7 +2488,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!cb||ix>=gPresentProbe.images.size())return false;
  VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;void* presentResource=&gCompatBackBuffer;
  if(void* rtv=lastCompatDrawnRTV.load(std::memory_order_acquire)){if(void* r=compatUnderlyingResource(rtv)){auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;if(!compat&&mapWrappedImage(r,2u,true)){presentResource=r;static std::atomic<bool> onceNative{false};if(!onceNative.exchange(true))gtavdiag::checkpoint("native-engine-present-wrapped-rage-rtv-source");}else if(compat&&createCompatOwnedImage(r,2u,rtv)){presentResource=r;static std::atomic<bool> onceCompat{false};if(!onceCompat.exchange(true))gtavdiag::checkpoint("native-engine-present-compat-drawn-rtv-source");}}}else if(void* rtv=lastCompatPrimaryRTV.load(std::memory_order_acquire)){if(void* r=compatUnderlyingResource(rtv)){if(createCompatOwnedImage(r,2u,rtv))presentResource=r;}}
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it==compatOwnedImages.end()){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end()){src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;}else{auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi==imageMeta.end()||!mi->second.image){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=mi->second.image;old=mi->second.observedLayout==VK_IMAGE_LAYOUT_UNDEFINED?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:mi->second.observedLayout;sw=mi->second.width?mi->second.width:gCompatSwapWidth.load();sh=mi->second.height?mi->second.height:gCompatSwapHeight.load();char d[160];snprintf(d,sizeof(d),"resource=%p image=%p fmt=%d extent=%ux%u layout=%d",presentResource,(void*)src,(int)mi->second.format,sw,sh,(int)old);gtavdiag::checkpoint("native-engine-present-rage-meta-source",d);}}
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
  for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
@@ -2577,7 +2578,7 @@ static void invalidateImageResource(uint64_t rage){
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  const uint64_t key=(uint64_t)(uintptr_t)rage;
- NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;
+ NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto it=imageMeta.find(key);
  // If GTA reuses a RAGE object for a different native image/format, an old
