@@ -2765,10 +2765,132 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
  if(!pipe||!layout||!desc||!updateCompatComputeDescriptors(m,desc))return false;vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_COMPUTE,pipe);vkCmdBindDescriptorSets(cb,VK_PIPELINE_BIND_POINT_COMPUTE,layout,0,1,&desc,0,nullptr);vkCmdDispatch(cb,x,y,z);return true;
 }
 
+
+using OrigGrvkSwapchainPresent=bool(*)(void*,uint32_t,VkSemaphore);
+static OrigGrvkSwapchainPresent origGrvkSwapchainPresent{};
+struct PresentBridgeSlot{VkCommandBuffer cb{VK_NULL_HANDLE};VkFence fence{VK_NULL_HANDLE};VkSemaphore done{VK_NULL_HANDLE};bool inFlight{false};};
+static PresentBridgeSlot gPresentBridge[3]{};
+static uint32_t gPresentBridgeCursor=0;
+static std::atomic<bool> gPresentBridgeHookInstalled{false};
+static std::atomic<bool> gPresentBridgeReady{false};
+
+static bool ensurePresentBridgeResources(){
+ if(gPresentBridgeReady.load(std::memory_order_acquire))return true;
+ if(!g.device||!g.commands)return false;
+ VkCommandBuffer bufs[3]{};
+ VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+ ai.commandPool=g.commands;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=3;
+ if(vkAllocateCommandBuffers(g.device,&ai,bufs)!=VK_SUCCESS)return false;
+ for(uint32_t i=0;i<3;i++){
+   gPresentBridge[i].cb=bufs[i];
+   VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+   if(vkCreateFence(g.device,&fi,nullptr,&gPresentBridge[i].fence)!=VK_SUCCESS)return false;
+   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+   if(vkCreateSemaphore(g.device,&si,nullptr,&gPresentBridge[i].done)!=VK_SUCCESS)return false;
+ }
+ gPresentBridgeReady.store(true,std::memory_order_release);
+ gtavdiag::checkpoint("native-present-bridge-ready");
+ return true;
+}
+
+static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore waitSemaphore){
+ if(!origGrvkSwapchainPresent)return false;
+ if(!self||!g.device||!g.queue||!ensurePresentBridgeResources())
+   return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+
+ VkImage src=VK_NULL_HANDLE;uint32_t sw=0,sh=0;
+ {
+   std::lock_guard<std::mutex> l(imageMetaMutex);
+   auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);
+   if(it!=compatOwnedImages.end()){src=it->second.image;sw=it->second.width;sh=it->second.height;}
+ }
+ if(!src||!sw||!sh){
+   gtavdiag::checkpoint("native-present-bridge-no-backbuffer");
+   return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ }
+
+ // grvk::Swapchain layout verified against this libgtav build:
+ // +0x48 std::vector<VkImage>, +0x30 VkExtent2D.
+ auto* base=reinterpret_cast<uint8_t*>(self);
+ VkImage* images=*reinterpret_cast<VkImage**>(base+0x48);
+ VkImage* imagesEnd=*reinterpret_cast<VkImage**>(base+0x50);
+ uint32_t count=(images&&imagesEnd&&imagesEnd>=images)?uint32_t(imagesEnd-images):0;
+ if(!count||imageIndex>=count||!images[imageIndex]){
+   gtavdiag::checkpoint("native-present-bridge-bad-image-index");
+   return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ }
+ VkImage dst=images[imageIndex];
+ uint32_t dw=*reinterpret_cast<uint32_t*>(base+0x30);
+ uint32_t dh=*reinterpret_cast<uint32_t*>(base+0x34);
+ if(!dw||!dh){dw=sw;dh=sh;}
+
+ PresentBridgeSlot& slot=gPresentBridge[gPresentBridgeCursor++%3];
+ if(slot.inFlight){
+   if(vkWaitForFences(g.device,1,&slot.fence,VK_TRUE,1000000000ull)!=VK_SUCCESS){
+     gtavdiag::checkpoint("native-present-bridge-fence-failed");
+     return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+   }
+   vkResetFences(g.device,1,&slot.fence);slot.inFlight=false;
+ }
+ if(vkResetCommandBuffer(slot.cb,0)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+ bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+ if(vkBeginCommandBuffer(slot.cb,&bi)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+
+ transitionCompatOwnedImage(slot.cb,&gCompatBackBuffer,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+ VkImageMemoryBarrier db{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+ db.oldLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;db.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+ db.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;db.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+ db.image=dst;db.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+ db.subresourceRange.baseMipLevel=0;db.subresourceRange.levelCount=1;db.subresourceRange.baseArrayLayer=0;db.subresourceRange.layerCount=1;
+ db.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT;db.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+ vkCmdPipelineBarrier(slot.cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&db);
+
+ VkImageBlit blit{};
+ blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.srcSubresource.layerCount=1;
+ blit.srcOffsets[1]={{(int32_t)sw,(int32_t)sh,1}};
+ blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.dstSubresource.layerCount=1;
+ blit.dstOffsets[1]={{(int32_t)dw,(int32_t)dh,1}};
+ vkCmdBlitImage(slot.cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
+
+ db.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;db.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+ db.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;db.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT;
+ vkCmdPipelineBarrier(slot.cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&db);
+ transitionCompatOwnedImage(slot.cb,&gCompatBackBuffer,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+ if(vkEndCommandBuffer(slot.cb)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+
+ VkPipelineStageFlags waitStage=VK_PIPELINE_STAGE_TRANSFER_BIT;
+ VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+ if(waitSemaphore){si.waitSemaphoreCount=1;si.pWaitSemaphores=&waitSemaphore;si.pWaitDstStageMask=&waitStage;}
+ si.commandBufferCount=1;si.pCommandBuffers=&slot.cb;si.signalSemaphoreCount=1;si.pSignalSemaphores=&slot.done;
+ VkResult sr=vkQueueSubmit(g.queue,1,&si,slot.fence);
+ if(sr!=VK_SUCCESS){
+   gtavdiag::checkpoint("native-present-bridge-submit-failed");
+   return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ }
+ slot.inFlight=true;
+ gtavdiag::checkpoint("native-present-bridge-blit");
+ return origGrvkSwapchainPresent(self,imageIndex,slot.done);
+}
+
+static bool ensurePresentBridgeHook(){
+ if(gPresentBridgeHookInstalled.load(std::memory_order_acquire))return true;
+ if(!gtavBase)return false;
+ static constexpr uint32_t expected[4]={0xd10243ffu,0xa9067bfdu,0xa90757f6u,0xa9084ff4u};
+ uintptr_t target=gtavBase+0x6242688;
+ if(std::memcmp((void*)target,expected,16)!=0){gtavdiag::checkpoint("native-present-bridge-prologue-mismatch");return false;}
+ uint32_t saved[4]{};void* tramp=nullptr;
+ if(!patchJump(target,(void*)hookGrvkSwapchainPresent,saved,&tramp)){gtavdiag::checkpoint("native-present-bridge-hook-failed");return false;}
+ origGrvkSwapchainPresent=reinterpret_cast<OrigGrvkSwapchainPresent>(tramp);
+ gPresentBridgeHookInstalled.store(true,std::memory_order_release);
+ gtavdiag::checkpoint("native-present-bridge-hooked");
+ return true;
+}
+
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){
  bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
  uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
- if(attached)submitAndBeginCompatFrameCommand();
+ if(attached){submitAndBeginCompatFrameCommand();ensurePresentBridgeHook();}
 
  // Hook installation was deliberately removed from the ELF constructor because
  // libgtav's graphics bootstrap is not ready there. Present is the first verified
@@ -2815,6 +2937,8 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shut
  if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);
  for(auto& f:gCompatFrameCmd){if(f.fence)vkDestroyFence(g.device,f.fence,nullptr);f.fence=VK_NULL_HANDLE;f.cb=VK_NULL_HANDLE;f.inFlight=false;}
  gCompatFrameCmdReady=false;gCompatRecordingCB=VK_NULL_HANDLE;
+ for(auto& p:gPresentBridge){if(p.fence)vkDestroyFence(g.device,p.fence,nullptr);if(p.done)vkDestroySemaphore(g.device,p.done,nullptr);p.fence=VK_NULL_HANDLE;p.done=VK_NULL_HANDLE;p.cb=VK_NULL_HANDLE;p.inFlight=false;}
+ gPresentBridgeReady.store(false,std::memory_order_release);
  if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);
  g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;
 }
