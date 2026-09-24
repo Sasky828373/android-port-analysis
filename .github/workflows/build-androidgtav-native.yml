@@ -58,7 +58,7 @@ jobs:
                 -iname 'CMakeLists.txt' -o -iname 'Makefile' -o \
                 -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o \
                 -iname 'gradlew' -o -iname 'package_apk.py' -o -iname 'PACKAGING.md' \
-              \) | sort | head -2400
+              \) | sort | sed -n '1,2400p'
             } > "${GITHUB_WORKSPACE}/.androidgtav-probe/layout.txt"
 
             PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
@@ -145,7 +145,7 @@ jobs:
             echo "UPSTREAM_SHA=$(git rev-parse HEAD)"
             echo
             echo "=== TOP LEVEL ==="
-            find . -maxdepth 3 -type d | sort | head -500
+            find . -maxdepth 3 -type d | sort | sed -n '1,500p'
             echo
             echo "=== ANDROID BUILD TREE ==="
             find . -maxdepth 9 -path '*android_build*' -print | sort | sed -n '1,1200p'
@@ -156,7 +156,7 @@ jobs:
               -iname 'CMakeLists.txt' -o -iname 'Makefile' -o \
               -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o \
               -iname 'gradlew' -o -iname 'package_apk.py' -o -iname 'PACKAGING.md' \
-            \) | sort | head -2000
+            \) | sort | sed -n '1,2000p'
           } > "${GITHUB_WORKSPACE}/.androidgtav-probe/layout.txt"
 
           PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
@@ -194,7 +194,7 @@ jobs:
             -iname 'CMakeLists.txt' -o \
             -iname 'build.gradle' -o \
             -iname 'build.gradle.kts' \
-          \) -print | sort | head -400
+          \) -print | sort | sed -n '1,400p'
 
           PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
           if [ -n "${PACKAGING}" ]; then
