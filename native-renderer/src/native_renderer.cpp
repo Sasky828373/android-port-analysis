@@ -1980,14 +1980,14 @@ static void* compatUnderlyingResource(void* p){
 static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  if(!rage)return false;
  uint64_t existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
- if(existing)return true;
  void* original=rage;
+ // A resource mapping alone is not enough for presentation: older draw-time
+ // registrations can contain only VkImage identity and no extent/layout meta.
+ // Do not early-return for native RAGE objects; re-wrap once so registerImageMeta()
+ // publishes the metadata required by full-size RTV selection.
  if(void* resource=compatUnderlyingResource(rage))rage=resource;
  existing=gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)rage,kind);
- if(existing){
-   if(original!=rage)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)original,existing,kind,1);
-   return true;
- }
+ if(existing && original!=rage)gtav_native_renderer_register_resource((uint64_t)(uintptr_t)original,existing,kind,1);
  // Compat D3D objects are our own shells, not RAGE native wrapper objects.
  // Materialize a real Vulkan image for them instead of passing their address
  // into grcTexture/grcRenderTarget wrapper code.
