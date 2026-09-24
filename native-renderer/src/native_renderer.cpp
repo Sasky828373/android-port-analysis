@@ -1457,85 +1457,7 @@ extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhys
 }
 
 static bool probeGameAndroidSurface(){
- static std::atomic<bool> done{false},failed{false}; if(done.load(std::memory_order_acquire))return true;
- SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
- if(failed.exchange(true,std::memory_order_acq_rel))return false;
- void* sdl=gameSDLHandle();
- auto create=(SDLVulkanCreateSurfaceFn)(sdl?dlsym(sdl,"SDL_Vulkan_CreateSurface"):nullptr);
- auto size=(SDLVulkanGetDrawableSizeFn)(sdl?dlsym(sdl,"SDL_Vulkan_GetDrawableSize"):nullptr);
- if(!create){gtavdiag::checkpoint("native-sdl-vulkan-surface-unresolved");return false;}
- VkSurfaceKHR surface=VK_NULL_HANDLE;
- if(create(win,g.instance,&surface)&&surface){
-   int w=0,h=0;if(size)size(win,&w,&h);char detail[128];snprintf(detail,sizeof(detail),"engine surface=%p extent=%dx%d",(void*)surface,w,h);
-   gtavdiag::checkpoint("native-android-surface-ready",detail);
-   // Keep an engine-instance surface. This is the zero-copy path: same VkInstance,
-   // physical device, device and queue that render the compatibility backbuffer.
-   gPresentProbe.instance=g.instance;gPresentProbe.surface=surface;gPresentProbe.physical=g.physical;gPresentProbe.family=g.family;gPresentProbe.device=g.device;gPresentProbe.queue=g.queue;
-   auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");
-   auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-   auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");
-   auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");
-   VkBool32 yes=VK_FALSE;VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;
-   if(!support||!caps||!formats||!modes||support(g.physical,g.family,surface,&yes)!=VK_SUCCESS||!yes||caps(g.physical,surface,&cp)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-present-queue-incompatible");return false;}
-   formats(g.physical,surface,&fc,nullptr);modes(g.physical,surface,&mc,nullptr);std::vector<VkSurfaceFormatKHR> fs(fc);if(fc)formats(g.physical,surface,&fc,fs.data());std::vector<VkPresentModeKHR> ms(mc);if(mc)modes(g.physical,surface,&mc,ms.data());
-   VkSurfaceFormatKHR sf=fc?fs[0]:VkSurfaceFormatKHR{VK_FORMAT_R8G8B8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};for(auto& f:fs)if(f.format==VK_FORMAT_R8G8B8A8_UNORM){sf=f;break;}
-   VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;for(auto m:ms)if(m==VK_PRESENT_MODE_MAILBOX_KHR){pm=m;break;}VkExtent2D ex=cp.currentExtent;if(ex.width==UINT32_MAX){ex={(uint32_t)std::max(1,w),(uint32_t)std::max(1,h)};}
-   uint32_t ic=cp.minImageCount+1;if(cp.maxImageCount&&ic>cp.maxImageCount)ic=cp.maxImageCount;VkImageUsageFlags iu=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;if(cp.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT)iu|=VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-   VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};si.surface=surface;si.minImageCount=ic;si.imageFormat=sf.format;si.imageColorSpace=sf.colorSpace;si.imageExtent=ex;si.imageArrayLayers=1;si.imageUsage=iu;si.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;si.preTransform=cp.currentTransform;si.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;si.presentMode=pm;si.clipped=VK_TRUE;
-   auto cs=(PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(g.device,"vkCreateSwapchainKHR");auto gi=(PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(g.device,"vkGetSwapchainImagesKHR");if(!cs||!gi){gtavdiag::checkpoint("native-engine-swapchain-procs-unresolved");return false;}
-   VkResult sr=cs(g.device,&si,nullptr,&gPresentProbe.swapchain);if(sr!=VK_SUCCESS){char z[64];snprintf(z,sizeof(z),"result=%d",(int)sr);gtavdiag::checkpoint("native-engine-swapchain-create-failed",z);return false;}
-   uint32_t ni=0;gi(g.device,gPresentProbe.swapchain,&ni,nullptr);gPresentProbe.images.resize(ni);gi(g.device,gPresentProbe.swapchain,&ni,gPresentProbe.images.data());gPresentProbe.format=sf.format;gPresentProbe.extent=ex;
-   char z[160];snprintf(z,sizeof(z),"images=%u format=%d extent=%ux%u",(unsigned)ni,(int)sf.format,ex.width,ex.height);gtavdiag::checkpoint("native-engine-swapchain-ready",z);done.store(true,std::memory_order_release);return true;
- }
- auto getExt=(int(*)(SDL_Window*,unsigned*,const char**))(sdl?dlsym(sdl,"SDL_Vulkan_GetInstanceExtensions"):nullptr);
- if(!getExt){gtavdiag::checkpoint("native-present-instance-ext-unresolved");return false;}
- unsigned n=0;if(!getExt(win,&n,nullptr)||!n||n>32){gtavdiag::checkpoint("native-present-instance-ext-query-failed");return false;}
- std::vector<const char*> exts(n);if(!getExt(win,&n,exts.data())){gtavdiag::checkpoint("native-present-instance-ext-list-failed");return false;}
- VkApplicationInfo ai{VK_STRUCTURE_TYPE_APPLICATION_INFO};ai.pApplicationName="GTAV Native Present";ai.apiVersion=VK_API_VERSION_1_1;
- VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};ci.pApplicationInfo=&ai;ci.enabledExtensionCount=n;ci.ppEnabledExtensionNames=exts.data();
- VkResult ir=vkCreateInstance(&ci,nullptr,&gPresentProbe.instance);
- if(ir!=VK_SUCCESS||!gPresentProbe.instance){char d[64];snprintf(d,sizeof(d),"vkCreateInstance=%d",(int)ir);gtavdiag::checkpoint("native-present-instance-create-failed",d);return false;}
- if(!create(win,gPresentProbe.instance,&gPresentProbe.surface)||!gPresentProbe.surface){gtavdiag::checkpoint("native-present-surface-probe-failed");return false;}
- int w=0,h=0;if(size)size(win,&w,&h);char d[192];snprintf(d,sizeof(d),"surface=%p extent=%dx%d extCount=%u",(void*)gPresentProbe.surface,w,h,n);gtavdiag::checkpoint("native-present-surface-probe-ready",d);
- uint32_t pc=0;VkResult pr=vkEnumeratePhysicalDevices(gPresentProbe.instance,&pc,nullptr);
- if(pr!=VK_SUCCESS||!pc){gtavdiag::checkpoint("native-present-no-physical-device");return false;}
- std::vector<VkPhysicalDevice> pd(pc);vkEnumeratePhysicalDevices(gPresentProbe.instance,&pc,pd.data());
- auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");
- auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
- auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");
- auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");
- if(!support||!caps||!formats||!modes){gtavdiag::checkpoint("native-present-surface-query-unresolved");return false;}
- for(auto p:pd){uint32_t qc=0;vkGetPhysicalDeviceQueueFamilyProperties(p,&qc,nullptr);std::vector<VkQueueFamilyProperties> qp(qc);vkGetPhysicalDeviceQueueFamilyProperties(p,&qc,qp.data());
-   for(uint32_t q=0;q<qc;q++){VkBool32 yes=VK_FALSE;if(support(p,q,gPresentProbe.surface,&yes)!=VK_SUCCESS||!yes)continue;
-     VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;if(caps(p,gPresentProbe.surface,&cp)!=VK_SUCCESS)continue;formats(p,gPresentProbe.surface,&fc,nullptr);modes(p,gPresentProbe.surface,&mc,nullptr);
-     gPresentProbe.physical=p;gPresentProbe.family=q;VkPhysicalDeviceProperties prop{};vkGetPhysicalDeviceProperties(p,&prop);
-     char x[320];snprintf(x,sizeof(x),"gpu=%s family=%u qflags=0x%x formats=%u modes=%u images=%u..%u extent=%ux%u usage=0x%x",prop.deviceName,q,qp[q].queueFlags,fc,mc,cp.minImageCount,cp.maxImageCount,cp.currentExtent.width,cp.currentExtent.height,cp.supportedUsageFlags);
-     gtavdiag::checkpoint("native-present-queue-ready",x);
-     // Build an isolated presentation device/swapchain first. Rendering remains on the
-     // engine device until explicit cross-device transfer is implemented.
-     float priority=1.0f;VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};qi.queueFamilyIndex=q;qi.queueCount=1;qi.pQueuePriorities=&priority;
-     const char* devExts[]={VK_KHR_SWAPCHAIN_EXTENSION_NAME};VkDeviceCreateInfo di{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};di.queueCreateInfoCount=1;di.pQueueCreateInfos=&qi;di.enabledExtensionCount=1;di.ppEnabledExtensionNames=devExts;
-     VkResult dr=vkCreateDevice(p,&di,nullptr,&gPresentProbe.device);if(dr!=VK_SUCCESS){char z[64];snprintf(z,sizeof(z),"vkCreateDevice=%d",(int)dr);gtavdiag::checkpoint("native-present-device-create-failed",z);return false;}
-     vkGetDeviceQueue(gPresentProbe.device,q,0,&gPresentProbe.queue);
-     std::vector<VkSurfaceFormatKHR> fs(fc);if(fc)formats(p,gPresentProbe.surface,&fc,fs.data());std::vector<VkPresentModeKHR> ms(mc);if(mc)modes(p,gPresentProbe.surface,&mc,ms.data());
-     VkSurfaceFormatKHR sf=fc?fs[0]:VkSurfaceFormatKHR{VK_FORMAT_R8G8B8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
-     for(auto& f:fs)if(f.format==VK_FORMAT_R8G8B8A8_UNORM||f.format==VK_FORMAT_B8G8R8A8_UNORM){sf=f;break;}
-     VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;for(auto m:ms)if(m==VK_PRESENT_MODE_MAILBOX_KHR){pm=m;break;}
-     VkExtent2D ex=cp.currentExtent;if(ex.width==UINT32_MAX){ex.width=(uint32_t)std::max(1,w);ex.height=(uint32_t)std::max(1,h);ex.width=std::max(cp.minImageExtent.width,std::min(cp.maxImageExtent.width,ex.width));ex.height=std::max(cp.minImageExtent.height,std::min(cp.maxImageExtent.height,ex.height));}
-     uint32_t ic=cp.minImageCount+1;if(cp.maxImageCount&&ic>cp.maxImageCount)ic=cp.maxImageCount;
-     VkImageUsageFlags iu=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;if(cp.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT)iu|=VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-     VkSurfaceTransformFlagBitsKHR tr=(cp.supportedTransforms&VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)?VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:cp.currentTransform;
-     VkCompositeAlphaFlagBitsKHR alpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;for(auto a:{VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR})if(cp.supportedCompositeAlpha&a){alpha=a;break;}
-     VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};si.surface=gPresentProbe.surface;si.minImageCount=ic;si.imageFormat=sf.format;si.imageColorSpace=sf.colorSpace;si.imageExtent=ex;si.imageArrayLayers=1;si.imageUsage=iu;si.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;si.preTransform=tr;si.compositeAlpha=alpha;si.presentMode=pm;si.clipped=VK_TRUE;
-     auto createSwap=(PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(gPresentProbe.device,"vkCreateSwapchainKHR");auto getImages=(PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(gPresentProbe.device,"vkGetSwapchainImagesKHR");
-     if(!createSwap||!getImages){gtavdiag::checkpoint("native-present-swapchain-procs-unresolved");return false;}
-     VkResult sr=createSwap(gPresentProbe.device,&si,nullptr,&gPresentProbe.swapchain);if(sr!=VK_SUCCESS){char z[64];snprintf(z,sizeof(z),"vkCreateSwapchainKHR=%d",(int)sr);gtavdiag::checkpoint("native-present-swapchain-create-failed",z);return false;}
-     uint32_t ni=0;getImages(gPresentProbe.device,gPresentProbe.swapchain,&ni,nullptr);gPresentProbe.images.resize(ni);if(ni)getImages(gPresentProbe.device,gPresentProbe.swapchain,&ni,gPresentProbe.images.data());
-     gPresentProbe.format=sf.format;gPresentProbe.extent=ex;char z[192];snprintf(z,sizeof(z),"images=%u format=%d extent=%ux%u mode=%d usage=0x%x",ni,(int)sf.format,ex.width,ex.height,(int)pm,iu);gtavdiag::checkpoint("native-present-swapchain-ready",z);
-     done.store(true,std::memory_order_release);return true;
-   }
- }
- gtavdiag::checkpoint("native-present-no-compatible-queue");return false;
+ static std::atomic<bool> ready{false},attempted{false};if(ready.load())return true;SDL_Window* win=gGameSDLWindow.load();if(!win||!g.instance||!g.device||!g.physical||!g.queue)return false;if(attempted.exchange(true))return false;void* sdl=gameSDLHandle();auto create=(SDLVulkanCreateSurfaceFn)(sdl?dlsym(sdl,"SDL_Vulkan_CreateSurface"):nullptr);auto size=(SDLVulkanGetDrawableSizeFn)(sdl?dlsym(sdl,"SDL_Vulkan_GetDrawableSize"):nullptr);if(!create)return false;VkSurfaceKHR surface{};if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-engine-surface-create-failed");return false;}int w=0,h=0;if(size)size(win,&w,&h);gtavdiag::checkpoint("native-android-surface-ready");auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");VkBool32 yes=0;VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;if(!support||!caps||!formats||!modes||support(g.physical,g.family,surface,&yes)!=VK_SUCCESS||!yes||caps(g.physical,surface,&cp)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-present-queue-incompatible");return false;}formats(g.physical,surface,&fc,nullptr);modes(g.physical,surface,&mc,nullptr);std::vector<VkSurfaceFormatKHR> fs(fc);if(fc)formats(g.physical,surface,&fc,fs.data());std::vector<VkPresentModeKHR> ms(mc);if(mc)modes(g.physical,surface,&mc,ms.data());VkSurfaceFormatKHR sf=fc?fs[0]:VkSurfaceFormatKHR{VK_FORMAT_R8G8B8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};for(auto& f:fs)if(f.format==VK_FORMAT_R8G8B8A8_UNORM){sf=f;break;}VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;for(auto m:ms)if(m==VK_PRESENT_MODE_MAILBOX_KHR){pm=m;break;}VkExtent2D ex=cp.currentExtent;if(ex.width==UINT32_MAX)ex={(uint32_t)std::max(1,w),(uint32_t)std::max(1,h)};if(!(cp.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT)){gtavdiag::checkpoint("native-engine-no-transfer-dst");return false;}uint32_t ic=cp.minImageCount+1;if(cp.maxImageCount&&ic>cp.maxImageCount)ic=cp.maxImageCount;VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};si.surface=surface;si.minImageCount=ic;si.imageFormat=sf.format;si.imageColorSpace=sf.colorSpace;si.imageExtent=ex;si.imageArrayLayers=1;si.imageUsage=VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;si.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;si.preTransform=cp.currentTransform;si.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;si.presentMode=pm;si.clipped=VK_TRUE;auto cs=(PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(g.device,"vkCreateSwapchainKHR");auto gi=(PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(g.device,"vkGetSwapchainImagesKHR");if(!cs||!gi){gtavdiag::checkpoint("native-engine-swapchain-procs-unresolved");return false;}VkSwapchainKHR sc{};if(cs(g.device,&si,nullptr,&sc)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-swapchain-create-failed");return false;}uint32_t ni=0;gi(g.device,sc,&ni,nullptr);std::vector<VkImage> imgs(ni);gi(g.device,sc,&ni,imgs.data());gPresentProbe={};gPresentProbe.instance=g.instance;gPresentProbe.surface=surface;gPresentProbe.physical=g.physical;gPresentProbe.family=g.family;gPresentProbe.device=g.device;gPresentProbe.queue=g.queue;gPresentProbe.swapchain=sc;gPresentProbe.format=sf.format;gPresentProbe.extent=ex;gPresentProbe.images=std::move(imgs);gtavdiag::checkpoint("native-engine-swapchain-ready");ready.store(true);return true;
 }
 static std::mutex descriptorPoolMutex;
 static std::vector<VkDescriptorPool> descriptorPools;
@@ -1898,6 +1820,7 @@ static bool gCompatFrameCmdReady=false;
 
 #include "gpu_profiler.inl"
 
+static VkSemaphore gPresentAcquire[3]{},gPresentDone[3]{};static bool gPresentSyncReady=false;static bool ensureEnginePresentSync();static bool recordEnginePresentCopy(VkCommandBuffer,uint32_t);
 static bool ensureCompatFrameCommandRing(){
  if(gCompatFrameCmdReady)return true;
  if(!g.device||!g.commands)return false;
@@ -1925,9 +1848,7 @@ static void submitAndBeginCompatFrameCommand(){
    VkResult er=vkEndCommandBuffer(gCompatRecordingCB);
    if(er==VK_SUCCESS){
      CompatFrameCmd& prev=gCompatFrameCmd[gCompatFrameIndex];
-     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-     si.commandBufferCount=1; si.pCommandBuffers=&gCompatRecordingCB;
-     VkResult sr=vkQueueSubmit(g.queue,1,&si,prev.fence);
+     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};uint32_t pix=UINT32_MAX;bool dp=false;VkPipelineStageFlags ws=VK_PIPELINE_STAGE_TRANSFER_BIT;auto ac=(PFN_vkAcquireNextImageKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkAcquireNextImageKHR"):nullptr);auto qp=(PFN_vkQueuePresentKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkQueuePresentKHR"):nullptr);if(ac&&qp&&ensureEnginePresentSync()){VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);if((ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR)&&recordEnginePresentCopy(gCompatRecordingCB,pix)){si.waitSemaphoreCount=1;si.pWaitSemaphores=&gPresentAcquire[gCompatFrameIndex];si.pWaitDstStageMask=&ws;si.signalSemaphoreCount=1;si.pSignalSemaphores=&gPresentDone[gCompatFrameIndex];dp=true;}}si.commandBufferCount=1;si.pCommandBuffers=&gCompatRecordingCB;VkResult sr=vkQueueSubmit(g.queue,1,&si,prev.fence);if(sr==VK_SUCCESS&&dp){VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&gPresentDone[gCompatFrameIndex];pi.swapchainCount=1;pi.pSwapchains=&gPresentProbe.swapchain;pi.pImageIndices=&pix;VkResult pr=qp(g.queue,&pi);gtavdiag::checkpoint((pr==VK_SUCCESS||pr==VK_SUBOPTIMAL_KHR)?"native-engine-frame-presented":"native-engine-queue-present-failed");}
      if(sr==VK_SUCCESS){
        prev.inFlight=true;
        gtavdiag::checkpoint("compat-command-buffer-submitted");
@@ -2364,6 +2285,8 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  gtavdiag::checkpoint("native-compat-image-created");return true;
 }
 
+static bool ensureEnginePresentSync(){if(gPresentSyncReady)return true;if(!g.device||!gPresentProbe.swapchain)return false;VkSemaphoreCreateInfo s{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};for(int i=0;i<3;i++)if(vkCreateSemaphore(g.device,&s,nullptr,&gPresentAcquire[i])!=VK_SUCCESS||vkCreateSemaphore(g.device,&s,nullptr,&gPresentDone[i])!=VK_SUCCESS)return false;return gPresentSyncReady=true;}
+static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){if(!cb||ix>=gPresentProbe.images.size())return false;VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it==compatOwnedImages.end())return false;src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;it->second.layout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;}VkImageMemoryBarrier b[2]{};for(auto& x:b){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}b[0].oldLayout=old;b[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;b[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;b[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;b[0].image=src;b[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;b[1].image=gPresentProbe.images[ix];vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,b);VkImageBlit x{};x.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};x.srcOffsets[1]={(int32_t)sw,(int32_t)sh,1};x.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};x.dstOffsets[1]={(int32_t)gPresentProbe.extent.width,(int32_t)gPresentProbe.extent.height,1};vkCmdBlitImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&x,VK_FILTER_LINEAR);VkImageMemoryBarrier pb{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};pb.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pb.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;pb.srcQueueFamilyIndex=pb.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;pb.image=gPresentProbe.images[ix];pb.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};pb.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&pb);return true;}
 static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLayout target){
  if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;const uint64_t key=(uint64_t)(uintptr_t)resource;
  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it==compatOwnedImages.end())return true;auto& o=it->second;if(o.layout==target)return true;
