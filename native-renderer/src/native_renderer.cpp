@@ -51,13 +51,16 @@ static void ensureDir(){ mkdir("/storage/emulated/0/Games",0775); mkdir("/storag
 static void append(const char* s){ ensureDir(); int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664); if(fd>=0){write(fd,s,strlen(s));close(fd);} }
 static void checkpoint(const char* name,const char* detail=nullptr){
  last.store(name,std::memory_order_relaxed); tlsLast=name; char b[768];
- int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s\n",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
+ int n=snprintf(b,sizeof(b),"SEQ=%u CHECKPOINT=%s tid=%ld%s%s
+",seq.fetch_add(1)+1,name,(long)syscall(SYS_gettid),detail?" ":"",detail?detail:"");
  if(n>0) append(b); __android_log_print(ANDROID_LOG_INFO,"GTAV-DIAG","%s%s%s",name,detail?" ":"",detail?detail:"");
 }
 static char* puthex(char* p,uint64_t v){static const char h[]="0123456789abcdef";*p++='0';*p++='x';bool s=false;for(int i=15;i>=0;--i){unsigned d=(v>>(i*4))&15;if(d||s||i==0){*p++=h[d];s=true;}}return p;}
 static char* putdec(char* p,unsigned v){char t[16];int n=0;do{t[n++]=char('0'+v%10);v/=10;}while(v);while(n)*p++=t[--n];return p;}
 static void crashHandler(int sig,siginfo_t* si,void* ctx){
- char b[512],*p=b; const char* a="\n=== GTAV NATIVE CRASH ===\nsignal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
+ char b[512],*p=b; const char* a="
+=== GTAV NATIVE CRASH ===
+signal=";memcpy(p,a,strlen(a));p+=strlen(a);p=putdec(p,(unsigned)sig);
  const char* q=" fault=";memcpy(p,q,strlen(q));p+=strlen(q);p=puthex(p,(uint64_t)(uintptr_t)(si?si->si_addr:nullptr));
 #if defined(__aarch64__)
  ucontext_t* uc=(ucontext_t*)ctx;const char* r=" pc=";memcpy(p,r,strlen(r));p+=strlen(r);p=puthex(p,(uint64_t)uc->uc_mcontext.pc);
@@ -67,17 +70,22 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
  const char* ti=" tid=";memcpy(p,ti,strlen(ti));p+=strlen(ti);p=putdec(p,(unsigned)syscall(SYS_gettid));
  char tname[17]{};syscall(SYS_prctl,PR_GET_NAME,tname,0,0,0);
  const char* tn=" thread_name=";memcpy(p,tn,strlen(tn));p+=strlen(tn);size_t tnn=strnlen(tname,16);memcpy(p,tname,tnn);p+=tnn;
- const char* x=" thread_last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=tlsLast;size_t zn=strlen(z);memcpy(p,z,zn);p+=zn; const char* gx=" global_last=";memcpy(p,gx,strlen(gx));p+=strlen(gx);z=last.load(std::memory_order_relaxed);zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='\n';
+ const char* x=" thread_last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=tlsLast;size_t zn=strlen(z);memcpy(p,z,zn);p+=zn; const char* gx=" global_last=";memcpy(p,gx,strlen(gx));p+=strlen(gx);z=last.load(std::memory_order_relaxed);zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='
+';
  int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664);if(fd>=0){
    write(fd,b,p-b);
 #if defined(__aarch64__)
    char d[4096]; int n=0; Dl_info pi{},li{};
    if(dladdr((void*)uc->uc_mcontext.pc,&pi)&&pi.dli_fbase)
-     n+=snprintf(d+n,sizeof(d)-n,"pc_module=%s pc_base=%p pc_offset=0x%llx\n",pi.dli_fname?pi.dli_fname:"?",pi.dli_fbase,(unsigned long long)(uc->uc_mcontext.pc-(uintptr_t)pi.dli_fbase));
+     n+=snprintf(d+n,sizeof(d)-n,"pc_module=%s pc_base=%p pc_offset=0x%llx
+",pi.dli_fname?pi.dli_fname:"?",pi.dli_fbase,(unsigned long long)(uc->uc_mcontext.pc-(uintptr_t)pi.dli_fbase));
    if(dladdr((void*)uc->uc_mcontext.regs[30],&li)&&li.dli_fbase)
-     n+=snprintf(d+n,sizeof(d)-n,"lr_module=%s lr_base=%p lr_offset=0x%llx\n",li.dli_fname?li.dli_fname:"?",li.dli_fbase,(unsigned long long)(uc->uc_mcontext.regs[30]-(uintptr_t)li.dli_fbase));
-   for(int i=0;i<31&&n<(int)sizeof(d)-80;i++) n+=snprintf(d+n,sizeof(d)-n,"x%d=%p%s",i,(void*)uc->uc_mcontext.regs[i],(i%4)==3?"\n":" ");
-   n+=snprintf(d+n,sizeof(d)-n,"\n");
+     n+=snprintf(d+n,sizeof(d)-n,"lr_module=%s lr_base=%p lr_offset=0x%llx
+",li.dli_fname?li.dli_fname:"?",li.dli_fbase,(unsigned long long)(uc->uc_mcontext.regs[30]-(uintptr_t)li.dli_fbase));
+   for(int i=0;i<31&&n<(int)sizeof(d)-80;i++) n+=snprintf(d+n,sizeof(d)-n,"x%d=%p%s",i,(void*)uc->uc_mcontext.regs[i],(i%4)==3?"
+":" ");
+   n+=snprintf(d+n,sizeof(d)-n,"
+");
    if(n>0) write(fd,d,(size_t)n);
 #endif
    close(fd);
@@ -87,7 +95,8 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
 __attribute__((constructor)) static void install(){
  ensureDir();
  setenv("GTAV_VULKAN_BACKEND","native",1);
- int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
+ int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2
+";write(fd,h,strlen(h));close(fd);}
  struct sigaction sa{};sa.sa_sigaction=crashHandler;sigemptyset(&sa.sa_mask);sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
  int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGTRAP};for(int s:sigs)sigaction(s,&sa,nullptr);checkpoint("diagnostic-installed");
 }
@@ -359,7 +368,9 @@ static void compatCtxDrawAuto(void*){gtavdiag::checkpoint("compat-context-draw-a
 static void compatCtxDrawIndexedInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced-indirect");}
 static void compatCtxDrawInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced-indirect");}
 static void compatCtxDispatchIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-dispatch-indirect");}
-static bool compatGpuCopyResource(void*,void*);\nstatic void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}\nstatic void compatCopyBacking(void*,void*); static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");compatCopyBacking(dst,src);if(!compatGpuCopyResource(dst,src))gtavdiag::checkpoint("native-compat-gpu-copy-resource-fallback");}
+static bool compatGpuCopyResource(void*,void*);
+static void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}
+static void compatCopyBacking(void*,void*); static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");compatCopyBacking(dst,src);if(!compatGpuCopyResource(dst,src))gtavdiag::checkpoint("native-compat-gpu-copy-resource-fallback");}
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
 static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-uav-float");}
@@ -1198,7 +1209,72 @@ static void initCompatD3D11() {
   gD3DContextVtable[61]=(void*)compatCtxHSSetSamplers;
   gD3DContextVtable[62]=(void*)compatCtxHSSetConstantBuffers;
   gD3DContextVtable[63]=(void*)compatCtxDSSetShaderResources;
-  // Diagnose every remaining ID3D11DeviceContext getter/state slot individually.\n  gD3DContextVtable[64]=(void*)compatContextSlot64;\n  gD3DContextVtable[65]=(void*)compatContextSlot65;\n  gD3DContextVtable[66]=(void*)compatContextSlot66;\n  gD3DContextVtable[67]=(void*)compatContextSlot67;\n  gD3DContextVtable[68]=(void*)compatContextSlot68;\n  gD3DContextVtable[69]=(void*)compatContextSlot69;\n  gD3DContextVtable[70]=(void*)compatContextSlot70;\n  gD3DContextVtable[71]=(void*)compatContextSlot71;\n  gD3DContextVtable[72]=(void*)compatContextSlot72;\n  gD3DContextVtable[73]=(void*)compatContextSlot73;\n  gD3DContextVtable[74]=(void*)compatContextSlot74;\n  gD3DContextVtable[75]=(void*)compatContextSlot75;\n  gD3DContextVtable[76]=(void*)compatContextSlot76;\n  gD3DContextVtable[77]=(void*)compatContextSlot77;\n  gD3DContextVtable[78]=(void*)compatContextSlot78;\n  gD3DContextVtable[79]=(void*)compatContextSlot79;\n  gD3DContextVtable[80]=(void*)compatContextSlot80;\n  gD3DContextVtable[81]=(void*)compatContextSlot81;\n  gD3DContextVtable[82]=(void*)compatContextSlot82;\n  gD3DContextVtable[83]=(void*)compatContextSlot83;\n  gD3DContextVtable[84]=(void*)compatContextSlot84;\n  gD3DContextVtable[85]=(void*)compatContextSlot85;\n  gD3DContextVtable[86]=(void*)compatContextSlot86;\n  gD3DContextVtable[87]=(void*)compatContextSlot87;\n  gD3DContextVtable[88]=(void*)compatContextSlot88;\n  gD3DContextVtable[89]=(void*)compatContextSlot89;\n  gD3DContextVtable[90]=(void*)compatContextSlot90;\n  gD3DContextVtable[91]=(void*)compatContextSlot91;\n  gD3DContextVtable[92]=(void*)compatContextSlot92;\n  gD3DContextVtable[93]=(void*)compatContextSlot93;\n  gD3DContextVtable[94]=(void*)compatContextSlot94;\n  gD3DContextVtable[95]=(void*)compatContextSlot95;\n  gD3DContextVtable[96]=(void*)compatContextSlot96;\n  gD3DContextVtable[97]=(void*)compatContextSlot97;\n  gD3DContextVtable[98]=(void*)compatContextSlot98;\n  gD3DContextVtable[99]=(void*)compatContextSlot99;\n  gD3DContextVtable[100]=(void*)compatContextSlot100;\n  gD3DContextVtable[101]=(void*)compatContextSlot101;\n  gD3DContextVtable[102]=(void*)compatContextSlot102;\n  gD3DContextVtable[103]=(void*)compatContextSlot103;\n  gD3DContextVtable[104]=(void*)compatContextSlot104;\n  gD3DContextVtable[105]=(void*)compatContextSlot105;\n  gD3DContextVtable[106]=(void*)compatContextSlot106;\n  gD3DContextVtable[107]=(void*)compatContextSlot107;\n  gD3DContextVtable[108]=(void*)compatContextSlot108;\n  gD3DContextVtable[109]=(void*)compatContextSlot109;\n  gD3DContextVtable[110]=(void*)compatContextSlot110;\n  gD3DContextVtable[111]=(void*)compatContextSlot111;\n  gD3DContextVtable[112]=(void*)compatContextSlot112;\n  gD3DContextVtable[113]=(void*)compatContextSlot113;\n  gD3DContextVtable[114]=(void*)compatContextSlot114;\n  gD3DContextVtable[115]=(void*)compatContextSlot115;\n  gD3DContextVtable[116]=(void*)compatContextSlot116;\n  gD3DContextVtable[117]=(void*)compatContextSlot117;\n  gD3DContextVtable[118]=(void*)compatContextSlot118;\n  gD3DContextVtable[119]=(void*)compatContextSlot119;\n  gD3DContextVtable[120]=(void*)compatContextSlot120;\n  gD3DContextVtable[121]=(void*)compatContextSlot121;\n  gD3DContextVtable[122]=(void*)compatContextSlot122;\n  gD3DContextVtable[123]=(void*)compatContextSlot123;\n  gD3DContextVtable[124]=(void*)compatContextSlot124;\n  gD3DContextVtable[125]=(void*)compatContextSlot125;\n  gD3DContextVtable[126]=(void*)compatContextSlot126;\n  gD3DContextVtable[127]=(void*)compatContextSlot127;\n
+  // Diagnose every remaining ID3D11DeviceContext getter/state slot individually.
+  gD3DContextVtable[64]=(void*)compatContextSlot64;
+  gD3DContextVtable[65]=(void*)compatContextSlot65;
+  gD3DContextVtable[66]=(void*)compatContextSlot66;
+  gD3DContextVtable[67]=(void*)compatContextSlot67;
+  gD3DContextVtable[68]=(void*)compatContextSlot68;
+  gD3DContextVtable[69]=(void*)compatContextSlot69;
+  gD3DContextVtable[70]=(void*)compatContextSlot70;
+  gD3DContextVtable[71]=(void*)compatContextSlot71;
+  gD3DContextVtable[72]=(void*)compatContextSlot72;
+  gD3DContextVtable[73]=(void*)compatContextSlot73;
+  gD3DContextVtable[74]=(void*)compatContextSlot74;
+  gD3DContextVtable[75]=(void*)compatContextSlot75;
+  gD3DContextVtable[76]=(void*)compatContextSlot76;
+  gD3DContextVtable[77]=(void*)compatContextSlot77;
+  gD3DContextVtable[78]=(void*)compatContextSlot78;
+  gD3DContextVtable[79]=(void*)compatContextSlot79;
+  gD3DContextVtable[80]=(void*)compatContextSlot80;
+  gD3DContextVtable[81]=(void*)compatContextSlot81;
+  gD3DContextVtable[82]=(void*)compatContextSlot82;
+  gD3DContextVtable[83]=(void*)compatContextSlot83;
+  gD3DContextVtable[84]=(void*)compatContextSlot84;
+  gD3DContextVtable[85]=(void*)compatContextSlot85;
+  gD3DContextVtable[86]=(void*)compatContextSlot86;
+  gD3DContextVtable[87]=(void*)compatContextSlot87;
+  gD3DContextVtable[88]=(void*)compatContextSlot88;
+  gD3DContextVtable[89]=(void*)compatContextSlot89;
+  gD3DContextVtable[90]=(void*)compatContextSlot90;
+  gD3DContextVtable[91]=(void*)compatContextSlot91;
+  gD3DContextVtable[92]=(void*)compatContextSlot92;
+  gD3DContextVtable[93]=(void*)compatContextSlot93;
+  gD3DContextVtable[94]=(void*)compatContextSlot94;
+  gD3DContextVtable[95]=(void*)compatContextSlot95;
+  gD3DContextVtable[96]=(void*)compatContextSlot96;
+  gD3DContextVtable[97]=(void*)compatContextSlot97;
+  gD3DContextVtable[98]=(void*)compatContextSlot98;
+  gD3DContextVtable[99]=(void*)compatContextSlot99;
+  gD3DContextVtable[100]=(void*)compatContextSlot100;
+  gD3DContextVtable[101]=(void*)compatContextSlot101;
+  gD3DContextVtable[102]=(void*)compatContextSlot102;
+  gD3DContextVtable[103]=(void*)compatContextSlot103;
+  gD3DContextVtable[104]=(void*)compatContextSlot104;
+  gD3DContextVtable[105]=(void*)compatContextSlot105;
+  gD3DContextVtable[106]=(void*)compatContextSlot106;
+  gD3DContextVtable[107]=(void*)compatContextSlot107;
+  gD3DContextVtable[108]=(void*)compatContextSlot108;
+  gD3DContextVtable[109]=(void*)compatContextSlot109;
+  gD3DContextVtable[110]=(void*)compatContextSlot110;
+  gD3DContextVtable[111]=(void*)compatContextSlot111;
+  gD3DContextVtable[112]=(void*)compatContextSlot112;
+  gD3DContextVtable[113]=(void*)compatContextSlot113;
+  gD3DContextVtable[114]=(void*)compatContextSlot114;
+  gD3DContextVtable[115]=(void*)compatContextSlot115;
+  gD3DContextVtable[116]=(void*)compatContextSlot116;
+  gD3DContextVtable[117]=(void*)compatContextSlot117;
+  gD3DContextVtable[118]=(void*)compatContextSlot118;
+  gD3DContextVtable[119]=(void*)compatContextSlot119;
+  gD3DContextVtable[120]=(void*)compatContextSlot120;
+  gD3DContextVtable[121]=(void*)compatContextSlot121;
+  gD3DContextVtable[122]=(void*)compatContextSlot122;
+  gD3DContextVtable[123]=(void*)compatContextSlot123;
+  gD3DContextVtable[124]=(void*)compatContextSlot124;
+  gD3DContextVtable[125]=(void*)compatContextSlot125;
+  gD3DContextVtable[126]=(void*)compatContextSlot126;
+  gD3DContextVtable[127]=(void*)compatContextSlot127;
+
   gD3DContextVtable[64]=(void*)compatCtxDSSetShader;
   gD3DContextVtable[65]=(void*)compatCtxDSSetSamplers;
   gD3DContextVtable[66]=(void*)compatCtxDSSetConstantBuffers;
@@ -2459,7 +2535,14 @@ static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLa
  else if(target==VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){dst=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;b.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;}
  vkCmdPipelineBarrier(cb,src,dst,0,0,nullptr,0,nullptr,1,&b);o.layout=target;return true;
 }
-static bool compatGpuCopyResource(void* dst,void* src){\n if(!dst||!src||!gCompatRecordingCB)return false;void* dr=compatUnderlyingResource(dst);if(!dr)dr=dst;void* sr=compatUnderlyingResource(src);if(!sr)sr=src;\n if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;\n if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;\n VkImage di{},si{};uint32_t w=0,h=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end()||dit->second.format!=sit->second.format||dit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT||sit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT)return false;di=dit->second.image;si=sit->second.image;w=std::min(dit->second.width,sit->second.width);h=std::min(dit->second.height,sit->second.height);}\n VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={w,h,1};vkCmdCopyImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);gtavdiag::checkpoint("native-compat-gpu-copy-resource");return true;\n}\nstatic bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
+static bool compatGpuCopyResource(void* dst,void* src){
+ if(!dst||!src||!gCompatRecordingCB)return false;void* dr=compatUnderlyingResource(dst);if(!dr)dr=dst;void* sr=compatUnderlyingResource(src);if(!sr)sr=src;
+ if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;
+ if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;
+ VkImage di{},si{};uint32_t w=0,h=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end()||dit->second.format!=sit->second.format||dit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT||sit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT)return false;di=dit->second.image;si=sit->second.image;w=std::min(dit->second.width,sit->second.width);h=std::min(dit->second.height,sit->second.height);}
+ VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={w,h,1};vkCmdCopyImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);gtavdiag::checkpoint("native-compat-gpu-copy-resource");return true;
+}
+static bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
  if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;if(resource==&gCompatBackBuffer)return true;
  auto* rr=(CompatResourceObject*)resource;if(rr->vtbl!=gCompatTexture2DVtable)return true;const uint64_t key=(uint64_t)(uintptr_t)resource;
  uint64_t version=rr->version;{
