@@ -2048,9 +2048,19 @@ using GtavDlsymFn=void*(*)(void*,const char*);
 static GtavDlsymFn origGtavDlsym=nullptr;
 static void* hookGtavDlsym(void* handle,const char* name){
  void* p=origGtavDlsym?origGtavDlsym(handle,name):nullptr;
- if(name&&strcmp(name,"vkGetInstanceProcAddr")==0){
-   gtavdiag::checkpoint("native-vulkan-loader-dlsym-gipa-intercept");
-   return reinterpret_cast<void*>(&vkGetInstanceProcAddr);
+ if(name){
+   static std::atomic<uint32_t> dlsymLookups{0};
+   uint32_t n=dlsymLookups.fetch_add(1,std::memory_order_relaxed);
+   if(n<32){char detail[256];snprintf(detail,sizeof(detail),"n=%u name=%s result=%p",n,name,p);gtavdiag::checkpoint("native-vulkan-loader-dlsym-lookup",detail);}
+   if(strcmp(name,"vkGetInstanceProcAddr")==0){
+     gtavdiag::checkpoint("native-vulkan-loader-dlsym-gipa-intercept");
+     return reinterpret_cast<void*>(&vkGetInstanceProcAddr);
+   }
+   // Some GTA loader paths resolve the global entry points directly with dlsym
+   // instead of asking GIPA for them. Intercept those before the first instance/device exists.
+   if(strcmp(name,"vkCreateInstance")==0){gtavdiag::checkpoint("native-vulkan-loader-dlsym-create-instance-intercept");return reinterpret_cast<void*>(&vkCreateInstance);}
+   if(strcmp(name,"vkCreateDevice")==0){gtavdiag::checkpoint("native-vulkan-loader-dlsym-create-device-intercept");return reinterpret_cast<void*>(&vkCreateDevice);}
+   if(strcmp(name,"vkGetDeviceProcAddr")==0){gtavdiag::checkpoint("native-vulkan-loader-dlsym-gdpa-intercept");return reinterpret_cast<void*>(&vkGetDeviceProcAddr);}
  }
  return p;
 }
