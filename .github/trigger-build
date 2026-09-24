@@ -15,3 +15,5 @@ present-queue-discovery 4513208
 android-swapchain c68ec60
 
 gpu-profiler 511d5f7
+
+gpu-profiler-fix 4be4167
