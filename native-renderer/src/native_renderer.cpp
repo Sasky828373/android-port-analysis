@@ -1446,7 +1446,7 @@ static void* systemVulkanHandle(){static void* h=nullptr;if(!h){h=dlopen("libvul
 extern "C" __attribute__((visibility("default"))) VkResult vkCreateInstance(const VkInstanceCreateInfo* in,const VkAllocationCallbacks* a,VkInstance* out){
  using Fn=VkResult(*)(const VkInstanceCreateInfo*,const VkAllocationCallbacks*,VkInstance*);static Fn real=nullptr;if(!real)real=(Fn)dlsym(systemVulkanHandle(),"vkCreateInstance");if(!real)return VK_ERROR_INITIALIZATION_FAILED;
  if(!in)return real(in,a,out);std::vector<const char*> e;for(uint32_t i=0;i<in->enabledExtensionCount;i++)e.push_back(in->ppEnabledExtensionNames[i]);
- auto add=[&](const char* n){for(auto x:e)if(x&&strcmp(x,n)==0)return;e.push_back(n);};add(VK_KHR_SURFACE_EXTENSION_NAME);add(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+ auto add=[&](const char* n){for(auto x:e)if(x&&strcmp(x,n)==0)return;e.push_back(n);};add(VK_KHR_SURFACE_EXTENSION_NAME);add("VK_KHR_android_surface");
  VkInstanceCreateInfo ci=*in;ci.enabledExtensionCount=(uint32_t)e.size();ci.ppEnabledExtensionNames=e.data();VkResult r=real(&ci,a,out);if(r==VK_SUCCESS)gtavdiag::checkpoint("native-vk-instance-surface-ext-injected");return r;
 }
 extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhysicalDevice p,const VkDeviceCreateInfo* in,const VkAllocationCallbacks* a,VkDevice* out){
