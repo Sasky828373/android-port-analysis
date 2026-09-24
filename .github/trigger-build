@@ -11,3 +11,5 @@ resolve-packaged-sdl 863fd50
 present-instance-probe d819925
 
 present-queue-discovery 4513208
+
+android-swapchain c68ec60
