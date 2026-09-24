@@ -353,14 +353,13 @@ static void compatCtxVSSetSamplers(void* c,uint32_t f,uint32_t n,void* const* v)
 static void compatCtxSetPredication(void*,void*,int){gtavdiag::checkpoint("compat-context-set-predication");}
 static void compatCtxGSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-shader-resources");}
 static void compatCtxGSSetSamplers(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-gs-set-samplers");}
-static void compatCtxOMSetRTUAV(void*,uint32_t,void* const*,void*,uint32_t,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-om-set-rt-uav");}
+static void compatCtxOMSetRTUAV(void* c,uint32_t n,void* const* r,void* d,uint32_t,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-om-set-rt-uav");gtavnative_compat_mirror_render_targets(c,n,r,d);}
 static void compatCtxSOSetTargets(void*,uint32_t,void* const*,const uint32_t*){gtavdiag::checkpoint("compat-context-so-set-targets");}
 static void compatCtxDrawAuto(void*){gtavdiag::checkpoint("compat-context-draw-auto");}
 static void compatCtxDrawIndexedInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-indexed-instanced-indirect");}
 static void compatCtxDrawInstancedIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-draw-instanced-indirect");}
 static void compatCtxDispatchIndirect(void*,void*,uint32_t){gtavdiag::checkpoint("compat-context-dispatch-indirect");}
-static void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}
-static void compatCopyBacking(void*,void*); static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");compatCopyBacking(dst,src);}
+static bool compatGpuCopyResource(void*,void*);\nstatic void compatCtxCopySubresourceRegion(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*){gtavdiag::checkpoint("compat-context-copy-subresource-region");}\nstatic void compatCopyBacking(void*,void*); static void compatCtxCopyResource(void*,void* dst,void* src){gtavdiag::checkpoint("compat-context-copy-resource");compatCopyBacking(dst,src);if(!compatGpuCopyResource(dst,src))gtavdiag::checkpoint("native-compat-gpu-copy-resource-fallback");}
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
 static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoint("compat-context-clear-uav-float");}
@@ -2460,7 +2459,7 @@ static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLa
  else if(target==VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){dst=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;b.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;}
  vkCmdPipelineBarrier(cb,src,dst,0,0,nullptr,0,nullptr,1,&b);o.layout=target;return true;
 }
-static bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
+static bool compatGpuCopyResource(void* dst,void* src){\n if(!dst||!src||!gCompatRecordingCB)return false;void* dr=compatUnderlyingResource(dst);if(!dr)dr=dst;void* sr=compatUnderlyingResource(src);if(!sr)sr=src;\n if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;\n if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;\n VkImage di{},si{};uint32_t w=0,h=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end()||dit->second.format!=sit->second.format||dit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT||sit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT)return false;di=dit->second.image;si=sit->second.image;w=std::min(dit->second.width,sit->second.width);h=std::min(dit->second.height,sit->second.height);}\n VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={w,h,1};vkCmdCopyImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);gtavdiag::checkpoint("native-compat-gpu-copy-resource");return true;\n}\nstatic bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
  if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;if(resource==&gCompatBackBuffer)return true;
  auto* rr=(CompatResourceObject*)resource;if(rr->vtbl!=gCompatTexture2DVtable)return true;const uint64_t key=(uint64_t)(uintptr_t)resource;
  uint64_t version=rr->version;{
