@@ -1459,7 +1459,7 @@ extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhys
  if(!in)return real(p,in,a,out);std::vector<const char*> e;for(uint32_t i=0;i<in->enabledExtensionCount;i++)e.push_back(in->ppEnabledExtensionNames[i]);
  bool has=false;for(auto x:e)if(x&&strcmp(x,VK_KHR_SWAPCHAIN_EXTENSION_NAME)==0)has=true;if(!has)e.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
  VkDeviceCreateInfo ci=*in;ci.enabledExtensionCount=(uint32_t)e.size();ci.ppEnabledExtensionNames=e.data();VkResult r=real(p,&ci,a,out);if(r==VK_SUCCESS)gtavdiag::checkpoint("native-vk-device-swapchain-ext-injected");return r;
-}extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance,const char* name){
+}static PFN_vkVoidFunction gtavInterceptGIPA(VkInstance instance,const char* name){
  auto real=realVkGIPA();if(!real||!name)return nullptr;
  static std::atomic<uint32_t> lookups{0};
  uint32_t n=lookups.fetch_add(1,std::memory_order_relaxed);
@@ -1471,6 +1471,9 @@ extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhys
  if(strcmp(name,"vkCreateDevice")==0){gtavdiag::checkpoint("native-vkgipa-create-device-intercept");return reinterpret_cast<PFN_vkVoidFunction>(&vkCreateDevice);}
  if(strcmp(name,"vkGetDeviceProcAddr")==0){gtavdiag::checkpoint("native-vkgipa-get-device-proc-intercept");return reinterpret_cast<PFN_vkVoidFunction>(&vkGetDeviceProcAddr);}
  return real(instance,name);
+}
+extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance,const char* name){
+ return gtavInterceptGIPA(instance,name);
 }
 extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice device,const char* name){
  auto real=realVkGDPA();if(!real||!name)return nullptr;return real(device,name);
@@ -2054,7 +2057,7 @@ static void* hookGtavDlsym(void* handle,const char* name){
    if(n<32){char detail[256];snprintf(detail,sizeof(detail),"n=%u name=%s result=%p",n,name,p);gtavdiag::checkpoint("native-vulkan-loader-dlsym-lookup",detail);}
    if(strcmp(name,"vkGetInstanceProcAddr")==0){
      gtavdiag::checkpoint("native-vulkan-loader-dlsym-gipa-intercept");
-     return reinterpret_cast<void*>(&vkGetInstanceProcAddr);
+     return reinterpret_cast<void*>(&gtavInterceptGIPA);
    }
    // Some GTA loader paths resolve the global entry points directly with dlsym
    // instead of asking GIPA for them. Intercept those before the first instance/device exists.
@@ -2101,7 +2104,7 @@ static bool hookGtavNativeAdapterInit(){
  if(gtavBase){
    auto slot=reinterpret_cast<PFN_vkGetInstanceProcAddr*>(gtavBase+0x8aac0b0);
    if(slot&&*slot){
-     *slot=&vkGetInstanceProcAddr;
+     *slot=&gtavInterceptGIPA;
      gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-patched");
    } else {
      gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-empty");
