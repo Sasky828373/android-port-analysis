@@ -2,8 +2,6 @@
 
 #include <atomic>
 #include <android/native_window.h>
-#include <vulkan/vulkan.h>
-
 #include "../wsi_platform.h"
 
 namespace dxvk::wsi {
