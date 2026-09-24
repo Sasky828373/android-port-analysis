@@ -2897,7 +2897,7 @@ static int32_t compatDxbcInputLocation(const CompatShaderObject* sh,const std::s
    const uint8_t* ch=b+off;uint32_t four=0,sz=0;std::memcpy(&four,ch,4);std::memcpy(&sz,ch+4,4);
    // ISGN / ISG1 input-signature chunks.
    if(four!=0x4e475349u && four!=0x31475349u)continue;
-   size_t end=std::min(n,(size_t)off+8ull+sz);const uint8_t* d=ch+8;if(d+8>b+end)continue;
+   size_t end=std::min<size_t>(n,(size_t)off+(size_t)8+(size_t)sz);const uint8_t* d=ch+8;if(d+8>b+end)continue;
    uint32_t cnt=0;std::memcpy(&cnt,d,4);if(cnt>256)continue;
    // SM4/5 ISGN entries are 24 bytes. ISG1 may carry a 32-byte entry; the
    // first semantic/name/index/register fields stay at the same offsets.
