@@ -83,8 +83,6 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
  signal(sig,SIG_DFL);syscall(SYS_tgkill,getpid(),syscall(SYS_gettid),sig);
 }
 __attribute__((constructor)) static void install(){
- // Install the GTA Vulkan loader hook from the ELF constructor, before D3D/renderer bootstrap.
- gtav_native_renderer_install_early_vulkan_hook();
  ensureDir();
  setenv("GTAV_VULKAN_BACKEND","native",1);
  int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
@@ -1685,6 +1683,8 @@ static bool attachFromGtavRuntime(){
  const uint32_t attempt=attachAttempts.fetch_add(1,std::memory_order_relaxed)+1;
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){ if(attempt<=8) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait: libgtav base unavailable attempt=%u",attempt); return false; }
+ // libgtav is now mapped: patch its adapter Initialize before our first forced late init.
+ gtav_native_renderer_install_early_vulkan_hook();
  auto gi=(GetInstanceFn)(gtavBase+0x6232890);
  auto gp=(GetPhysicalDeviceFn)(gtavBase+0x623289c);
  auto gd=(GetDeviceFn)(gtavBase+0x62328a8);
@@ -2052,12 +2052,13 @@ static bool hookGtavNativeAdapterInit(){
  return ok;
 }
 static bool installVulkanLoaderInitHook(){
+ static std::atomic<bool> installed{false};if(installed.load(std::memory_order_acquire))return true;
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);if(!gtavBase)return false;
  static constexpr uint32_t expected[4]={0xa9ba7bfdu,0xa9016ffcu,0xa90267fau,0xa9035ff8u};
  if(std::memcmp((void*)(gtavBase+0x622f0b8),expected,16)!=0){gtavdiag::checkpoint("native-vulkan-loader-init-prologue-mismatch");return false;}
  uint32_t saved[4]{};void* tramp=nullptr;
  bool ok=patchJump(gtavBase+0x622f0b8,(void*)hookGtavNativeAdapterInit,saved,&tramp);
- if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
+ if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;installed.store(true,std::memory_order_release);gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
  return ok;
 }
 
