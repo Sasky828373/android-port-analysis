@@ -1591,6 +1591,7 @@ static OrigPassEndAndSubmit origPassEndAndSubmit{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
 static thread_local VkCommandBuffer tlsNativeCommandBuffer=VK_NULL_HANDLE;
 static std::atomic<uint64_t> observedCommandBufferEpoch{0};
+static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source);
 
 // Fallback recording path for the D3D-shaped compatibility frontend.
 // The historical RAGE submission hook addresses are not executed by this build,
