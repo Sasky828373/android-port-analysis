@@ -1603,6 +1603,7 @@ static std::unordered_map<uint64_t,GtavNativeResourceHandle> resources;
 struct NativePipelineCacheEntry { VkPipeline pipeline{}; VkPipelineLayout layout{}; VkDescriptorSet descriptor{}; };
 static std::mutex pipelineCacheMutex;
 static std::unordered_map<uint64_t,NativePipelineCacheEntry> pipelineCache;
+static std::mutex graphicsPipelineCreateMutex;
 static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
@@ -3036,6 +3037,11 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
       default:break;
      }
      if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-input-layout-format-unsupported");continue;}
+     VkFormatProperties fp{};vkGetPhysicalDeviceFormatProperties(g.physical,vf,&fp);
+     if(!(fp.bufferFeatures&VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)){
+       char d[128];snprintf(d,sizeof(d),"semantic=%s%u format=%d",e.semantic.c_str(),e.semanticIndex,(int)vf);
+       gtavdiag::checkpoint("native-input-format-no-vertex-support",d);continue;
+     }
      uint32_t off=e.offset==0xffffffffu?appendOffset[e.slot]:e.offset;appendOffset[e.slot]=off+sz;
      auto& a=vaDesc[vaCount];int32_t loc=-1;if(auto* vsh=(CompatShaderObject*)m.vs;compatShaderObject(vsh))loc=compatDxbcInputLocation(vsh,e.semantic,e.semanticIndex);a.location=loc>=0?(uint32_t)loc:vaCount;a.binding=e.slot;a.format=vf;a.offset=off;{char id[160];snprintf(id,sizeof(id),"semantic=%s%u location=%u slot=%u offset=%u",e.semantic.c_str(),e.semanticIndex,a.location,e.slot,off);gtavdiag::checkpoint(loc>=0?"native-input-semantic-mapped":"native-input-semantic-fallback",id);}vaCount++;slotUsed[e.slot]=true;
    }
@@ -3046,7 +3052,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
  VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
  VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.lineWidth=1.0f;
- if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;rs.frontFace=d[2]?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=d[6]?VK_FALSE:VK_TRUE;}
+ if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;rs.frontFace=d[2]?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=VK_FALSE;}
  VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
  VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
  auto cmp=[](uint32_t x){switch(x){case 1:return VK_COMPARE_OP_NEVER;case 2:return VK_COMPARE_OP_LESS;case 3:return VK_COMPARE_OP_EQUAL;case 4:return VK_COMPARE_OP_LESS_OR_EQUAL;case 5:return VK_COMPARE_OP_GREATER;case 6:return VK_COMPARE_OP_NOT_EQUAL;case 7:return VK_COMPARE_OP_GREATER_OR_EQUAL;default:return VK_COMPARE_OP_ALWAYS;}};
@@ -3060,7 +3066,14 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=colorCount;rendering.pColorAttachmentFormats=colorFormats;
  NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
  VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
- VkPipeline pipe{};VkResult pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
+ VkPipeline pipe{};VkResult pr=VK_ERROR_INITIALIZATION_FAILED;
+ {
+   std::lock_guard<std::mutex> createLock(graphicsPipelineCreateMutex);
+   char d[192];snprintf(d,sizeof(d),"attrs=%u bindings=%u colors=%u depthFmt=%d topology=%d",vaCount,vbCount,colorCount,(int)rendering.depthAttachmentFormat,(int)ia.topology);
+   gtavdiag::checkpoint("native-pipeline-create-enter",d);
+   pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
+   gtavdiag::checkpoint("native-pipeline-create-return");
+ }
  if(pr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)pr);gtavdiag::checkpoint("native-pipeline-create-failed",d);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  if(!gtav_native_renderer_register_graphics_state(key,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  gtavdiag::checkpoint("native-pipeline-created");return true;
