@@ -2510,7 +2510,7 @@ static void invalidateImageResource(uint64_t rage){
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  const uint64_t key=(uint64_t)(uintptr_t)rage;
- NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; if(auto* rr=compatResourceObject(rage);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=44){auto* d=(uint32_t*)rr->desc;m.width=d[0];m.height=d[1];m.samples=(VkSampleCountFlagBits)std::max(1u,d[5]);} else {m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();}m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();m.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+ NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; if(auto* rr=compatResourceObject(rage);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=44){auto* d=(uint32_t*)rr->desc;m.width=d[0];m.height=d[1];m.samples=(VkSampleCountFlagBits)std::max(1u,d[5]);} else {m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();}m.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto it=imageMeta.find(key);
  // If GTA reuses a RAGE object for a different native image/format, an old
