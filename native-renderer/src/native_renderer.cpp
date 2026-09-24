@@ -1495,14 +1495,22 @@ static bool patchJump(uintptr_t target,void* replacement,uint32_t original[4],vo
  mprotect((void*)page,ps,PROT_READ|PROT_EXEC); return true;
 }
 static void load13(VkDevice d){
- pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRendering"));
- if(!pBeginRendering)pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(d,"vkCmdBeginRenderingKHR"));
- pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(d,"vkCmdEndRendering"));
- if(!pEndRendering)pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(d,"vkCmdEndRenderingKHR"));
- pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(d,"vkCmdPipelineBarrier2"));
- if(!pBarrier2)pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(d,"vkCmdPipelineBarrier2KHR"));
- pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(d,"vkQueueSubmit2"));
- if(!pSubmit2)pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(d,"vkQueueSubmit2KHR"));
+ auto resolve=[&](const char* core,const char* khr)->PFN_vkVoidFunction{
+   PFN_vkVoidFunction p=nullptr;
+   if(d)p=vkGetDeviceProcAddr(d,core);
+   if(!p&&d&&khr)p=vkGetDeviceProcAddr(d,khr);
+   if(!p&&g.instance)p=vkGetInstanceProcAddr(g.instance,core);
+   if(!p&&g.instance&&khr)p=vkGetInstanceProcAddr(g.instance,khr);
+   if(!p)p=reinterpret_cast<PFN_vkVoidFunction>(dlsym(RTLD_DEFAULT,core));
+   if(!p&&khr)p=reinterpret_cast<PFN_vkVoidFunction>(dlsym(RTLD_DEFAULT,khr));
+   return p;
+ };
+ pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(resolve("vkCmdBeginRendering","vkCmdBeginRenderingKHR"));
+ pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(resolve("vkCmdEndRendering","vkCmdEndRenderingKHR"));
+ pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(resolve("vkCmdPipelineBarrier2","vkCmdPipelineBarrier2KHR"));
+ pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(resolve("vkQueueSubmit2","vkQueueSubmit2KHR"));
+ if(pBeginRendering&&pEndRendering)gtavdiag::checkpoint("native-dynamic-rendering-ready");
+ else gtavdiag::checkpoint("native-dynamic-rendering-missing");
 }
 static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3)^uint64_t(kind); }
 static uint64_t hashMix(uint64_t h,uint64_t v){h^=v+0x9e3779b97f4a7c15ull+(h<<6)+(h>>2);return h;}
@@ -1565,7 +1573,10 @@ static bool attachFromGtavRuntime(){
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_attach(VkInstance i,VkPhysicalDevice p,VkDevice d,VkQueue q,uint32_t family){
  if(!i||!p||!d||!q)return false;
- if(g.device==d&&g.queue==q&&g.commands&&g.descriptors)return true;
+ if(g.device==d&&g.queue==q&&g.commands&&g.descriptors){
+   if(!pBeginRendering||!pEndRendering)load13(d);
+   return true;
+ }
  if(g.device&&g.device!=d)return false;
  g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
