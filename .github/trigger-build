@@ -23,3 +23,5 @@ gpu-profiler-fix2 2a1caf8
 fix-profiler-identifiers 600e80a
 
 engine-zero-copy-swapchain 0db17b8
+
+fix-android-surface-extension 6e8c2a6
