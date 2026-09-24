@@ -317,14 +317,14 @@ static void compatContextNoop(void*,...){gtavdiag::checkpoint("compat-context-no
 // Render-path split diagnostics. Keep ABI-compatible signatures for the hot
 // ID3D11DeviceContext slots so the crash log identifies the command that GTA
 // actually issued instead of collapsing everything into compat-context-noop.
-static void compatCtxVSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-vs-set-constant-buffers");gtavnative_compat_mirror_objs(c,0,f,n,v);}
+static void compatCtxVSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){char d[192];snprintf(d,sizeof(d),"ctx=%p first=%u count=%u p0=%p p1=%p",c,f,n,(v&&n>0)?v[0]:nullptr,(v&&n>1)?v[1]:nullptr);gtavdiag::checkpoint("black-probe-vs-cb-set",d);gtavnative_compat_mirror_objs(c,0,f,n,v);}
 static void compatCtxPSSetShaderResources(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-shader-resources");gtavnative_compat_mirror_objs(c,4,f,n,v);}
 static void compatCtxPSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-ps-set-shader");gtavnative_compat_mirror_shader(c,1,sh);}
 static void compatCtxPSSetSamplers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-samplers");gtavnative_compat_mirror_objs(c,7,f,n,v);}
 static void compatCtxVSSetShader(void* c,void* sh,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-vs-set-shader");gtavnative_compat_mirror_shader(c,0,sh);}
 static void compatCtxDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){gtavdiag::checkpoint("compat-context-draw-indexed");gtavnative_compat_draw_indexed(c,n,f,v);}
 static void compatCtxDraw(void* c,uint32_t n,uint32_t f){gtavdiag::checkpoint("compat-context-draw");gtavnative_compat_draw(c,n,f);}
-static void compatCtxPSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){gtavdiag::checkpoint("compat-context-ps-set-constant-buffers");gtavnative_compat_mirror_objs(c,1,f,n,v);}
+static void compatCtxPSSetConstantBuffers(void* c,uint32_t f,uint32_t n,void* const* v){char d[192];snprintf(d,sizeof(d),"ctx=%p first=%u count=%u p0=%p p1=%p",c,f,n,(v&&n>0)?v[0]:nullptr,(v&&n>1)?v[1]:nullptr);gtavdiag::checkpoint("black-probe-ps-cb-set",d);gtavnative_compat_mirror_objs(c,1,f,n,v);}
 static void compatCtxIASetInputLayout(void* c,void* v){gtavdiag::checkpoint("compat-context-ia-set-input-layout");gtavnative_compat_mirror_input_layout(c,v);}
 static void compatCtxIASetVertexBuffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){gtavdiag::checkpoint("compat-context-ia-set-vertex-buffers");gtavnative_compat_mirror_vertex_buffers(c,f,n,v,s,o);}
 static void compatCtxIASetIndexBuffer(void* c,void* b,uint32_t f,uint32_t o){gtavdiag::checkpoint("compat-context-ia-set-index-buffer");gtavnative_compat_mirror_index_buffer(c,b,f,o);}
@@ -1643,6 +1643,13 @@ struct RageMirrorState {
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
 static std::atomic<void*> gCompatLastInputLayout{nullptr};
+static std::atomic<uint64_t> gBlackProbeFrame{0};
+static std::atomic<uint32_t> gBlackProbeDraws{0};
+static std::atomic<uint32_t> gBlackProbeExpectedCbv{0},gBlackProbeBoundCbv{0},gBlackProbeMissingCbv{0};
+static std::atomic<uint32_t> gBlackProbeExpectedSrv{0},gBlackProbeBoundSrv{0},gBlackProbeMissingSrv{0};
+static std::atomic<uint32_t> gBlackProbeExpectedSampler{0},gBlackProbeBoundSampler{0},gBlackProbeMissingSampler{0};
+static std::atomic<uint32_t> gBlackProbeDescriptorWrites{0};
+
 static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
  RageMirrorState out=base;
  void* wanted=gCompatLastInputLayout.load(std::memory_order_acquire);
@@ -1689,6 +1696,12 @@ static void resetCompatPresentSourcesForNewFrame(){
  lastCompatDrawnSerial.store(0,std::memory_order_release);
  lastCompatTransferSerial.store(0,std::memory_order_release);
  lastCompatFullSizeSerial.store(0,std::memory_order_release);
+ gBlackProbeFrame.fetch_add(1,std::memory_order_relaxed);
+ gBlackProbeDraws.store(0,std::memory_order_relaxed);
+ gBlackProbeExpectedCbv.store(0,std::memory_order_relaxed);gBlackProbeBoundCbv.store(0,std::memory_order_relaxed);gBlackProbeMissingCbv.store(0,std::memory_order_relaxed);
+ gBlackProbeExpectedSrv.store(0,std::memory_order_relaxed);gBlackProbeBoundSrv.store(0,std::memory_order_relaxed);gBlackProbeMissingSrv.store(0,std::memory_order_relaxed);
+ gBlackProbeExpectedSampler.store(0,std::memory_order_relaxed);gBlackProbeBoundSampler.store(0,std::memory_order_relaxed);gBlackProbeMissingSampler.store(0,std::memory_order_relaxed);
+ gBlackProbeDescriptorWrites.store(0,std::memory_order_relaxed);
  gtavdiag::checkpoint("native-present-sources-reset");
 }
 static bool hasUsableEnginePresentSource(){return lastCompatFullSizeRTV.load(std::memory_order_acquire)!=nullptr||lastCompatFinalTransferDst.load(std::memory_order_acquire)!=nullptr||lastCompatDrawnRTV.load(std::memory_order_acquire)!=nullptr;}
@@ -2045,7 +2058,7 @@ static void submitAndBeginCompatFrameCommand(){
        if(presentReady){
          VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&gPresentDone[gCompatFrameIndex];pi.swapchainCount=1;pi.pSwapchains=&gPresentProbe.swapchain;pi.pImageIndices=&pix;
          VkResult pr=qp(g.queue,&pi);
-         if(pr==VK_SUCCESS||pr==VK_SUBOPTIMAL_KHR)gtavdiag::checkpoint("native-engine-frame-presented");
+         if(pr==VK_SUCCESS||pr==VK_SUBOPTIMAL_KHR){gtavdiag::checkpoint("native-engine-frame-presented");char bd[320];uint32_t ec=gBlackProbeExpectedCbv.load(),bc=gBlackProbeBoundCbv.load(),mc=gBlackProbeMissingCbv.load(),es=gBlackProbeExpectedSrv.load(),bs=gBlackProbeBoundSrv.load(),ms=gBlackProbeMissingSrv.load(),ep=gBlackProbeExpectedSampler.load(),bp=gBlackProbeBoundSampler.load(),mp=gBlackProbeMissingSampler.load(),dw=gBlackProbeDescriptorWrites.load(),dr=gBlackProbeDraws.load();const char* verdict=(mc?"MISSING_CBV":ms?"MISSING_SRV":mp?"MISSING_SAMPLER":dr==0?"NO_DRAWS":"DRAW_AND_PRESENT_OK");snprintf(bd,sizeof(bd),"frame=%llu verdict=%s draws=%u cbv=%u/%u miss=%u srv=%u/%u miss=%u samp=%u/%u miss=%u writes=%u",(unsigned long long)gBlackProbeFrame.load(),verdict,dr,bc,ec,mc,bs,es,ms,bp,ep,mp,dw);gtavdiag::checkpoint("BLACKSCREEN-PROBE",bd);}
          else{char d[64];snprintf(d,sizeof(d),"result=%d",(int)pr);gtavdiag::checkpoint("native-engine-queue-present-failed",d);}
        }
      }else{char d[64];snprintf(d,sizeof(d),"result=%d",(int)sr);gtavdiag::checkpoint("compat-command-buffer-submit-failed",d);}
@@ -2883,13 +2896,19 @@ static bool updateCompatGraphicsDescriptors(const RageMirrorState& m,VkDescripto
  if(!desc)return false;
  std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;std::vector<VkBufferView> bvs;
  bis.reserve(64);iis.reserve(96);bvs.reserve(32);writes.reserve(160);
+ uint32_t expectedCbv=0,boundCbv=0,missingCbv=0,expectedSrv=0,boundSrv=0,missingSrv=0,expectedSampler=0,boundSampler=0,missingSampler=0;
  auto processStage=[&](void* sh,uint32_t stage,void* const* cbs,void* const* srvs,void* const* samplers){
   auto decls=getCompatShaderDecls(sh);
   for(const auto& d:decls){
    if(d.space!=0)continue;
    for(uint32_t e=0;e<d.count;e++){
-    uint32_t reg=d.reg+e;void* p=nullptr;if(d.scalarType==23&&reg<16)p=cbs?cbs[reg]:nullptr;else if(d.scalarType==24&&reg<32)p=srvs?srvs[reg]:nullptr;else if(d.scalarType==22&&reg<16)p=samplers?samplers[reg]:nullptr;else continue;
-    if(!p)continue;VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=d.binding;w.dstArrayElement=e;w.descriptorCount=1;w.descriptorType=d.type;
+    uint32_t reg=d.reg+e;void* p=nullptr;
+    if(d.scalarType==23&&reg<16){expectedCbv++;p=cbs?cbs[reg]:nullptr;if(p)boundCbv++;else missingCbv++;}
+    else if(d.scalarType==24&&reg<32){expectedSrv++;p=srvs?srvs[reg]:nullptr;if(p)boundSrv++;else missingSrv++;}
+    else if(d.scalarType==22&&reg<16){expectedSampler++;p=samplers?samplers[reg]:nullptr;if(p)boundSampler++;else missingSampler++;}
+    else continue;
+    if(!p){static std::atomic<uint32_t> missBudget{256};uint32_t mb=missBudget.fetch_sub(1,std::memory_order_relaxed);if(mb>0){char md[160];snprintf(md,sizeof(md),"stage=%u type=%u reg=%u binding=%u",stage,d.scalarType,reg,d.binding);gtavdiag::checkpoint("black-probe-descriptor-missing",md);}continue;}
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=d.binding;w.dstArrayElement=e;w.descriptorCount=1;w.descriptorType=d.type;
     if(d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER||d.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER){
       void* resource=p;if(auto* v=compatViewObject(p);v&&v->resource)resource=v->resource;
       uint32_t role=d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV;
@@ -2910,6 +2929,11 @@ static bool updateCompatGraphicsDescriptors(const RageMirrorState& m,VkDescripto
   }
  };
  processStage(m.vs,0,m.vsCB,m.vsSRV,m.vsSampler);processStage(m.ps,1,m.psCB,m.psSRV,m.psSampler);
+ gBlackProbeExpectedCbv.fetch_add(expectedCbv,std::memory_order_relaxed);gBlackProbeBoundCbv.fetch_add(boundCbv,std::memory_order_relaxed);gBlackProbeMissingCbv.fetch_add(missingCbv,std::memory_order_relaxed);
+ gBlackProbeExpectedSrv.fetch_add(expectedSrv,std::memory_order_relaxed);gBlackProbeBoundSrv.fetch_add(boundSrv,std::memory_order_relaxed);gBlackProbeMissingSrv.fetch_add(missingSrv,std::memory_order_relaxed);
+ gBlackProbeExpectedSampler.fetch_add(expectedSampler,std::memory_order_relaxed);gBlackProbeBoundSampler.fetch_add(boundSampler,std::memory_order_relaxed);gBlackProbeMissingSampler.fetch_add(missingSampler,std::memory_order_relaxed);
+ gBlackProbeDescriptorWrites.fetch_add((uint32_t)writes.size(),std::memory_order_relaxed);
+ {static std::atomic<uint32_t> sumBudget{256};uint32_t sb=sumBudget.fetch_sub(1,std::memory_order_relaxed);if(sb>0){char sd[224];snprintf(sd,sizeof(sd),"cbv=%u/%u miss=%u srv=%u/%u miss=%u samp=%u/%u miss=%u writes=%zu",boundCbv,expectedCbv,missingCbv,boundSrv,expectedSrv,missingSrv,boundSampler,expectedSampler,missingSampler,writes.size());gtavdiag::checkpoint("black-probe-descriptor-summary",sd);}}
  if(!writes.empty())vkUpdateDescriptorSets(g.device,(uint32_t)writes.size(),writes.data(),0,nullptr);return true;
 }
 static bool updateCompatComputeDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
@@ -3110,7 +3134,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=mergeCompatAliasState(it->second); }
- {char d[192];snprintf(d,sizeof(d),"ctx=%p il=%p vs=%p ps=%p vscb0=%p pscb0=%p rtv0=%p vp=%u",ctx,m.inputLayout,m.vs,m.ps,m.vsCB[0],m.psCB[0],m.rtv[0],m.viewportCount);gtavdiag::checkpoint("native-alias-state-merged",d);}
+ {uint32_t vm=0,pm=0,sm=0,tm=0;for(uint32_t i=0;i<16;i++){if(m.vsCB[i])vm|=1u<<i;if(m.psCB[i])pm|=1u<<i;if(m.vsSampler[i]||m.psSampler[i])sm|=1u<<i;}for(uint32_t i=0;i<32;i++)if(m.vsSRV[i]||m.psSRV[i])tm|=1u<<(i&31);char d[256];snprintf(d,sizeof(d),"ctx=%p il=%p vs=%p ps=%p vscbMask=0x%x pscbMask=0x%x srvMask=0x%x sampMask=0x%x rtv0=%p vp=%u",ctx,m.inputLayout,m.vs,m.ps,vm,pm,tm,sm,m.rtv[0],m.viewportCount);gtavdiag::checkpoint("native-alias-state-merged",d);}
  if(!m.inputLayout){
    void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);
    if(fallback&&compatInputLayoutObject(fallback)){
@@ -3376,8 +3400,8 @@ static void rememberDrawnPrimaryRTV(void* ctx){
  uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){lastCompatFullSizeRTV.store(v,std::memory_order_release);lastCompatFullSizeSerial.store(serial,std::memory_order_release);static std::atomic<uint32_t> fsn{0};uint32_t fn=fsn.fetch_add(1,std::memory_order_relaxed);if(fn<8||fn%512==0){char fd[128];snprintf(fd,sizeof(fd),"view=%p resource=%p size=%ux%u swap=%ux%u",v,r,w,h,tw,th);gtavdiag::checkpoint("native-fullsize-rtv-selected",fd);}}
  static std::atomic<uint32_t> dn{0};uint32_t n=dn.fetch_add(1,std::memory_order_relaxed);if(n<12||n%512==0){char d[192];snprintf(d,sizeof(d),"view=%p resource=%p compat=%u size=%ux%u fmt=%u",v,r,(rr&&rr->vtbl==gCompatTexture2DVtable)?1u:0u,w,h,(rr&&rr->descSize>=20)?((uint32_t*)rr->desc)[4]:0u);gtavdiag::checkpoint("native-last-drawn-rtv",d);}
 }
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw-indexed");endCompatRenderingNow(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);gBlackProbeDraws.fetch_add(1,std::memory_order_relaxed);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);gBlackProbeDraws.fetch_add(1,std::memory_order_relaxed);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw-indexed");endCompatRenderingNow(s.command_buffer);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
  if(!ctx||!x||!y||!z||!g.device)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}if(!m.cs)return false;
  if(!ensureCompatComputeState(m)){gtavdiag::checkpoint("native-dispatch-fail-pipeline");return false;}VkCommandBuffer cb=currentNativeCommandBuffer();if(!cb){gtavdiag::checkpoint("native-dispatch-fail-command-buffer");return false;}
