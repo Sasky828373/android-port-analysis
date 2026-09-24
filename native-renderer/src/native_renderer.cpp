@@ -1,3 +1,4 @@
+// Build trigger: present-bridge diagnostics
 #include <vulkan/vulkan.h>
 #if __has_include("dxbc/dxbc_api.h")
 #define GTAV_HAVE_DXBC_SPIRV 1
