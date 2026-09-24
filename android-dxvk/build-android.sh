@@ -121,6 +121,15 @@ test -f "$DXGI_FILE"
 cp -f "$D3D11_FILE" "$OUT/libdxvk_d3d11.so"
 cp -f "$DXGI_FILE" "$OUT/libdxvk_dxgi.so"
 
+LIBCXX_FILE="$TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+test -f "$LIBCXX_FILE"
+cp -f "$LIBCXX_FILE" "$OUT/libc++_shared.so"
+
+# Meson's --strip applies to install targets; these files are copied directly
+# from the build tree, so strip them explicitly here.
+"$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT/libdxvk_d3d11.so"
+"$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT/libdxvk_dxgi.so"
+
 "$TOOLCHAIN/bin/llvm-readelf" -h "$OUT/libdxvk_d3d11.so"
 "$TOOLCHAIN/bin/llvm-readelf" -h "$OUT/libdxvk_dxgi.so"
 "$TOOLCHAIN/bin/llvm-readelf" -d "$OUT/libdxvk_d3d11.so" | tee "$OUT/d3d11-dynamic.txt"
@@ -133,7 +142,8 @@ ABI=$ANDROID_ABI
 API=$ANDROID_API
 WSI=SDL3 Android
 Components=D3D11,DXGI
-Optimization=Release,O3,LTO,gc-sections,strip
+Runtime=NDK-r29-libc++_shared
+Optimization=Release,O3,LTO,gc-sections,explicit-strip
 EOF
 
 echo "==> Done"
