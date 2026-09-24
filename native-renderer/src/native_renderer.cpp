@@ -1734,6 +1734,14 @@ static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
  }
  return base;
 }
+static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
+static std::atomic<void*> lastCompatDrawnRTV{nullptr};
+static std::atomic<void*> lastCompatFinalTransferDst{nullptr};
+static std::atomic<void*> lastCompatFullSizeRTV{nullptr};
+static std::atomic<uint64_t> compatPresentWriteSerial{0};
+static std::atomic<uint64_t> lastCompatDrawnSerial{0};
+static std::atomic<uint64_t> lastCompatTransferSerial{0};
+static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
 static void resetCompatPresentSourcesForNewFrame(){
  lastCompatPrimaryRTV.store(nullptr,std::memory_order_release);
  lastCompatDrawnRTV.store(nullptr,std::memory_order_release);
