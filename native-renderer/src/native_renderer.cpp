@@ -676,11 +676,13 @@ static void initCompatShaderVtables(){
  static bool once=false;if(once)return;once=true;
  for(void** t:{gCompatShaderVtable,gCompatInputLayoutVtable}){t[0]=(void*)compatShaderQI;t[1]=(void*)compatShaderAddRef;t[2]=(void*)compatShaderRelease;t[3]=(void*)compatChildGetDevice;t[4]=(void*)compatChildGetPrivateData;t[5]=(void*)compatSetPrivateData;t[6]=(void*)compatChildSetPrivateDataInterface;}
 }
-static int32_t compatCreateInputLayout(void*,const void* raw,size_t count,const void* shader,size_t shaderBytes,void** out){
+static int32_t compatCreateInputLayout(void*,const void* raw,uint32_t count,const void* shader,size_t shaderBytes,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
  auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
  if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};const char* sem=nullptr;std::memcpy(&sem,e,8);std::memcpy(&x.semanticIndex,e+8,4);std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);if(sem){size_t n=strnlen(sem,64);x.semantic.assign(sem,n);}o->elements.push_back(std::move(x));}}
- {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}*out=o;return 0;
+ {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}
+ {char d[160];snprintf(d,sizeof(d),"raw=%p count=%u elems=%zu shaderBytes=%zu out=%p",raw,count,o->elements.size(),shaderBytes,o);gtavdiag::checkpoint("native-input-layout-created",d);}
+ *out=o;return 0;
 }
 static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-shader");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
