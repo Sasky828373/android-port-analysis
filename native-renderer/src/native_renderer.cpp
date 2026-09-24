@@ -2416,10 +2416,17 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
  pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
- if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
+ static std::atomic<uint32_t> presentProbeFrames{0};
+ uint32_t probeFrame=presentProbeFrames.fetch_add(1,std::memory_order_relaxed);
+ if(probeFrame<180){
+   VkClearColorValue probeColor{{1.0f,0.0f,1.0f,1.0f}};
+   VkImageSubresourceRange rr{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+   vkCmdClearColorImage(cb,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&probeColor,1,&rr);
+   if(probeFrame==0)gtavdiag::checkpoint("native-engine-visible-magenta-probe");
+ } else if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
    VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={sw,sh,1};
    vkCmdCopyImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);
- }else{
+ }else if(probeFrame>=180){
    VkImageBlit bl{};bl.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.srcOffsets[1]={(int32_t)sw,(int32_t)sh,1};bl.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.dstOffsets[1]={(int32_t)gPresentProbe.extent.width,(int32_t)gPresentProbe.extent.height,1};
    vkCmdBlitImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&bl,VK_FILTER_NEAREST);
  }
