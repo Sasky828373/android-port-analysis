@@ -1641,6 +1641,7 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
+static std::atomic<void*> gCompatLastInputLayout{nullptr};
 static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
 static std::atomic<void*> lastCompatDrawnRTV{nullptr};
 static std::atomic<void*> lastCompatFinalTransferDst{nullptr};
@@ -1675,7 +1676,7 @@ static void capture(const char* kind,void* rage,uint64_t vk=0){
 }
 
 static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
-extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[96];snprintf(d,sizeof(d),"layout=%p known=%d",v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
+extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;if(v)gCompatLastInputLayout.store(v,std::memory_order_release);{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p known=%d",c,v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
 extern "C" void gtavnative_compat_mirror_vertex_buffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);for(uint32_t i=0;i<n&&f+i<16;i++){m.vertexBuffers[f+i]=v?v[i]:nullptr;m.strides[f+i]=s?s[i]:0;m.offsets[f+i]=o?o[i]:0;}}
 extern "C" void gtavnative_compat_mirror_index_buffer(void* c,void* b,uint32_t f,uint32_t o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.indexBuffer=b;m.indexFormat=f;m.indexOffset=o;}
 extern "C" void gtavnative_compat_mirror_topology(void* c,uint32_t t){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).topology=t;}
@@ -1899,6 +1900,7 @@ static OrigIASetPrimitiveTopology origIASetPrimitiveTopology{};
 static OrigPSSetShader origPSSetShader{}; static OrigVSSetShader origVSSetShader{}; static OrigCSSetShader origCSSetShader{};
 
 static void hookIASetInputLayout(void* ctx,void* layout){
+ if(layout)gCompatLastInputLayout.store(layout,std::memory_order_release);
  {std::lock_guard<std::mutex> l(mirrorMutex);mirror(ctx).inputLayout=layout;}
  if(origIASetInputLayout)origIASetInputLayout(ctx,layout);
 }
@@ -3069,6 +3071,14 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
+ if(!m.inputLayout){
+   void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);
+   if(fallback&&compatInputLayoutObject(fallback)){
+     m.inputLayout=fallback;
+     char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p",ctx,fallback);
+     gtavdiag::checkpoint("native-input-layout-context-fallback",d);
+   }
+ }
  // ID3D11InputLayout may legally be NULL. In that case the Vulkan pipeline uses
  // zero vertex attributes; shaders relying on SV_VertexID remain valid.
  CompatInputLayoutObject* activeInputLayout=compatResolveInputLayout(m.inputLayout,m.vs);
@@ -3276,6 +3286,7 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  // multi-stream vertex input identical to the RAGE/D3D state before a draw.
  RageMirrorState m{};
  {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ if(!m.inputLayout){void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);if(fallback&&compatInputLayoutObject(fallback))m.inputLayout=fallback;}
  if(!refreshCompatDescriptors(m,s.descriptor_set)){gtavdiag::checkpoint("native-draw-fail-descriptor-refresh");return false;}
  VkBuffer vbs[16]{}; VkDeviceSize offsets[16]{};
  uint32_t last=0;
