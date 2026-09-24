@@ -1778,7 +1778,8 @@ static std::atomic<uint64_t> lastCompatDrawnSerial{0};
 static std::atomic<uint64_t> lastCompatTransferSerial{0};
 static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
 static void resetCompatPresentSourcesForNewFrame(){
- lastCompatPrimaryRTV.store(nullptr,std::memory_order_release);
+ // Preserve the currently bound primary RTV across frame boundaries. D3D11 state
+ // is persistent; clearing it here forced the draw hot path to rescan mirror state.
  lastCompatDrawnRTV.store(nullptr,std::memory_order_release);
  lastCompatFinalTransferDst.store(nullptr,std::memory_order_release);
  lastCompatFullSizeRTV.store(nullptr,std::memory_order_release);
@@ -1825,7 +1826,7 @@ extern "C" void gtavnative_compat_mirror_shader(void* c,uint32_t stage,void* sh)
 extern "C" void gtavnative_compat_mirror_viewports(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.viewportCount=n>4?4:n;if(p)std::memcpy(m.viewports,p,m.viewportCount*24);}
 extern "C" void gtavnative_compat_mirror_scissors(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.scissorCount=n>16?16:n;if(p)std::memcpy(m.scissors,p,m.scissorCount*16);}
 extern "C" void gtavnative_compat_mirror_objs(void* c,uint32_t k,uint32_t f,uint32_t n,void* const* v){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);void** d=nullptr;uint32_t cap=16;switch(k){case 0:d=m.vsCB;break;case 1:d=m.psCB;break;case 2:d=m.csCB;break;case 3:d=m.vsSRV;cap=32;break;case 4:d=m.psSRV;cap=32;break;case 5:d=m.csSRV;cap=32;break;case 6:d=m.vsSampler;break;case 7:d=m.psSampler;break;case 8:d=m.csSampler;break;case 9:d=m.csUAV;break;case 10:d=&m.blendState;cap=1;break;case 11:d=&m.depthState;cap=1;break;case 12:d=&m.rasterState;cap=1;break;default:return;}for(uint32_t i=0;i<n&&f+i<cap;i++)d[f+i]=v?v[i]:nullptr;}
-extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){if(n&&r&&r[0])lastCompatPrimaryRTV.store(r[0],std::memory_order_release);std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
+extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){lastCompatPrimaryRTV.store((n&&r)?r[0]:nullptr,std::memory_order_release);std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
 
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
@@ -2071,7 +2072,7 @@ OBJHOOK(hVSSRV,vsSRV,32,oVSSRV) OBJHOOK(hPSSRV,psSRV,32,oPSSRV) OBJHOOK(hCSSRV,c
 OBJHOOK(hVSSamp,vsSampler,16,oVSSamp) OBJHOOK(hPSSamp,psSampler,16,oPSSamp) OBJHOOK(hCSSamp,csSampler,16,oCSSamp)
 #undef OBJHOOK
 static void hCSUAV(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* counts){{std::lock_guard<std::mutex> l(mirrorMutex);mirrorObjs(mirror(c).csUAV,16,f,n,v);}if(oCSUAV)oCSUAV(c,f,n,v,counts);}
-static void hOMRT(void* c,uint32_t n,void* const* r,void* d){void* r0=(r&&n)?r[0]:nullptr;profilePassSwitch(r0,d);{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;for(uint32_t i=0;i<s.rtvCount;i++)capture("RTV",s.rtv[i]);capture("DSV",d);}if(oOMRT)oOMRT(c,n,r,d);}
+static void hOMRT(void* c,uint32_t n,void* const* r,void* d){void* r0=(r&&n)?r[0]:nullptr;lastCompatPrimaryRTV.store(r0,std::memory_order_release);profilePassSwitch(r0,d);{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;for(uint32_t i=0;i<s.rtvCount;i++)capture("RTV",s.rtv[i]);capture("DSV",d);}if(oOMRT)oOMRT(c,n,r,d);}
 
 
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
@@ -3584,22 +3585,32 @@ extern "C" bool gtavnative_compat_draw(void* c,uint32_t n,uint32_t f){return gta
 extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int32_t v){return gtav_native_renderer_rage_draw_indexed(c,n,f,v);}
 extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
 static void rememberDrawnPrimaryRTV(void* ctx){
- std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;RageMirrorState merged=mergeCompatAliasState(it->second);if(!merged.rtvCount||!merged.rtv[0])return;
- void* v=merged.rtv[0];
- uint64_t serial=compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1;
+ (void)ctx;
+ // Hot path: OMSetRenderTargets already publishes the active primary RTV.
+ // Avoid taking mirrorMutex, scanning the mirror map and probing image metadata
+ // on every single draw. Classify a target only when the RTV actually changes.
+ void* v=lastCompatPrimaryRTV.load(std::memory_order_acquire);
+ if(!v)return;
+ uint64_t serial=compatPresentWriteSerial.fetch_add(1,std::memory_order_relaxed)+1;
  lastCompatDrawnRTV.store(v,std::memory_order_release);
  lastCompatDrawnSerial.store(serial,std::memory_order_release);
+ static thread_local void* classified=nullptr;
+ if(classified==v)return;
+ classified=v;
  uint32_t w=0,h=0;void* r=compatUnderlyingResource(v);if(!r)r=v;auto* rr=compatResourceObject(r);
  if(r==&gCompatBackBuffer){w=gCompatSwapWidth.load(std::memory_order_relaxed);h=gCompatSwapHeight.load(std::memory_order_relaxed);}
  else if(rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){w=((uint32_t*)rr->desc)[0];h=((uint32_t*)rr->desc)[1];}
  else {
    if(mapWrappedImage(r,2u,true)){std::lock_guard<std::mutex> ml(imageMetaMutex);auto mi=imageMeta.find((uint64_t)(uintptr_t)v);if(mi==imageMeta.end())mi=imageMeta.find((uint64_t)(uintptr_t)r);if(mi!=imageMeta.end()){w=mi->second.width;h=mi->second.height;}}
  }
- uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){lastCompatFullSizeRTV.store(v,std::memory_order_release);lastCompatFullSizeSerial.store(serial,std::memory_order_release);static std::atomic<uint32_t> fsn{0};uint32_t fn=fsn.fetch_add(1,std::memory_order_relaxed);if(fn<8||fn%512==0){char fd[128];snprintf(fd,sizeof(fd),"view=%p resource=%p size=%ux%u swap=%ux%u",v,r,w,h,tw,th);gtavdiag::checkpoint("native-fullsize-rtv-selected",fd);}}
- static std::atomic<uint32_t> dn{0};uint32_t n=dn.fetch_add(1,std::memory_order_relaxed);if(n<12||n%512==0){char d[192];snprintf(d,sizeof(d),"view=%p resource=%p compat=%u size=%ux%u fmt=%u",v,r,(rr&&rr->vtbl==gCompatTexture2DVtable)?1u:0u,w,h,(rr&&rr->descSize>=20)?((uint32_t*)rr->desc)[4]:0u);gtavdiag::checkpoint("native-last-drawn-rtv",d);}
+ uint32_t tw=gCompatSwapWidth.load(std::memory_order_relaxed),th=gCompatSwapHeight.load(std::memory_order_relaxed);
+ if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){
+   lastCompatFullSizeRTV.store(v,std::memory_order_release);
+   lastCompatFullSizeSerial.store(serial,std::memory_order_release);
+ }
 }
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);gBlackProbeDraws.fetch_add(1,std::memory_order_relaxed);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);gBlackProbeDraws.fetch_add(1,std::memory_order_relaxed);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw-indexed");endCompatRenderingNow(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);rememberDrawnPrimaryRTV(ctx);endCompatRenderingNow(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);rememberDrawnPrimaryRTV(ctx);endCompatRenderingNow(s.command_buffer);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
  if(!ctx||!x||!y||!z||!g.device)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}if(!m.cs)return false;
  if(!ensureCompatComputeState(m)){gtavdiag::checkpoint("native-dispatch-fail-pipeline");return false;}VkCommandBuffer cb=currentNativeCommandBuffer();if(!cb){gtavdiag::checkpoint("native-dispatch-fail-command-buffer");return false;}
@@ -3695,23 +3706,22 @@ static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore 
  bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  VkResult br=vkBeginCommandBuffer(slot.cb,&bi);
  if(br!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-begin-command-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge begin command failed=%d",(int)br);return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
- gtavdiag::checkpoint("native-present-bridge-recording");
-
  transitionCompatOwnedImage(slot.cb,&gCompatBackBuffer,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
  VkImageMemoryBarrier db{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
  db.oldLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;db.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
  db.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;db.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
  db.image=dst;db.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
  db.subresourceRange.baseMipLevel=0;db.subresourceRange.levelCount=1;db.subresourceRange.baseArrayLayer=0;db.subresourceRange.layerCount=1;
- db.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT;db.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
- vkCmdPipelineBarrier(slot.cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&db);
+ db.srcAccessMask=0;db.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+ // The acquired swapchain image is externally synchronized by waitSemaphore;
+ // do not stall all prior graphics/compute work just to transition it for copy.
+ vkCmdPipelineBarrier(slot.cb,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&db);
 
  VkImageBlit blit{};
  blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.srcSubresource.layerCount=1;
  blit.srcOffsets[1]=VkOffset3D{(int32_t)sw,(int32_t)sh,1};
  blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.dstSubresource.layerCount=1;
  blit.dstOffsets[1]=VkOffset3D{(int32_t)dw,(int32_t)dh,1};
- gtavdiag::checkpoint("native-present-bridge-blit-record");
  vkCmdBlitImage(slot.cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
 
  db.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;db.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -3725,14 +3735,12 @@ static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore 
  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
  if(waitSemaphore){si.waitSemaphoreCount=1;si.pWaitSemaphores=&waitSemaphore;si.pWaitDstStageMask=&waitStage;}
  si.commandBufferCount=1;si.pCommandBuffers=&slot.cb;si.signalSemaphoreCount=1;si.pSignalSemaphores=&slot.done;
- gtavdiag::checkpoint("native-present-bridge-submit");
  VkResult sr=vkQueueSubmit(g.queue,1,&si,slot.fence);
  if(sr!=VK_SUCCESS){
    gtavdiag::checkpoint("native-present-bridge-submit-failed");
    return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
  }
  slot.inFlight=true;
- gtavdiag::checkpoint("native-present-bridge-blit");
  return origGrvkSwapchainPresent(self,imageIndex,slot.done);
 }
 
@@ -3758,7 +3766,6 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begi
    // This function already closes/submits the previously recorded frame before
    // opening the next ring command buffer. Calling a second submit helper here
    // was both undefined and redundant.
-   gtavdiag::checkpoint("native-active-present-submit");
    submitAndBeginCompatFrameCommand();
  }
 
