@@ -661,7 +661,7 @@ static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
 // and later crashes on Release. Return a tiny COM object instead; actual shader
 // execution is intercepted by the native Vulkan renderer hooks.
 struct CompatShaderObject { void** vtbl; std::vector<uint8_t> bytecode; };
-struct CompatInputElement { uint32_t format{},slot{},offset{},inputClass{},stepRate{}; };
+struct CompatInputElement { std::string semantic; uint32_t semanticIndex{},format{},slot{},offset{},inputClass{},stepRate{}; };
 struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; std::vector<CompatInputElement> elements; };
 static void* gCompatShaderVtable[8]{};
 static void* gCompatInputLayoutVtable[8]{};
@@ -679,7 +679,7 @@ static void initCompatShaderVtables(){
 static int32_t compatCreateInputLayout(void*,const void* raw,size_t count,const void* shader,size_t shaderBytes,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
  auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
- if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);o->elements.push_back(x);}}
+ if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};const char* sem=nullptr;std::memcpy(&sem,e,8);std::memcpy(&x.semanticIndex,e+8,4);std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);if(sem){size_t n=strnlen(sem,64);x.semantic.assign(sem,n);}o->elements.push_back(std::move(x));}}
  {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}*out=o;return 0;
 }
 static int32_t compatCreateShader(void*,const void* code,size_t bytes,void*,void** out){
@@ -2881,6 +2881,38 @@ static bool ensureCompatComputeState(const RageMirrorState& m){
  if(vr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)vr);gtavdiag::checkpoint("native-compute-pipeline-create-failed",d);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  if(!gtav_native_renderer_register_compute_state((uint64_t)(uintptr_t)m.cs,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);return false;}gtavdiag::checkpoint("native-compute-pipeline-created");return true;
 }
+
+static int32_t compatDxbcInputLocation(const CompatShaderObject* sh,const std::string& semantic,uint32_t semanticIndex){
+ if(!sh||semantic.empty()||sh->bytecode.size()<36)return -1;
+ const uint8_t* b=sh->bytecode.data();size_t n=sh->bytecode.size();
+ if(std::memcmp(b,"DXBC",4)!=0)return -1;
+ uint32_t chunkCount=0;std::memcpy(&chunkCount,b+28,4);
+ if(chunkCount>256||32ull+4ull*chunkCount>n)return -1;
+ auto eq=[](const std::string& a,const char* p){
+   if(!p)return false;size_t m=strnlen(p,64);if(m!=a.size())return false;
+   for(size_t i=0;i<m;i++){char x=a[i],y=p[i];if(x>='a'&&x<='z')x-=32;if(y>='a'&&y<='z')y-=32;if(x!=y)return false;}return true;
+ };
+ for(uint32_t ci=0;ci<chunkCount;ci++){
+   uint32_t off=0;std::memcpy(&off,b+32+ci*4,4);if((size_t)off+16>n)continue;
+   const uint8_t* ch=b+off;uint32_t four=0,sz=0;std::memcpy(&four,ch,4);std::memcpy(&sz,ch+4,4);
+   // ISGN / ISG1 input-signature chunks.
+   if(four!=0x4e475349u && four!=0x31475349u)continue;
+   size_t end=std::min(n,(size_t)off+8ull+sz);const uint8_t* d=ch+8;if(d+8>b+end)continue;
+   uint32_t cnt=0;std::memcpy(&cnt,d,4);if(cnt>256)continue;
+   // SM4/5 ISGN entries are 24 bytes. ISG1 may carry a 32-byte entry; the
+   // first semantic/name/index/register fields stay at the same offsets.
+   size_t stride=(four==0x31475349u)?32u:24u;
+   if((size_t)(d-b)+8ull+stride*cnt>end) { if(four==0x31475349u)stride=24u; }
+   for(uint32_t i=0;i<cnt;i++){
+     const uint8_t* e=d+8+i*stride;if(e+24>b+end)break;
+     uint32_t nameOff=0,idx=0,reg=0;std::memcpy(&nameOff,e+0,4);std::memcpy(&idx,e+4,4);std::memcpy(&reg,e+16,4);
+     const char* name=nullptr;
+     if((size_t)(d-b)+nameOff<end)name=(const char*)(d+nameOff);
+     if(idx==semanticIndex&&name&&eq(semantic,name))return (int32_t)reg;
+   }
+ }
+ return -1;
+}
 static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(!g.device||!m.vs||!m.ps||!m.rtvCount||!m.rtv[0])return false;
  const uint64_t key=graphicsStateKey(m);
@@ -2926,7 +2958,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
      }
      if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-input-layout-format-unsupported");continue;}
      uint32_t off=e.offset==0xffffffffu?appendOffset[e.slot]:e.offset;appendOffset[e.slot]=off+sz;
-     auto& a=vaDesc[vaCount];a.location=vaCount;a.binding=e.slot;a.format=vf;a.offset=off;vaCount++;slotUsed[e.slot]=true;
+     auto& a=vaDesc[vaCount];int32_t loc=-1;if(auto* vsh=(CompatShaderObject*)m.vs;compatShaderObject(vsh))loc=compatDxbcInputLocation(vsh,e.semantic,e.semanticIndex);a.location=loc>=0?(uint32_t)loc:vaCount;a.binding=e.slot;a.format=vf;a.offset=off;{char id[160];snprintf(id,sizeof(id),"semantic=%s%u location=%u slot=%u offset=%u",e.semantic.c_str(),e.semanticIndex,a.location,e.slot,off);gtavdiag::checkpoint(loc>=0?"native-input-semantic-mapped":"native-input-semantic-fallback",id);}vaCount++;slotUsed[e.slot]=true;
    }
    for(uint32_t slot=0;slot<16;slot++)if(slotUsed[slot]){auto& b=vbDesc[vbCount++];b.binding=slot;b.stride=m.strides[slot]?m.strides[slot]:appendOffset[slot];bool inst=false;for(const auto& e:il->elements)if(e.slot==slot&&e.inputClass==1){inst=true;break;}b.inputRate=inst?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;}
  }
