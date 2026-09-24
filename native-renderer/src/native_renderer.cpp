@@ -2515,7 +2515,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  else if(old==VK_IMAGE_LAYOUT_UNDEFINED){post[1].newLayout=VK_IMAGE_LAYOUT_GENERAL;post[1].dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,restoreStage|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
  VkImageLayout restored=post[1].newLayout;
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=restored;}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=restored;auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi!=imageMeta.end())mi->second.observedLayout=restored;}
  static std::atomic<uint32_t> liveDiag{0};uint32_t dn=liveDiag.fetch_add(1,std::memory_order_relaxed);if(dn<8||dn%600==0){char d[160];snprintf(d,sizeof(d),"src=%p resource=%p extent=%ux%u old=%d restored=%d swap=%ux%u",(void*)src,presentResource,sw,sh,(int)old,(int)restored,gPresentProbe.extent.width,gPresentProbe.extent.height);gtavdiag::checkpoint("native-engine-present-source-state",d);}
  return true;
 }
@@ -2578,7 +2578,7 @@ static void invalidateImageResource(uint64_t rage){
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  const uint64_t key=(uint64_t)(uintptr_t)rage;
- NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+ NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();m.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto it=imageMeta.find(key);
  // If GTA reuses a RAGE object for a different native image/format, an old
