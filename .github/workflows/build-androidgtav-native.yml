@@ -246,3 +246,5 @@ jobs:
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 7
+
+# diagnostic rerun marker
