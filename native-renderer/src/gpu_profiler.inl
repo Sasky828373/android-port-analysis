@@ -6,15 +6,6 @@ static constexpr uint32_t kProfileQueryCount=2048;
 static constexpr uint32_t kProfileEventCount=512;
 static constexpr const char* kGpuProfilePath="/storage/emulated/0/Games/GTAV/gtav-gpu-profile.txt";
 
-enum ProfileKind : uint32_t {
-  PROFILE_PASS=1,
-  PROFILE_DISPATCH=2,
-  PROFILE_COPY_BUFFER=3,
-  PROFILE_COPY_IMAGE=4,
-  PROFILE_BLIT=5,
-  PROFILE_RESOLVE=6
-};
-
 struct ProfileEvent {
   uint32_t kind{},q0{UINT32_MAX},q1{UINT32_MAX};
   uint32_t draws{},indexedDraws{},dispatches{};
