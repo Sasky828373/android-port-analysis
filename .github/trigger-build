@@ -41,3 +41,5 @@ early-vulkan-loader-hook b20add4
 fix-early-hook-forward-decl 65eee0d
 
 hook-before-forced-vulkan-init cce52c8
+
+patch-gipa-after-adapter-init cbb3f01
