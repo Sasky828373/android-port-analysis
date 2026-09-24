@@ -638,7 +638,23 @@ static int32_t compatD3DMap(void*, void* resource, uint32_t subresource, uint32_
 }
 static void compatMarkDirty(void*);
 static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
-  (void)subresource;compatMarkDirty(resource);gtavdiag::checkpoint("compat-d3d11-unmap");
+  // Unmap may be reached with engine/native resources as well as our compat
+  // resource shells. Never dereference or mutate a foreign object here.
+  // The CPU backing store itself was already written through the pointer
+  // returned by Map; only a registered compat resource needs its upload
+  // generation advanced.
+  if(!resource){
+    gtavdiag::checkpoint("compat-d3d11-unmap-null");
+    return;
+  }
+  extern bool compatIsRegisteredResource(void*);
+  if(!compatIsRegisteredResource(resource)){
+    char d[96];snprintf(d,sizeof(d),"resource=%p sub=%u",resource,subresource);
+    gtavdiag::checkpoint("compat-d3d11-unmap-foreign-skip",d);
+    return;
+  }
+  compatMarkDirty(resource);
+  gtavdiag::checkpoint("compat-d3d11-unmap-dirty");
 }
 // Shader creation is consumed as an object pointer by grcProgram::CreateShader.
 // Returning E_NOTIMPL through the generic stub leaves the out-object undefined
@@ -712,6 +728,12 @@ static CompatResourceObject* compatResourceObject(void* p){
  std::lock_guard<std::mutex> l(gCompatObjectMutex);
  auto* r=(CompatResourceObject*)p;
  return std::find(gCompatResources.begin(),gCompatResources.end(),r)!=gCompatResources.end()?r:nullptr;
+}
+bool compatIsRegisteredResource(void* p){
+ if(!p)return false;
+ std::lock_guard<std::mutex> l(gCompatObjectMutex);
+ auto* r=(CompatResourceObject*)p;
+ return std::find(gCompatResources.begin(),gCompatResources.end(),r)!=gCompatResources.end();
 }
 static int32_t compatChildQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
 static uint32_t compatChildAddRef(void*){return 2;}
