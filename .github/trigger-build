@@ -67,3 +67,5 @@ visible-swapchain-probe eae6046
 live-final-rtv-present c24739e
 
 restore-live-rtv-layout 6d0600b
+
+last-drawn-rtv-present 8193e7b
