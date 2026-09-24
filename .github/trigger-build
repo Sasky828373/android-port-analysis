@@ -77,3 +77,5 @@ deep-present-copy-resolve 367b92e
 deep-present-fix 8044254
 
 compile-string-fix 2cf56d0
+
+present-newline-fix aec17b0
