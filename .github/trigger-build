@@ -27,3 +27,5 @@ engine-zero-copy-swapchain 0db17b8
 fix-android-surface-extension 6e8c2a6
 
 profile-build-2026-09-24
+
+engine-backbuffer-present 06dc67d
