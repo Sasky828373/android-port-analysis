@@ -2848,9 +2848,9 @@ static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore 
 
  VkImageBlit blit{};
  blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.srcSubresource.layerCount=1;
- blit.srcOffsets[1]={{(int32_t)sw,(int32_t)sh,1}};
+ blit.srcOffsets[1]=VkOffset3D{(int32_t)sw,(int32_t)sh,1};
  blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.dstSubresource.layerCount=1;
- blit.dstOffsets[1]={{(int32_t)dw,(int32_t)dh,1}};
+ blit.dstOffsets[1]=VkOffset3D{(int32_t)dw,(int32_t)dh,1};
  vkCmdBlitImage(slot.cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
 
  db.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;db.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
