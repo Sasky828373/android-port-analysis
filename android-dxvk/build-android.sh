@@ -173,7 +173,10 @@ s = s.replace(
   ]
 endif
 """,
-"""elif platform != 'android'
+"""elif platform == 'android'
+  lib_android = cpp.find_library('android')
+  wsi_deps += [ lib_android ]
+else
   wsi_deps += [
     lib_sdl3.partial_dependency(compile_args: true, includes: true),
     lib_sdl2.partial_dependency(compile_args: true, includes: true),
