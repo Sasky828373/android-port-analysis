@@ -2609,14 +2609,37 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
  }
 }
 static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
- if(!cb||!pBeginRendering||!pEndRendering)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
- for(uint32_t i=0;i<32;i++){if(m.vsSRV[i]){if(!syncCompatOwnedImage(cb,m.vsSRV[i]))return false;transitionCompatOwnedImage(cb,m.vsSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}if(m.psSRV[i]){if(!syncCompatOwnedImage(cb,m.psSRV[i]))return false;transitionCompatOwnedImage(cb,m.psSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}}
- VkRenderingAttachmentInfo colors[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
- for(uint32_t i=0;i<colorCount;i++){if(!m.rtv[i])continue;if(!syncCompatOwnedImage(cb,m.rtv[i]))return false;transitionCompatOwnedImage(cb,m.rtv[i],VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);if(!v)return false;colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
-   if(void* u=compatUnderlyingResource(m.rtv[i])){auto* rr=(CompatResourceObject*)u;if(rr->pendingClearFlags&0x100u){colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=rr->pendingClearColor[k];rr->pendingClearFlags&=~0x100u;}}
+ if(!cb){gtavdiag::checkpoint("native-render-scope-no-command-buffer");return false;}
+ if(!pBeginRendering||!pEndRendering){gtavdiag::checkpoint("native-render-scope-no-dynamic-rendering");return false;}
+ RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()){gtavdiag::checkpoint("native-render-scope-no-mirror");return false;}m=it->second;}
+ for(uint32_t i=0;i<32;i++){
+   if(m.vsSRV[i]){
+     if(!syncCompatOwnedImage(cb,m.vsSRV[i])){char d[48];snprintf(d,sizeof(d),"vs-srv=%u",i);gtavdiag::checkpoint("native-render-scope-sync-srv-failed",d);return false;}
+     transitionCompatOwnedImage(cb,m.vsSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+   }
+   if(m.psSRV[i]){
+     if(!syncCompatOwnedImage(cb,m.psSRV[i])){char d[48];snprintf(d,sizeof(d),"ps-srv=%u",i);gtavdiag::checkpoint("native-render-scope-sync-srv-failed",d);return false;}
+     transitionCompatOwnedImage(cb,m.psSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+   }
  }
- VkRenderingAttachmentInfo depth{},stencilAtt{};VkRenderingAttachmentInfo* dp=nullptr;VkRenderingAttachmentInfo* sp=nullptr;bool hasStencil=false;if(m.dsv){transitionCompatOwnedImage(cb,m.dsv,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv);if(!v)return false;{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end())hasStencil=(it->second.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)!=0;}depth.sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;depth.imageView=v;depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;stencilAtt=depth;dp=&depth;if(hasStencil)sp=&stencilAtt;
-   if(void* u=compatUnderlyingResource(m.dsv)){auto* rr=(CompatResourceObject*)u;depth.clearValue.depthStencil.depth=rr->pendingClearDepth;depth.clearValue.depthStencil.stencil=rr->pendingClearStencil;stencilAtt.clearValue=depth.clearValue;if(rr->pendingClearFlags&1u)depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;if(hasStencil&&(rr->pendingClearFlags&2u))stencilAtt.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;rr->pendingClearFlags&=~3u;}
+ VkRenderingAttachmentInfo colors[8]{};uint32_t colorCount=m.rtvCount>8?8:m.rtvCount;
+ for(uint32_t i=0;i<colorCount;i++){
+   if(!m.rtv[i])continue;
+   if(!syncCompatOwnedImage(cb,m.rtv[i])){char d[48];snprintf(d,sizeof(d),"rtv=%u",i);gtavdiag::checkpoint("native-render-scope-sync-rtv-failed",d);return false;}
+   transitionCompatOwnedImage(cb,m.rtv[i],VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+   VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);
+   if(!v){char d[48];snprintf(d,sizeof(d),"rtv=%u",i);gtavdiag::checkpoint("native-render-scope-rtv-view-failed",d);return false;}
+   colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+   if(void* u=compatUnderlyingResource(m.rtv[i])){auto* rr=compatResourceObject(u);if(rr&&(rr->pendingClearFlags&0x100u)){colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=rr->pendingClearColor[k];rr->pendingClearFlags&=~0x100u;}}
+ }
+ VkRenderingAttachmentInfo depth{},stencilAtt{};VkRenderingAttachmentInfo* dp=nullptr;VkRenderingAttachmentInfo* sp=nullptr;bool hasStencil=false;
+ if(m.dsv){
+   transitionCompatOwnedImage(cb,m.dsv,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+   VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.dsv);
+   if(!v){gtavdiag::checkpoint("native-render-scope-dsv-view-failed");return false;}
+   {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end())hasStencil=(it->second.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)!=0;}
+   depth.sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;depth.imageView=v;depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;stencilAtt=depth;dp=&depth;if(hasStencil)sp=&stencilAtt;
+   if(void* u=compatUnderlyingResource(m.dsv)){auto* rr=compatResourceObject(u);if(rr){depth.clearValue.depthStencil.depth=rr->pendingClearDepth;depth.clearValue.depthStencil.stencil=rr->pendingClearStencil;stencilAtt.clearValue=depth.clearValue;if(rr->pendingClearFlags&1u)depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;if(hasStencil&&(rr->pendingClearFlags&2u))stencilAtt.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;rr->pendingClearFlags&=~3u;}}
  }
  uint32_t rw=gCompatSwapWidth.load(),rh=gCompatSwapHeight.load();int32_t rx=0,ry=0;if(m.rtvCount&&m.rtv[0]){void* u=compatUnderlyingResource(m.rtv[0]);if(u){auto* rr=(CompatResourceObject*)u;if(rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){rw=((uint32_t*)rr->desc)[0];rh=((uint32_t*)rr->desc)[1];}}}
  if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);rw=std::min(rw,(uint32_t)std::max(1.0f,v[0].width));float vh=v[0].height<0.0f?-v[0].height:v[0].height;rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
