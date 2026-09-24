@@ -114,12 +114,10 @@ echo "==> Building"
 ninja -C "$ROOT/dxvk-build" -v
 
 echo "==> Collecting native Android libraries"
-find "$ROOT/dxvk-build" -type f \( -name 'libdxvk_d3d11.so*' -o -name 'libdxvk_dxgi.so*' \) -print -exec cp -f {} "$OUT/" \;
-
-D3D11_FILE="$(find "$OUT" -maxdepth 1 -type f -name 'libdxvk_d3d11.so*' | head -n1 || true)"
-DXGI_FILE="$(find "$OUT" -maxdepth 1 -type f -name 'libdxvk_dxgi.so*' | head -n1 || true)"
-test -n "$D3D11_FILE"
-test -n "$DXGI_FILE"
+D3D11_FILE="$ROOT/dxvk-build/src/d3d11/libdxvk_d3d11.so"
+DXGI_FILE="$ROOT/dxvk-build/src/dxgi/libdxvk_dxgi.so"
+test -f "$D3D11_FILE"
+test -f "$DXGI_FILE"
 cp -f "$D3D11_FILE" "$OUT/libdxvk_d3d11.so"
 cp -f "$DXGI_FILE" "$OUT/libdxvk_dxgi.so"
 
