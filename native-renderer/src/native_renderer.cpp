@@ -1848,7 +1848,7 @@ static bool gCompatFrameCmdReady=false;
 
 #include "gpu_profiler.inl"
 
-static VkSemaphore gPresentAcquire[3]{},gPresentDone[3]{};static bool gPresentSyncReady=false;static bool ensureEnginePresentSync();static bool recordEnginePresentCopy(VkCommandBuffer,uint32_t);
+static VkSemaphore gPresentAcquire[3]{},gPresentDone[3]{};static bool gPresentSyncReady=false;static bool ensureEnginePresentSync();static bool recordEnginePresentCopy(VkCommandBuffer,uint32_t);static bool createCompatOwnedImage(void*,uint32_t,void*);
 static bool ensureCompatFrameCommandRing(){
  if(gCompatFrameCmdReady)return true;
  if(!g.device||!g.commands)return false;
@@ -1880,6 +1880,7 @@ static void submitAndBeginCompatFrameCommand(){
    if(!gPresentProbe.swapchain)gtavdiag::checkpoint("native-engine-present-no-swapchain");
    else if(!ac||!qp)gtavdiag::checkpoint("native-engine-present-procs-missing");
    else if(!ensureEnginePresentSync())gtavdiag::checkpoint("native-engine-present-sync-failed");
+   else if(!createCompatOwnedImage(&gCompatBackBuffer,NR_RTV,&gCompatBackBuffer))gtavdiag::checkpoint("native-engine-present-backbuffer-create-failed");
    else{
      VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);
      if(ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR){
