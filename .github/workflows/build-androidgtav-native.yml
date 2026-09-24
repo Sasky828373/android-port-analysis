@@ -160,11 +160,35 @@ jobs:
           echo "Scaleform expected path:"
           ls -la ../rage/3rdparty/Scaleform/Src || true
 
+          # build_sys.sh intentionally summarizes failures into files. Always
+          # print those files into the Actions log before deciding success/failure.
+          set +e
           CONFIG=release bash scripts/build_sys.sh ci_native/sources.txt ci_native/compiled
+          BUILD_RC=$?
+          set -e
+
+          echo "===== AndroidGTAV failures.txt ====="
+          if [ -f ci_native/compiled/failures.txt ]; then
+            cat ci_native/compiled/failures.txt
+          else
+            echo "(missing)"
+          fi
+
+          echo "===== AndroidGTAV build.log (last 400 lines) ====="
+          if [ -f ci_native/compiled/build.log ]; then
+            tail -n 400 ci_native/compiled/build.log
+          else
+            echo "(missing)"
+          fi
 
           find ci_native/compiled -type f -name '*.o' -print > ci_native/objects.txt
-          cat ci_native/objects.txt
-          test -s ci_native/objects.txt
+          echo "===== compiled objects ====="
+          cat ci_native/objects.txt || true
+
+          if [ "$BUILD_RC" -ne 0 ] || [ ! -s ci_native/objects.txt ]; then
+            echo "::error::Native AndroidGTAV compilation failed; compiler diagnostics are printed above."
+            exit 1
+          fi
 
       - name: Upload compiled native objects
         uses: actions/upload-artifact@v4
