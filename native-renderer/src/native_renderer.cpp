@@ -1643,6 +1643,32 @@ struct RageMirrorState {
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
 static std::atomic<void*> gCompatLastInputLayout{nullptr};
+static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
+ RageMirrorState out=base;
+ void* wanted=gCompatLastInputLayout.load(std::memory_order_acquire);
+ const RageMirrorState* best=nullptr;
+ for(const auto& kv:mirrorStates){
+   const auto& s=kv.second;
+   if(wanted&&s.inputLayout==wanted){best=&s;break;}
+   if(!best&&s.vs&&s.ps&&s.rtvCount&&s.rtv[0])best=&s;
+ }
+ if(!best)return out;
+ auto fillPtr=[](void*& d,void* s){if(!d&&s)d=s;};
+ fillPtr(out.inputLayout,best->inputLayout);
+ for(uint32_t i=0;i<16;i++){
+   fillPtr(out.vertexBuffers[i],best->vertexBuffers[i]); if(!out.strides[i]&&best->strides[i])out.strides[i]=best->strides[i]; if(!out.offsets[i]&&best->offsets[i])out.offsets[i]=best->offsets[i];
+   fillPtr(out.vsCB[i],best->vsCB[i]); fillPtr(out.psCB[i],best->psCB[i]); fillPtr(out.csCB[i],best->csCB[i]);
+   fillPtr(out.vsSampler[i],best->vsSampler[i]); fillPtr(out.psSampler[i],best->psSampler[i]); fillPtr(out.csSampler[i],best->csSampler[i]); fillPtr(out.csUAV[i],best->csUAV[i]);
+ }
+ for(uint32_t i=0;i<32;i++){fillPtr(out.vsSRV[i],best->vsSRV[i]);fillPtr(out.psSRV[i],best->psSRV[i]);fillPtr(out.csSRV[i],best->csSRV[i]);}
+ fillPtr(out.indexBuffer,best->indexBuffer);if(!out.indexFormat)out.indexFormat=best->indexFormat;if(!out.indexOffset)out.indexOffset=best->indexOffset;if(!out.topology)out.topology=best->topology;
+ fillPtr(out.vs,best->vs);fillPtr(out.ps,best->ps);fillPtr(out.cs,best->cs);
+ if(!out.viewportCount&&best->viewportCount){out.viewportCount=best->viewportCount;std::memcpy(out.viewports,best->viewports,sizeof(out.viewports));}
+ if(!out.scissorCount&&best->scissorCount){out.scissorCount=best->scissorCount;std::memcpy(out.scissors,best->scissors,sizeof(out.scissors));}
+ if(!out.rtvCount&&best->rtvCount){out.rtvCount=best->rtvCount;for(uint32_t i=0;i<8;i++)out.rtv[i]=best->rtv[i];}
+ fillPtr(out.dsv,best->dsv);fillPtr(out.blendState,best->blendState);fillPtr(out.depthState,best->depthState);fillPtr(out.rasterState,best->rasterState);
+ return out;
+}
 static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
 static std::atomic<void*> lastCompatDrawnRTV{nullptr};
 static std::atomic<void*> lastCompatFinalTransferDst{nullptr};
@@ -3083,7 +3109,8 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!g.device || !g.queue){gtavdiag::checkpoint("native-draw-fail-no-runtime");return false;}
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
-   auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
+   auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=mergeCompatAliasState(it->second); }
+ {char d[192];snprintf(d,sizeof(d),"ctx=%p il=%p vs=%p ps=%p vscb0=%p pscb0=%p rtv0=%p vp=%u",ctx,m.inputLayout,m.vs,m.ps,m.vsCB[0],m.psCB[0],m.rtv[0],m.viewportCount);gtavdiag::checkpoint("native-alias-state-merged",d);}
  if(!m.inputLayout){
    void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);
    if(fallback&&compatInputLayoutObject(fallback)){
@@ -3187,7 +3214,7 @@ static bool getDrawState(void* ctx,GtavNativeDrawState* s){
 }
 static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
  RageMirrorState m{};
- {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;m=it->second;}
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;m=mergeCompatAliasState(it->second);}
  if(m.viewportCount){
    uint32_t n=m.viewportCount>4?4:m.viewportCount;
    vkCmdSetViewport(cb,0,n,reinterpret_cast<const VkViewport*>(m.viewports));
@@ -3209,7 +3236,7 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  auto beginRendering=resolveBeginRenderingNow();
  auto endRendering=resolveEndRenderingNow();
  if(!beginRendering||!endRendering){gtavdiag::checkpoint("native-render-scope-no-dynamic-rendering");return false;}
- RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()){gtavdiag::checkpoint("native-render-scope-no-mirror");return false;}m=it->second;}
+ RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()){gtavdiag::checkpoint("native-render-scope-no-mirror");return false;}m=mergeCompatAliasState(it->second);}
  for(uint32_t i=0;i<32;i++){
    if(m.vsSRV[i]){
      if(!syncCompatOwnedImage(cb,m.vsSRV[i])){char d[48];snprintf(d,sizeof(d),"vs-srv=%u",i);gtavdiag::checkpoint("native-render-scope-sync-srv-failed",d);return false;}
@@ -3298,7 +3325,7 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  // Bind every active mirrored vertex stream, not only slot 0. This keeps native
  // multi-stream vertex input identical to the RAGE/D3D state before a draw.
  RageMirrorState m{};
- {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}
+ {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=mergeCompatAliasState(it->second);}
  if(!m.inputLayout){void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);if(fallback&&compatInputLayoutObject(fallback))m.inputLayout=fallback;}
  if(!refreshCompatDescriptors(m,s.descriptor_set)){gtavdiag::checkpoint("native-draw-fail-descriptor-refresh");return false;}
  VkBuffer vbs[16]{}; VkDeviceSize offsets[16]{};
@@ -3328,7 +3355,6 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  }
  if(indexed)vkCmdBindIndexBuffer(s.command_buffer,s.index_buffer,s.index_offset,s.index_type);
  vkCmdBindDescriptorSets(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline_layout,0,1,&s.descriptor_set,0,nullptr);
- uint32_t compatPush[32]{}; vkCmdPushConstants(s.command_buffer,s.pipeline_layout,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(compatPush),compatPush);
  applyMirroredDynamicState(ctx,s.command_buffer);
  return true;
 }
@@ -3336,8 +3362,8 @@ extern "C" bool gtavnative_compat_draw(void* c,uint32_t n,uint32_t f){return gta
 extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int32_t v){return gtav_native_renderer_rage_draw_indexed(c,n,f,v);}
 extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
 static void rememberDrawnPrimaryRTV(void* ctx){
- std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()||!it->second.rtvCount||!it->second.rtv[0])return;
- void* v=it->second.rtv[0];
+ std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;RageMirrorState merged=mergeCompatAliasState(it->second);if(!merged.rtvCount||!merged.rtv[0])return;
+ void* v=merged.rtv[0];
  uint64_t serial=compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1;
  lastCompatDrawnRTV.store(v,std::memory_order_release);
  lastCompatDrawnSerial.store(serial,std::memory_order_release);
