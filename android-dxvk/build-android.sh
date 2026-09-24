@@ -91,6 +91,21 @@ s = s.replace(
 """)
 p.write_text(s)
 
+# DXVK's Vulkan loader enables Win32 WSI unconditionally. Disable that define
+# for Android so Vulkan headers expose Android, not Win32, surface entry points.
+p = root / "src/vulkan/vulkan_loader.h"
+s = p.read_text()
+s = s.replace(
+"""#define VK_USE_PLATFORM_WIN32_KHR 1
+#include <vulkan/vulkan.h>
+""",
+"""#if !defined(__ANDROID__)
+#define VK_USE_PLATFORM_WIN32_KHR 1
+#endif
+#include <vulkan/vulkan.h>
+""")
+p.write_text(s)
+
 # Native handle selection.
 p = root / "include/native/wsi/native_wsi.h"
 s = p.read_text()
