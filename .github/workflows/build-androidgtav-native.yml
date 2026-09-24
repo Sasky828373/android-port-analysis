@@ -64,10 +64,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GitCode fetch failed" }
 
           @"
-gta5/src/dev_ng/android_build/
-gta5/src/dev_ng/rage/
-gta5/src/dev_ng/game/
-"@ | Set-Content -Encoding ascii .git/info/sparse-checkout
+          gta5/src/dev_ng/android_build/
+          gta5/src/dev_ng/rage/
+          gta5/src/dev_ng/game/
+          "@ | Set-Content -Encoding ascii .git/info/sparse-checkout
 
           git checkout --force FETCH_HEAD
           if ($LASTEXITCODE -ne 0) {
