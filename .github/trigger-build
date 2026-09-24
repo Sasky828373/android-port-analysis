@@ -49,3 +49,5 @@ dlsym-got-vulkan-loader 5af6fef
 fix-dlsym-hook-forward-decl c89b70f
 
 fix-dlsym-hook-namespace 6c9c69b
+
+trace-vulkan-proc-lookups 8e5d7ed
