@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -70,6 +70,52 @@ jobs:
           cd "${GITHUB_WORKSPACE}/AndroidGTAV"
           git submodule update --init --recursive || true
           git rev-parse HEAD | tee "${GITHUB_WORKSPACE}/androidgtav-upstream-sha.txt"
+
+      - name: Capture upstream build metadata
+        if: github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "${GITHUB_WORKSPACE}/AndroidGTAV"
+          mkdir -p "${GITHUB_WORKSPACE}/.androidgtav-probe"
+
+          {
+            echo "UPSTREAM_SHA=$(git rev-parse HEAD)"
+            echo
+            echo "=== TOP LEVEL ==="
+            find . -maxdepth 3 -type d | sort | head -500
+            echo
+            echo "=== ANDROID BUILD TREE ==="
+            find . -path '*android_build*' -maxdepth 9 -print | sort | head -1200
+            echo
+            echo "=== BUILD ENTRYPOINTS ==="
+            find . -maxdepth 10 -type f \( \
+              -iname '*.sh' -o -iname '*.py' -o -iname '*.bat' -o -iname '*.cmd' -o \
+              -iname 'CMakeLists.txt' -o -iname 'Makefile' -o \
+              -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o \
+              -iname 'gradlew' -o -iname 'package_apk.py' -o -iname 'PACKAGING.md' \
+            \) | sort | head -2000
+          } > "${GITHUB_WORKSPACE}/.androidgtav-probe/layout.txt"
+
+          PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
+          if [ -n "${PACKAGING}" ]; then
+            cp "${PACKAGING}" "${GITHUB_WORKSPACE}/.androidgtav-probe/PACKAGING.md"
+          fi
+
+          PKG="$(find . -type f -iname 'package_apk.py' | head -1 || true)"
+          if [ -n "${PKG}" ]; then
+            cp "${PKG}" "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk.py"
+            python3 "${PKG}" --help > "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk-help.txt" 2>&1 || true
+          fi
+
+          cd "${GITHUB_WORKSPACE}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .androidgtav-probe
+          if ! git diff --cached --quiet; then
+            git commit -m "Capture AndroidGTAV upstream build metadata [skip ci]"
+            git push origin HEAD:androidgtav-native-build
+          fi
 
       - name: Inspect upstream build layout
         run: |
