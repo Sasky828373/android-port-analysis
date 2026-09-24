@@ -679,7 +679,7 @@ static void initCompatShaderVtables(){
 static int32_t compatCreateInputLayout(void*,const void* raw,uint32_t count,const void* shader,size_t shaderBytes,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
  auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
- if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};const char* sem=nullptr;std::memcpy(&sem,e,8);std::memcpy(&x.semanticIndex,e+8,4);std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);if(sem){size_t n=strnlen(sem,64);x.semantic.assign(sem,n);}o->elements.push_back(std::move(x));}}
+ if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};const char* sem=nullptr;std::memcpy(&sem,e,8);std::memcpy(&x.semanticIndex,e+8,4);std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);if(sem){size_t n=strnlen(sem,64);x.semantic.assign(sem,n);} {char d[192];snprintf(d,sizeof(d),"i=%zu sem=%s%u fmt=%u slot=%u off=%u class=%u step=%u",i,x.semantic.c_str(),x.semanticIndex,x.format,x.slot,x.offset,x.inputClass,x.stepRate);gtavdiag::checkpoint("native-input-layout-element",d);}o->elements.push_back(std::move(x));}}
  {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}
  {char d[160];snprintf(d,sizeof(d),"raw=%p count=%u elems=%zu shaderBytes=%zu out=%p",raw,count,o->elements.size(),shaderBytes,o);gtavdiag::checkpoint("native-input-layout-created",d);}
  *out=o;return 0;
@@ -2965,7 +2965,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(auto* il=compatResolveInputLayout(m.inputLayout,m.vs)){
    uint32_t appendOffset[16]{};
    for(size_t i=0;i<il->elements.size()&&vaCount<32;i++){
-     const auto& e=il->elements[i];if(e.slot>=16)continue;VkFormat vf=VK_FORMAT_UNDEFINED;uint32_t sz=0;
+     const auto& e=il->elements[i];if(e.slot>=16){char d[128];snprintf(d,sizeof(d),"semantic=%s%u slot=%u fmt=%u",e.semantic.c_str(),e.semanticIndex,e.slot,e.format);gtavdiag::checkpoint("native-input-layout-slot-unsupported",d);continue;}VkFormat vf=VK_FORMAT_UNDEFINED;uint32_t sz=0;
      switch(e.format){
       case 2:vf=VK_FORMAT_R32G32B32A32_SFLOAT;sz=16;break;case 6:vf=VK_FORMAT_R32G32B32_SFLOAT;sz=12;break;
       case 10:vf=VK_FORMAT_R16G16B16A16_SFLOAT;sz=8;break;case 11:vf=VK_FORMAT_R16G16B16A16_UNORM;sz=8;break;
