@@ -1554,6 +1554,7 @@ static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
 static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
 static std::atomic<void*> lastCompatDrawnRTV{nullptr};
+static bool hasUsableEnginePresentSource(){return lastCompatDrawnRTV.load(std::memory_order_acquire)!=nullptr||lastCompatPrimaryRTV.load(std::memory_order_acquire)!=nullptr;}
 static std::atomic<uint32_t> captureBudget{256};
 static std::atomic<uint32_t> attachAttempts{0};
 static std::atomic<uint32_t> attachSuccesses{0};
@@ -1850,7 +1851,7 @@ static bool gCompatFrameCmdReady=false;
 
 #include "gpu_profiler.inl"
 
-static VkSemaphore gPresentAcquire[3]{},gPresentDone[3]{};static bool gPresentSyncReady=false;static bool ensureEnginePresentSync();static bool recordEnginePresentCopy(VkCommandBuffer,uint32_t);static bool createCompatOwnedImage(void*,uint32_t,void*);
+static VkSemaphore gPresentAcquire[3]{},gPresentDone[3]{};static bool gPresentSyncReady=false;static bool ensureEnginePresentSync();static bool recordEnginePresentCopy(VkCommandBuffer,uint32_t);static bool createCompatOwnedImage(void*,uint32_t,void*);static bool hasUsableEnginePresentSource();
 static bool ensureCompatFrameCommandRing(){
  if(gCompatFrameCmdReady)return true;
  if(!g.device||!g.commands)return false;
@@ -1882,6 +1883,7 @@ static void submitAndBeginCompatFrameCommand(){
    if(!gPresentProbe.swapchain)gtavdiag::checkpoint("native-engine-present-no-swapchain");
    else if(!ac||!qp)gtavdiag::checkpoint("native-engine-present-procs-missing");
    else if(!ensureEnginePresentSync())gtavdiag::checkpoint("native-engine-present-sync-failed");
+   else if(!hasUsableEnginePresentSource())gtavdiag::checkpoint("native-engine-present-deferred-no-rendered-source");
    else if(!createCompatOwnedImage(&gCompatBackBuffer,2u,&gCompatBackBuffer))gtavdiag::checkpoint("native-engine-present-backbuffer-create-failed");
    else{
      VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);
