@@ -1717,6 +1717,7 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
+static std::atomic<void*> gCompatCanonicalStateContext{nullptr};
 static std::atomic<void*> gCompatLastInputLayout{nullptr};
 static std::atomic<uint64_t> gBlackProbeFrame{0};
 static std::atomic<uint32_t> gBlackProbeDraws{0};
@@ -1726,43 +1727,13 @@ static std::atomic<uint32_t> gBlackProbeExpectedSampler{0},gBlackProbeBoundSampl
 static std::atomic<uint32_t> gBlackProbeDescriptorWrites{0};
 
 static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
- RageMirrorState out=base;
- void* wanted=gCompatLastInputLayout.load(std::memory_order_acquire);
- const RageMirrorState* best=nullptr;
- for(const auto& kv:mirrorStates){
-   const auto& s=kv.second;
-   if(wanted&&s.inputLayout==wanted){best=&s;break;}
-   if(!best&&s.vs&&s.ps&&s.rtvCount&&s.rtv[0])best=&s;
+ void* canonical=gCompatCanonicalStateContext.load(std::memory_order_acquire);
+ if(canonical){
+   auto it=mirrorStates.find(canonical);
+   if(it!=mirrorStates.end())return it->second;
  }
- if(!best)return out;
- auto fillPtr=[](void*& d,void* s){if(!d&&s)d=s;};
- fillPtr(out.inputLayout,best->inputLayout);
- for(uint32_t i=0;i<16;i++){
-   fillPtr(out.vertexBuffers[i],best->vertexBuffers[i]); if(!out.strides[i]&&best->strides[i])out.strides[i]=best->strides[i]; if(!out.offsets[i]&&best->offsets[i])out.offsets[i]=best->offsets[i];
-   fillPtr(out.vsCB[i],best->vsCB[i]); fillPtr(out.psCB[i],best->psCB[i]); fillPtr(out.csCB[i],best->csCB[i]);
-   fillPtr(out.vsSampler[i],best->vsSampler[i]); fillPtr(out.psSampler[i],best->psSampler[i]); fillPtr(out.csSampler[i],best->csSampler[i]); fillPtr(out.csUAV[i],best->csUAV[i]);
- }
- for(uint32_t i=0;i<32;i++){fillPtr(out.vsSRV[i],best->vsSRV[i]);fillPtr(out.psSRV[i],best->psSRV[i]);fillPtr(out.csSRV[i],best->csSRV[i]);}
- fillPtr(out.indexBuffer,best->indexBuffer);if(!out.indexFormat)out.indexFormat=best->indexFormat;if(!out.indexOffset)out.indexOffset=best->indexOffset;if(!out.topology)out.topology=best->topology;
- fillPtr(out.vs,best->vs);fillPtr(out.ps,best->ps);fillPtr(out.cs,best->cs);
- if(!out.viewportCount&&best->viewportCount){out.viewportCount=best->viewportCount;std::memcpy(out.viewports,best->viewports,sizeof(out.viewports));}
- if(!out.scissorCount&&best->scissorCount){out.scissorCount=best->scissorCount;std::memcpy(out.scissors,best->scissors,sizeof(out.scissors));}
- if(!out.rtvCount&&best->rtvCount){out.rtvCount=best->rtvCount;for(uint32_t i=0;i<8;i++)out.rtv[i]=best->rtv[i];}
- fillPtr(out.dsv,best->dsv);fillPtr(out.blendState,best->blendState);fillPtr(out.depthState,best->depthState);fillPtr(out.rasterState,best->rasterState);
- return out;
+ return base;
 }
-static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
-static std::atomic<void*> lastCompatDrawnRTV{nullptr};
-static std::atomic<void*> lastCompatFinalTransferDst{nullptr};
-static std::atomic<void*> lastCompatFullSizeRTV{nullptr};
-static std::atomic<uint64_t> compatPresentWriteSerial{0};
-static std::atomic<uint64_t> lastCompatDrawnSerial{0};
-static std::atomic<uint64_t> lastCompatTransferSerial{0};
-static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
-// Present candidates must describe the command buffer/frame currently being
-// recorded. Keeping candidates across frames can make an unrelated old
-// CopyResource/Resolve win presentation forever, producing a valid present of
-// stale/blank pixels.
 static void resetCompatPresentSourcesForNewFrame(){
  lastCompatPrimaryRTV.store(nullptr,std::memory_order_release);
  lastCompatDrawnRTV.store(nullptr,std::memory_order_release);
@@ -1790,8 +1761,8 @@ static void capture(const char* kind,void* rage,uint64_t vk=0){
  __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-MAP","%s rage=%p vk=0x%llx",kind,rage,(unsigned long long)vk);
 }
 
-static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
-extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;if(v)gCompatLastInputLayout.store(v,std::memory_order_release);{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p known=%d",c,v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
+static RageMirrorState& mirror(void* ctx){if(ctx)gCompatCanonicalStateContext.store(ctx,std::memory_order_release);return mirrorStates[ctx];}
+extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;gCompatLastInputLayout.store(v,std::memory_order_release);{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p known=%d",c,v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
 extern "C" void gtavnative_compat_mirror_vertex_buffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);for(uint32_t i=0;i<n&&f+i<16;i++){m.vertexBuffers[f+i]=v?v[i]:nullptr;m.strides[f+i]=s?s[i]:0;m.offsets[f+i]=o?o[i]:0;}}
 extern "C" void gtavnative_compat_mirror_index_buffer(void* c,void* b,uint32_t f,uint32_t o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.indexBuffer=b;m.indexFormat=f;m.indexOffset=o;}
 extern "C" void gtavnative_compat_mirror_topology(void* c,uint32_t t){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).topology=t;}
@@ -3006,8 +2977,11 @@ static bool mapCompatBuffer(void* p,uint32_t kind){
 static std::mutex compatSamplerMutex;
 static std::unordered_map<uint64_t,VkSampler> compatSamplers;
 static bool mapCompatSampler(void* p){
- if(!p||!g.device)return false;if(resolveMapped(p,NR_SAMPLER))return true;auto* s=compatStateObject(p);if(!s||s->descSize<52)return false;
- const uint32_t* d=(const uint32_t*)s->desc;VkSamplerCreateInfo ci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+ if(!p||!g.device)return false;if(resolveMapped(p,NR_SAMPLER))return true;auto* s=compatStateObject(p);
+ VkSamplerCreateInfo ci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+ uint32_t fallbackDesc[13]{};fallbackDesc[0]=0x15;fallbackDesc[1]=fallbackDesc[2]=fallbackDesc[3]=3;fallbackDesc[5]=1;float zero=0.0f,maxlod=1000.0f;std::memcpy(&fallbackDesc[4],&zero,4);std::memcpy(&fallbackDesc[11],&zero,4);std::memcpy(&fallbackDesc[12],&maxlod,4);
+ const uint32_t* d=(s&&s->descSize>=52)?(const uint32_t*)s->desc:fallbackDesc;
+ if(!s){static std::atomic<uint32_t> fb{64};uint32_t n=fb.fetch_sub(1,std::memory_order_relaxed);if(n>0){char q[96];snprintf(q,sizeof(q),"sampler=%p",p);gtavdiag::checkpoint("native-foreign-sampler-fallback",q);}}
  uint32_t filter=d[0];ci.magFilter=(filter&0x4)?VK_FILTER_LINEAR:VK_FILTER_NEAREST;ci.minFilter=(filter&0x10)?VK_FILTER_LINEAR:VK_FILTER_NEAREST;
  ci.mipmapMode=(filter&0x1)?VK_SAMPLER_MIPMAP_MODE_LINEAR:VK_SAMPLER_MIPMAP_MODE_NEAREST;
  auto addr=[](uint32_t a){switch(a){case 1:return VK_SAMPLER_ADDRESS_MODE_REPEAT;case 2:return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;case 3:return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;case 4:return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;default:return VK_SAMPLER_ADDRESS_MODE_REPEAT;}};
@@ -3279,15 +3253,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=mergeCompatAliasState(it->second); }
- {uint32_t vm=0,pm=0,sm=0,tm=0;for(uint32_t i=0;i<16;i++){if(m.vsCB[i])vm|=1u<<i;if(m.psCB[i])pm|=1u<<i;if(m.vsSampler[i]||m.psSampler[i])sm|=1u<<i;}for(uint32_t i=0;i<32;i++)if(m.vsSRV[i]||m.psSRV[i])tm|=1u<<(i&31);char d[256];snprintf(d,sizeof(d),"ctx=%p il=%p vs=%p ps=%p vscbMask=0x%x pscbMask=0x%x srvMask=0x%x sampMask=0x%x rtv0=%p vp=%u",ctx,m.inputLayout,m.vs,m.ps,vm,pm,tm,sm,m.rtv[0],m.viewportCount);gtavdiag::checkpoint("native-alias-state-merged",d);}
- if(!m.inputLayout){
-   void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);
-   if(fallback&&compatInputLayoutObject(fallback)){
-     m.inputLayout=fallback;
-     char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p",ctx,fallback);
-     gtavdiag::checkpoint("native-input-layout-context-fallback",d);
-   }
- }
+ {uint32_t vm=0,pm=0,sm=0,tm=0;for(uint32_t i=0;i<16;i++){if(m.vsCB[i])vm|=1u<<i;if(m.psCB[i])pm|=1u<<i;if(m.vsSampler[i]||m.psSampler[i])sm|=1u<<i;}for(uint32_t i=0;i<32;i++)if(m.vsSRV[i]||m.psSRV[i])tm|=1u<<(i&31);char d[256];snprintf(d,sizeof(d),"ctx=%p il=%p vs=%p ps=%p vscbMask=0x%x pscbMask=0x%x srvMask=0x%x sampMask=0x%x rtv0=%p vp=%u",ctx,m.inputLayout,m.vs,m.ps,vm,pm,tm,sm,m.rtv[0],m.viewportCount);gtavdiag::checkpoint("native-canonical-state",d);}
  // ID3D11InputLayout may legally be NULL. In that case the Vulkan pipeline uses
  // zero vertex attributes; shaders relying on SV_VertexID remain valid.
  CompatInputLayoutObject* activeInputLayout=compatResolveInputLayout(m.inputLayout,m.vs);
@@ -3506,7 +3472,6 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  // multi-stream vertex input identical to the RAGE/D3D state before a draw.
  RageMirrorState m{};
  {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=mergeCompatAliasState(it->second);}
- if(!m.inputLayout){void* fallback=gCompatLastInputLayout.load(std::memory_order_acquire);if(fallback&&compatInputLayoutObject(fallback))m.inputLayout=fallback;}
  if(!refreshCompatDescriptors(m,s.descriptor_set)){gtavdiag::checkpoint("native-draw-fail-descriptor-refresh");return false;}
  VkBuffer vbs[16]{}; VkDeviceSize offsets[16]{};
  uint32_t last=0;
