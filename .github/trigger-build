@@ -31,3 +31,5 @@ profile-build-2026-09-24
 engine-backbuffer-present 06dc67d
 
 vulkan-loader-proc-intercept dc7f1d9
+
+libgtav-vulkan-loader-dispatch-hook 408d0ee
