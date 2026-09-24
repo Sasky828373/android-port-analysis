@@ -99,8 +99,10 @@ static int32_t legacyD3DLeak(const char* name) {
 namespace {
 struct CompatDXGIFactory { void** vtbl; };
 struct CompatDXGIAdapter { void** vtbl; };
+struct CompatDXGIOutput { void** vtbl; uint8_t pad[8]; uint32_t modeCount; };
 static CompatDXGIFactory gCompatFactory{};
 static CompatDXGIAdapter gCompatAdapter{};
+static CompatDXGIOutput gCompatOutput{};
 static void* gFactoryVtable[8]{};
 static void* gAdapterVtable[10]{};
 
@@ -128,8 +130,6 @@ static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
   if (index != 0) { *out=nullptr; return (int32_t)0x887A0002u; } // DXGI_ERROR_NOT_FOUND
   *out=&gCompatAdapter; return 0;
 }
-struct CompatDXGIOutput { void** vtbl; uint8_t pad[8]; uint32_t modeCount; };
-static CompatDXGIOutput gCompatOutput{};
 static void* gOutputVtable[32]{};
 static int32_t compatOutputQueryInterface(void* self,const void*,void** out){ if(!out)return (int32_t)0x80004003u; *out=self; return 0; }
 static uint32_t compatOutputAddRef(void*){return 2;}
