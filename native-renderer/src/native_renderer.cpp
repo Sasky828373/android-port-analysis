@@ -310,6 +310,8 @@ extern "C" void gtavnative_compat_mirror_viewports(void*,uint32_t,const void*);
 extern "C" void gtavnative_compat_mirror_scissors(void*,uint32_t,const void*);
 extern "C" void gtavnative_compat_mirror_objs(void*,uint32_t,uint32_t,uint32_t,void* const*);
 extern "C" void gtavnative_compat_mirror_render_targets(void*,uint32_t,void* const*,void*);
+extern "C" void gtavnative_compat_mirror_blend_state(void*,void*,const float*,uint32_t);
+extern "C" void gtavnative_compat_mirror_depth_state(void*,void*,uint32_t);
 extern "C" bool gtavnative_compat_draw(void*,uint32_t,uint32_t);
 extern "C" bool gtavnative_compat_draw_indexed(void*,uint32_t,uint32_t,int32_t);
 extern "C" bool gtavnative_compat_dispatch(void*,uint32_t,uint32_t,uint32_t);
@@ -336,8 +338,8 @@ static void compatCtxDrawIndexedInstanced(void* c,uint32_t ic,uint32_t inst,uint
 static void compatCtxDrawInstanced(void* c,uint32_t vc,uint32_t inst,uint32_t first,uint32_t fi){gMegaNoopCalls.fetch_add(1);char d[224];snprintf(d,sizeof(d),"ctx=%p vc=%u inst=%u first=%u firstInst=%u UNIMPLEMENTED",c,vc,inst,first,fi);gtavdiag::checkpoint("MEGA-NOOP-DRAW-INSTANCED",d);}
 static void compatCtxIASetPrimitiveTopology(void* c,uint32_t t){gtavdiag::checkpoint("compat-context-ia-set-primitive-topology");gtavnative_compat_mirror_topology(c,t);}
 static void compatCtxOMSetRenderTargets(void* c,uint32_t n,void* const* r,void* d){gtavdiag::checkpoint("compat-context-om-set-render-targets");gtavnative_compat_mirror_render_targets(c,n,r,d);}
-static void compatCtxOMSetBlendState(void* c,void* state,const float*,uint32_t){gtavdiag::checkpoint("compat-context-om-set-blend-state");gtavnative_compat_mirror_objs(c,10,0,1,&state);}
-static void compatCtxOMSetDepthStencilState(void* c,void* state,uint32_t){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");gtavnative_compat_mirror_objs(c,11,0,1,&state);}
+static void compatCtxOMSetBlendState(void* c,void* state,const float* factor,uint32_t mask){gtavdiag::checkpoint("compat-context-om-set-blend-state");gtavnative_compat_mirror_blend_state(c,state,factor,mask);}
+static void compatCtxOMSetDepthStencilState(void* c,void* state,uint32_t ref){gtavdiag::checkpoint("compat-context-om-set-depth-stencil-state");gtavnative_compat_mirror_depth_state(c,state,ref);}
 static void compatCtxDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){gtavdiag::checkpoint("compat-context-dispatch");gtavnative_compat_dispatch(c,x,y,z);}
 static void compatCtxRSSetState(void* c,void* state){gtavdiag::checkpoint("compat-context-rs-set-state");gtavnative_compat_mirror_objs(c,12,0,1,&state);}
 static void compatCtxRSSetViewports(void* c,uint32_t n,const void* p){gtavdiag::checkpoint("compat-context-rs-set-viewports");gtavnative_compat_mirror_viewports(c,n,p);}
@@ -829,11 +831,13 @@ static void initCompatResourceVtables(){
   gCompatViewVtable[0]=(void*)compatChildQI; gCompatViewVtable[1]=(void*)compatChildAddRef; gCompatViewVtable[2]=(void*)compatChildRelease;
   gCompatViewVtable[3]=(void*)compatChildGetDevice; gCompatViewVtable[4]=(void*)compatChildGetPrivateData; gCompatViewVtable[5]=(void*)compatSetPrivateData; gCompatViewVtable[6]=(void*)compatChildSetPrivateDataInterface; gCompatViewVtable[7]=(void*)compatViewGetResource; gCompatViewVtable[8]=(void*)compatViewGetDesc;
 }
+static void compatFormatLayout(uint32_t,uint32_t&,uint32_t&,uint32_t&);
+static size_t compatTexture2DLayout(const uint32_t*,uint32_t,uint32_t*,uint32_t*,size_t*);
 static CompatResourceObject* makeCompatResource(const void* desc,size_t bytes,const char* checkpoint,void** vtbl){
   gtavdiag::checkpoint(checkpoint);initCompatResourceVtables();
   auto* o=new CompatResourceObject{};o->vtbl=vtbl;o->descSize=std::min(bytes,sizeof(o->desc));
   if(desc)std::memcpy(o->desc,desc,std::min(bytes,sizeof(o->desc)));
-  size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*4u; else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
+  size_t storage=0; if(desc){const uint32_t* d=(const uint32_t*)desc; if(vtbl==gCompatBufferVtable)storage=d[0]; else if(vtbl==gCompatTexture1DVtable)storage=(size_t)d[0]*4u; else if(vtbl==gCompatTexture2DVtable)storage=compatTexture2DLayout(d,0,nullptr,nullptr,nullptr); else if(vtbl==gCompatTexture3DVtable)storage=(size_t)d[0]*std::max(1u,d[1])*std::max(1u,d[2])*4u;} if(storage)o->backing.resize(std::min<size_t>(storage,256u*1024u*1024u));
   std::lock_guard<std::mutex> l(gCompatObjectMutex);gCompatResources.push_back(o);return o;
 }
 extern "C" bool gtavnative_compat_register_view_resource(void* view,void* resource,uint32_t kind,bool renderTarget);
@@ -1719,6 +1723,9 @@ struct RageMirrorState {
  void* csUAV[16]{};
  void* rtv[8]{}; uint32_t rtvCount{}; void* dsv{};
  void* blendState{}; void* depthState{}; void* rasterState{};
+ float blendFactor[4]{1.0f,1.0f,1.0f,1.0f};
+ uint32_t sampleMask{0xffffffffu};
+ uint32_t stencilRef{};
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
@@ -1756,7 +1763,10 @@ static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
  if(!out.viewportCount&&best->viewportCount){out.viewportCount=best->viewportCount;std::memcpy(out.viewports,best->viewports,sizeof(out.viewports));}
  if(!out.scissorCount&&best->scissorCount){out.scissorCount=best->scissorCount;std::memcpy(out.scissors,best->scissors,sizeof(out.scissors));}
  if(!out.rtvCount&&best->rtvCount){out.rtvCount=best->rtvCount;for(uint32_t i=0;i<8;i++)out.rtv[i]=best->rtv[i];}
- fillPtr(out.dsv,best->dsv);fillPtr(out.blendState,best->blendState);fillPtr(out.depthState,best->depthState);fillPtr(out.rasterState,best->rasterState);
+ fillPtr(out.dsv,best->dsv);
+ if(!out.blendState&&best->blendState){out.blendState=best->blendState;std::memcpy(out.blendFactor,best->blendFactor,sizeof(out.blendFactor));out.sampleMask=best->sampleMask;}
+ if(!out.depthState&&best->depthState){out.depthState=best->depthState;out.stencilRef=best->stencilRef;}
+ fillPtr(out.rasterState,best->rasterState);
  return out;
 }
 static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
@@ -1798,6 +1808,15 @@ static void capture(const char* kind,void* rage,uint64_t vk=0){
 }
 
 static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
+extern "C" void gtavnative_compat_mirror_blend_state(void* c,void* state,const float* factor,uint32_t mask){
+ std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.blendState=state;m.sampleMask=mask;
+ if(factor)std::memcpy(m.blendFactor,factor,sizeof(m.blendFactor));else for(float& v:m.blendFactor)v=1.0f;
+ char d[192];snprintf(d,sizeof(d),"ctx=%p state=%p factor=%.3f,%.3f,%.3f,%.3f mask=0x%x",c,state,m.blendFactor[0],m.blendFactor[1],m.blendFactor[2],m.blendFactor[3],mask);gtavdiag::checkpoint("native-blend-state-mirrored",d);
+}
+extern "C" void gtavnative_compat_mirror_depth_state(void* c,void* state,uint32_t ref){
+ std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.depthState=state;m.stencilRef=ref;
+ char d[128];snprintf(d,sizeof(d),"ctx=%p state=%p stencilRef=%u",c,state,ref);gtavdiag::checkpoint("native-depth-state-mirrored",d);
+}
 extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;if(v)gCompatLastInputLayout.store(v,std::memory_order_release);{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[128];snprintf(d,sizeof(d),"ctx=%p layout=%p known=%d",c,v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
 extern "C" void gtavnative_compat_mirror_vertex_buffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);for(uint32_t i=0;i<n&&f+i<16;i++){m.vertexBuffers[f+i]=v?v[i]:nullptr;m.strides[f+i]=s?s[i]:0;m.offsets[f+i]=o?o[i]:0;}}
 extern "C" void gtavnative_compat_mirror_index_buffer(void* c,void* b,uint32_t f,uint32_t o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.indexBuffer=b;m.indexFormat=f;m.indexOffset=o;}
@@ -2557,8 +2576,8 @@ static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static NativeImageMeta compatViewMeta(VkImage image,VkFormat resourceFormat,VkImageAspectFlags aspect,void* publish,uint32_t kind,uint32_t resourceMips,uint32_t resourceLayers){
  NativeImageMeta m{};m.image=image;m.format=resourceFormat;m.aspect=aspect;m.levelCount=std::max(1u,resourceMips);m.layerCount=std::max(1u,resourceLayers);
- if(void* ur=compatUnderlyingResource(publish)){if(auto* rr=compatResourceObject(ur);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=20)m.dxgiFormat=((uint32_t*)rr->desc)[4];}
- else if(auto* rr=compatResourceObject(publish);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=20)m.dxgiFormat=((uint32_t*)rr->desc)[4];
+ void* metaRes=compatUnderlyingResource(publish);if(!metaRes)metaRes=publish;
+ if(auto* rr=compatResourceObject(metaRes);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=44){auto* rd=(uint32_t*)rr->desc;m.width=rd[0];m.height=rd[1];m.dxgiFormat=rd[4];m.samples=(VkSampleCountFlagBits)std::max(1u,rd[5]);}
  auto* v=(CompatViewObject*)publish;if(!publish||v->vtbl!=gCompatViewVtable||v->descSize<8){m.levelCount=1;m.layerCount=1;return m;}
  const uint32_t* d=(const uint32_t*)v->desc;VkFormat vf=compatDxgiFormat(d[0]);if(vf!=VK_FORMAT_UNDEFINED){m.format=vf;if(d[0])m.dxgiFormat=d[0];}uint32_t dim=d[1];
  auto clampMip=[&](uint32_t base,uint32_t count){m.baseMip=std::min(base,resourceMips?resourceMips-1:0u);uint32_t avail=std::max(1u,resourceMips-m.baseMip);m.levelCount=(count==0xffffffffu||count==0)?avail:std::min(count,avail);};
@@ -3264,16 +3283,23 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;// Negative-height Vulkan viewport flips framebuffer winding, so invert
  // D3D11 FrontCounterClockwise when mapping the rasterizer state.
  rs.frontFace=d[2]?VK_FRONT_FACE_CLOCKWISE:VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=VK_FALSE;}
- VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+ VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;VkSampleMask compatSampleMask=m.sampleMask;ms.pSampleMask=&compatSampleMask;
  VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
  auto cmp=[](uint32_t x){switch(x){case 1:return VK_COMPARE_OP_NEVER;case 2:return VK_COMPARE_OP_LESS;case 3:return VK_COMPARE_OP_EQUAL;case 4:return VK_COMPARE_OP_LESS_OR_EQUAL;case 5:return VK_COMPARE_OP_GREATER;case 6:return VK_COMPARE_OP_NOT_EQUAL;case 7:return VK_COMPARE_OP_GREATER_OR_EQUAL;default:return VK_COMPARE_OP_ALWAYS;}};
- if(auto* s=compatStateObject(m.depthState);s&&s->descSize>=52){const uint32_t* d=(const uint32_t*)s->desc;ds.depthTestEnable=d[0]?VK_TRUE:VK_FALSE;ds.depthWriteEnable=d[1]?VK_TRUE:VK_FALSE;ds.depthCompareOp=cmp(d[2]);ds.stencilTestEnable=d[3]?VK_TRUE:VK_FALSE;ds.front.compareOp=VK_COMPARE_OP_ALWAYS;ds.back.compareOp=VK_COMPARE_OP_ALWAYS;}
+ if(auto* s=compatStateObject(m.depthState);s&&s->descSize>=52){
+ const uint8_t* q=s->desc;const uint32_t* d=(const uint32_t*)q;
+ auto sop=[](uint32_t x){switch(x){case 2:return VK_STENCIL_OP_ZERO;case 3:return VK_STENCIL_OP_REPLACE;case 4:return VK_STENCIL_OP_INCREMENT_AND_CLAMP;case 5:return VK_STENCIL_OP_DECREMENT_AND_CLAMP;case 6:return VK_STENCIL_OP_INVERT;case 7:return VK_STENCIL_OP_INCREMENT_AND_WRAP;case 8:return VK_STENCIL_OP_DECREMENT_AND_WRAP;default:return VK_STENCIL_OP_KEEP;}};
+ ds.depthTestEnable=d[0]?VK_TRUE:VK_FALSE;ds.depthWriteEnable=d[1]?VK_TRUE:VK_FALSE;ds.depthCompareOp=cmp(d[2]);ds.stencilTestEnable=d[3]?VK_TRUE:VK_FALSE;
+ uint32_t readMask=q[16],writeMask=q[17];
+ auto fillStencil=[&](VkStencilOpState& o,const uint32_t* z){o.failOp=sop(z[0]);o.depthFailOp=sop(z[1]);o.passOp=sop(z[2]);o.compareOp=cmp(z[3]);o.compareMask=readMask;o.writeMask=writeMask;o.reference=m.stencilRef;};
+ fillStencil(ds.front,(const uint32_t*)(q+20));fillStencil(ds.back,(const uint32_t*)(q+36));
+}
  auto bf=[](uint32_t x){switch(x){case 1:return VK_BLEND_FACTOR_ZERO;case 2:return VK_BLEND_FACTOR_ONE;case 3:return VK_BLEND_FACTOR_SRC_COLOR;case 4:return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;case 5:return VK_BLEND_FACTOR_SRC_ALPHA;case 6:return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;case 7:return VK_BLEND_FACTOR_DST_ALPHA;case 8:return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;case 9:return VK_BLEND_FACTOR_DST_COLOR;case 10:return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;case 11:return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;case 14:return VK_BLEND_FACTOR_CONSTANT_COLOR;case 15:return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;case 16:return VK_BLEND_FACTOR_SRC1_COLOR;case 17:return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;case 18:return VK_BLEND_FACTOR_SRC1_ALPHA;case 19:return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;default:return VK_BLEND_FACTOR_ONE;}};
  auto bop=[](uint32_t x){switch(x){case 2:return VK_BLEND_OP_SUBTRACT;case 3:return VK_BLEND_OP_REVERSE_SUBTRACT;case 4:return VK_BLEND_OP_MIN;case 5:return VK_BLEND_OP_MAX;default:return VK_BLEND_OP_ADD;}};
  VkPipelineColorBlendAttachmentState cba[8]{};for(uint32_t i=0;i<colorCount;i++)cba[i].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
  if(auto* s=compatStateObject(m.blendState);s&&s->descSize>=264){const uint8_t* d=s->desc;bool independent=*(const uint32_t*)(d+4)!=0;for(uint32_t i=0;i<colorCount;i++){const uint8_t* r=d+8+(independent?i:0)*32;auto& a=cba[i];a.blendEnable=*(const uint32_t*)(r+0)?VK_TRUE:VK_FALSE;a.srcColorBlendFactor=bf(*(const uint32_t*)(r+4));a.dstColorBlendFactor=bf(*(const uint32_t*)(r+8));a.colorBlendOp=bop(*(const uint32_t*)(r+12));a.srcAlphaBlendFactor=bf(*(const uint32_t*)(r+16));a.dstAlphaBlendFactor=bf(*(const uint32_t*)(r+20));a.alphaBlendOp=bop(*(const uint32_t*)(r+24));uint8_t mask=*(r+28);a.colorWriteMask=((mask&1)?VK_COLOR_COMPONENT_R_BIT:0)|((mask&2)?VK_COLOR_COMPONENT_G_BIT:0)|((mask&4)?VK_COLOR_COMPONENT_B_BIT:0)|((mask&8)?VK_COLOR_COMPONENT_A_BIT:0);}}
  VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};cb.attachmentCount=colorCount;cb.pAttachments=colorCount?cba:nullptr;
- VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dyn.dynamicStateCount=2;dyn.pDynamicStates=dyns;
+ VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_BLEND_CONSTANTS,VK_DYNAMIC_STATE_STENCIL_REFERENCE};VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dyn.dynamicStateCount=4;dyn.pDynamicStates=dyns;
  VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=colorCount;rendering.pColorAttachmentFormats=colorFormats;
  NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
  VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
@@ -3359,7 +3385,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(!pipe){gtavdiag::checkpoint("native-draw-fail-pipeline");return false;}
  if(!layout){gtavdiag::checkpoint("native-draw-fail-pipeline-layout");return false;}
  if(!desc){gtavdiag::checkpoint("native-draw-fail-descriptor");return false;}
- for(uint32_t i=0;i<32;i++){void* p=m.psSRV[i]?m.psSRV[i]:m.vsSRV[i];if(!p)continue;NativeImageMeta mm{};bool have=false;{std::lock_guard<std::mutex> q(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)p);if(it!=imageMeta.end()){mm=it->second;have=true;}}void* ur=compatUnderlyingResource(p);auto* rr=compatResourceObject(ur?ur:p);char z[384];snprintf(z,sizeof(z),"draw=%llu slot=%u ptr=%p res=%p haveMeta=%d img=%p vkfmt=%d dxgi=%u mip=%u+%u layer=%u+%u size=%ux%u backing=%zu ver=%llu",(unsigned long long)tlsMegaDrawId,i,p,ur?ur:p,have?1:0,(void*)mm.image,(int)mm.format,mm.dxgiFormat,mm.baseMip,mm.levelCount,mm.baseLayer,mm.layerCount,mm.width,mm.height,rr?rr->backing.size():0,(unsigned long long)(rr?rr->version:0));gtavdiag::checkpoint("MEGA-SRV",z);}
+ for(uint32_t i=0;i<32;i++){void* p=m.psSRV[i]?m.psSRV[i]:m.vsSRV[i];if(!p)continue;NativeImageMeta mm{};bool have=false;{std::lock_guard<std::mutex> q(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)p);if(it!=imageMeta.end()){mm=it->second;have=true;}}void* ur=compatUnderlyingResource(p);auto* rr=compatResourceObject(ur?ur:p);uint64_t hh=1469598103934665603ull;uint32_t nz=0;if(rr){size_t lim=std::min<size_t>(rr->backing.size(),4096);for(size_t bi=0;bi<lim;bi++){uint8_t v=rr->backing[bi];hh^=v;hh*=1099511628211ull;if(v)nz++;}}char z[448];snprintf(z,sizeof(z),"draw=%llu slot=%u ptr=%p res=%p haveMeta=%d img=%p vkfmt=%d dxgi=%u mip=%u+%u layer=%u+%u size=%ux%u backing=%zu ver=%llu nz4k=%u hash=%016llx",(unsigned long long)tlsMegaDrawId,i,p,ur?ur:p,have?1:0,(void*)mm.image,(int)mm.format,mm.dxgiFormat,mm.baseMip,mm.levelCount,mm.baseLayer,mm.layerCount,mm.width,mm.height,rr?rr->backing.size():0,(unsigned long long)(rr?rr->version:0),nz,(unsigned long long)hh);gtavdiag::checkpoint("MEGA-SRV",z);}
  if(!updateCompatGraphicsDescriptors(m,(VkDescriptorSet)(uintptr_t)desc)){gMegaDrawFail.fetch_add(1);gMegaDescriptorFail.fetch_add(1);char d[160];snprintf(d,sizeof(d),"id=%llu descriptor-update-fail desc=0x%llx",(unsigned long long)tlsMegaDrawId,(unsigned long long)desc);gtavdiag::checkpoint("MEGA-DRAW-FAIL",d);return false;}
  VkCommandBuffer cb=currentNativeCommandBuffer();
  if(cb==VK_NULL_HANDLE){gMegaDrawFail.fetch_add(1);char d[96];snprintf(d,sizeof(d),"id=%llu no-command-buffer",(unsigned long long)tlsMegaDrawId);gtavdiag::checkpoint("MEGA-DRAW-FAIL",d);return false;}
@@ -3408,7 +3434,9 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
    if(vb>0){char d[192];snprintf(d,sizeof(d),"x=%.1f y=%.1f w=%.1f h=%.1f -> vkY=%.1f vkH=%.1f",src[0].x,src[0].y,src[0].width,src[0].height,vps[0].y,vps[0].height);gtavdiag::checkpoint("native-viewport-yflip",d);}
    vkCmdSetViewport(cb,0,n,vps);
  }
- if(m.scissorCount){
+ bool scissorEnabled=false;
+ if(auto* rs=compatStateObject(m.rasterState);rs&&rs->descSize>=40){const uint32_t* rd=(const uint32_t*)rs->desc;scissorEnabled=rd[7]!=0;}
+ if(scissorEnabled&&m.scissorCount){
    uint32_t n=m.scissorCount>16?16:m.scissorCount;
    VkRect2D rects[16]{};
    const int32_t* d3d=reinterpret_cast<const int32_t*>(m.scissors);
@@ -3418,7 +3446,13 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
      rects[i].extent={(uint32_t)std::max(0,right-left),(uint32_t)std::max(0,bottom-top)};
    }
    vkCmdSetScissor(cb,0,n,rects);
+ }else{
+   VkRect2D full{};uint32_t w=1,h=1;
+   if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);w=(uint32_t)std::max(1.0f,std::abs(v[0].width));h=(uint32_t)std::max(1.0f,std::abs(v[0].height));}
+   full.extent={w,h};vkCmdSetScissor(cb,0,1,&full);
  }
+ vkCmdSetBlendConstants(cb,m.blendFactor);
+ vkCmdSetStencilReference(cb,VK_STENCIL_FACE_FRONT_AND_BACK,m.stencilRef);
 }
 static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  if(!cb){gtavdiag::checkpoint("native-render-scope-no-command-buffer");return false;}
