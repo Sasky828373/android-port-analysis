@@ -650,6 +650,12 @@ static CompatViewObject* compatViewObject(void* p){
  auto* v=(CompatViewObject*)p;
  return std::find(gCompatViews.begin(),gCompatViews.end(),v)!=gCompatViews.end()?v:nullptr;
 }
+static CompatResourceObject* compatResourceObject(void* p){
+ if(!p)return nullptr;
+ std::lock_guard<std::mutex> l(gCompatObjectMutex);
+ auto* r=(CompatResourceObject*)p;
+ return std::find(gCompatResources.begin(),gCompatResources.end(),r)!=gCompatResources.end()?r:nullptr;
+}
 static int32_t compatChildQI(void* self,const void*,void** out){if(!out)return (int32_t)0x80004003u;*out=self;return 0;}
 static uint32_t compatChildAddRef(void*){return 2;}
 static uint32_t compatChildRelease(void*){return 1;}
@@ -735,8 +741,8 @@ static size_t compatTexture2DLayout(const uint32_t* d,uint32_t targetSub,uint32_
 }
 bool compatMapResourceBackingSubresource(void* resource,uint32_t subresource,CompatMappedSubresource* mapped){
   if(!resource||!mapped)return false;
-  auto* o=(CompatResourceObject*)resource;
-  if(o->vtbl!=gCompatBufferVtable&&o->vtbl!=gCompatTexture1DVtable&&o->vtbl!=gCompatTexture2DVtable&&o->vtbl!=gCompatTexture3DVtable)return false;
+  auto* o=compatResourceObject(resource);
+  if(!o)return false;
   if(o->vtbl==gCompatTexture2DVtable&&o->descSize>=44){
     uint32_t row=0,depth=0;size_t off=0,total=compatTexture2DLayout((const uint32_t*)o->desc,subresource,&row,&depth,&off);
     total=std::min<size_t>(std::max<size_t>(total,depth),256u*1024u*1024u);
@@ -748,22 +754,22 @@ bool compatMapResourceBackingSubresource(void* resource,uint32_t subresource,Com
   mapped->pData=o->backing.data();mapped->rowPitch=(uint32_t)std::min<size_t>(o->backing.size(),0xffffffffu);mapped->depthPitch=mapped->rowPitch;return true;
 }
 bool compatMapResourceBacking(void* resource,CompatMappedSubresource* mapped){return compatMapResourceBackingSubresource(resource,0,mapped);}
-static void compatMarkDirty(void* resource){if(!resource)return;auto* r=(CompatResourceObject*)resource;if(r->vtbl==gCompatBufferVtable||r->vtbl==gCompatTexture1DVtable||r->vtbl==gCompatTexture2DVtable||r->vtbl==gCompatTexture3DVtable)r->version++;}
+static void compatMarkDirty(void* resource){if(auto* r=compatResourceObject(resource))r->version++;}
 static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t srcRow,uint32_t srcDepth){
- if(!dst||!src)return;CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;auto* r=(CompatResourceObject*)dst;
+ if(!dst||!src)return;auto* r=compatResourceObject(dst);if(!r)return;CompatMappedSubresource m{};if(!compatMapResourceBackingSubresource(dst,sub,&m)||!m.pData)return;
  size_t base=(size_t)((uint8_t*)m.pData-r->backing.data());if(base>=r->backing.size())return;size_t cap=r->backing.size()-base;
  if(r->vtbl==gCompatTexture2DVtable&&m.rowPitch){uint32_t rows=m.depthPitch/m.rowPitch,sr=srcRow?srcRow:m.rowPitch;for(uint32_t y=0;y<rows;y++){size_t off=(size_t)y*m.rowPitch;if(off>=cap)break;std::memcpy((uint8_t*)m.pData+off,(const uint8_t*)src+(size_t)y*sr,std::min<size_t>(std::min(m.rowPitch,sr),cap-off));}}
  else std::memcpy(m.pData,src,std::min<size_t>(cap,srcDepth?srcDepth:(srcRow?srcRow:cap)));r->version++;
 }
-static void compatCopyBacking(void* dst,void* src){if(!dst||!src)return;auto* d=(CompatResourceObject*)dst;auto* s=(CompatResourceObject*)src;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
-static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){CompatMappedSubresource d{},s{};if(!dst||!src||!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);((CompatResourceObject*)dst)->version++;}}
+static void compatCopyBacking(void* dst,void* src){auto* d=compatResourceObject(dst);auto* s=compatResourceObject(src);if(!d||!s)return;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
+static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){auto* dr=compatResourceObject(dst);auto* sr=compatResourceObject(src);if(!dr||!sr)return;CompatMappedSubresource d{},s{};if(!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);dr->version++;}}
 static void compatClearRTVBacking(void* view,const float* color){
- if(!view||!color)return;auto* v=compatViewObject(view);if(!v||!v->resource)return;auto* r=v->resource;
+ if(!view||!color)return;auto* v=compatViewObject(view);if(!v)return;auto* r=compatResourceObject(v->resource);if(!r)return;
  for(int i=0;i<4;i++)r->pendingClearColor[i]=color[i];r->pendingClearFlags|=0x100u;
  if(!r->backing.empty()){uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());}
 }
 static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
- if(!view)return;auto* v=compatViewObject(view);if(!v||!v->resource)return;auto* r=v->resource;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
+ if(!view)return;auto* v=compatViewObject(view);if(!v)return;auto* r=compatResourceObject(v->resource);if(!r)return;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
  if(r->backing.empty())return;uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:0;
  if((flags&1)&&fmt==40){for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&depth,4);}
  else if((flags&1)&&fmt==45){uint32_t d=(uint32_t)(std::max(0.0f,std::min(1.0f,depth))*16777215.0f);uint32_t p=(d&0xffffffu)|((uint32_t)stencil<<24);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,&p,4);}
