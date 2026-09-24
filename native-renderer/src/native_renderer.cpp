@@ -2428,9 +2428,18 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  VkImageMemoryBarrier post[2]{};
  for(auto& x:post){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
  post[0].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;post[0].newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;post[0].srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;post[0].image=gPresentProbe.images[ix];
- post[1].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;post[1].newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;post[1].srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;post[1].dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;post[1].image=src;
- vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
+ post[1].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;post[1].newLayout=old;post[1].srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;post[1].image=src;
+ VkPipelineStageFlags restoreStage=VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+ if(old==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;restoreStage=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_SHADER_READ_BIT;restoreStage=VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;restoreStage=VK_PIPELINE_STAGE_TRANSFER_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;restoreStage=VK_PIPELINE_STAGE_TRANSFER_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_GENERAL){post[1].dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_UNDEFINED){post[1].newLayout=VK_IMAGE_LAYOUT_GENERAL;post[1].dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
+ vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,restoreStage|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
+ VkImageLayout restored=post[1].newLayout;
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=restored;}
+ static std::atomic<uint32_t> liveDiag{0};uint32_t dn=liveDiag.fetch_add(1,std::memory_order_relaxed);if(dn<8||dn%600==0){char d[160];snprintf(d,sizeof(d),"src=%p resource=%p extent=%ux%u old=%d restored=%d swap=%ux%u",(void*)src,presentResource,sw,sh,(int)old,(int)restored,gPresentProbe.extent.width,gPresentProbe.extent.height);gtavdiag::checkpoint("native-engine-present-source-state",d);}
  return true;
 }
 static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLayout target){
