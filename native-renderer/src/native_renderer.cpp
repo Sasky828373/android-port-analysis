@@ -1408,6 +1408,7 @@ extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSw
 
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
+static Runtime g;
 
 // Capture the SDL window that libgtav itself creates. This gives the native renderer
 // the exact Android Surface used by the game instead of inventing a second window.
@@ -1438,7 +1439,6 @@ static bool probeGameAndroidSurface(){
  if(destroy)destroy(g.instance,surface,nullptr);
  done.store(true,std::memory_order_release);return true;
 }
-static Runtime g;
 static std::mutex descriptorPoolMutex;
 static std::vector<VkDescriptorPool> descriptorPools;
 static uint32_t descriptorPoolGeneration=0;
