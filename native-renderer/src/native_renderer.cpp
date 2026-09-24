@@ -103,7 +103,7 @@ struct CompatDXGIOutput { void** vtbl; uint8_t pad[8]; uint32_t modeCount; };
 static CompatDXGIFactory gCompatFactory{};
 static CompatDXGIAdapter gCompatAdapter{};
 static CompatDXGIOutput gCompatOutput{};
-static void* gFactoryVtable[8]{};
+static void* gFactoryVtable[12]{};
 static void* gAdapterVtable[10]{};
 
 static int32_t compatQueryInterface(void* self, const void*, void** out) {
@@ -129,6 +129,22 @@ static int32_t compatEnumAdapters(void*, uint32_t index, void** out) {
   if (!out) return (int32_t)0x80004003u;
   if (index != 0) { *out=nullptr; return (int32_t)0x887A0002u; } // DXGI_ERROR_NOT_FOUND
   *out=&gCompatAdapter; return 0;
+}
+static int32_t compatFactoryMakeWindowAssociation(void*,void*,uint32_t){
+  // Android owns the window/surface association. GTA calls this through the
+  // IDXGIFactory parent returned by the adapter; treating it as a successful
+  // no-op is the correct compatibility behavior.
+  gtavdiag::checkpoint("compat-dxgi-factory-make-window-association");
+  return 0;
+}
+static int32_t compatFactoryGetWindowAssociation(void*,void** out){
+  gtavdiag::checkpoint("compat-dxgi-factory-get-window-association");
+  if(out)*out=nullptr;
+  return 0;
+}
+static int32_t compatFactoryUnsupported(void*,...){
+  gtavdiag::checkpoint("compat-dxgi-factory-unsupported-benign");
+  return 0;
 }
 static void* gOutputVtable[32]{};
 static int32_t compatOutputQueryInterface(void* self,const void*,void** out){ if(!out)return (int32_t)0x80004003u; *out=self; return 0; }
@@ -200,6 +216,10 @@ static void initCompatDXGI() {
   gFactoryVtable[5]=(void*)compatDXGIGetPrivateData;
   gFactoryVtable[6]=(void*)compatDXGIObjectGetParent;
   gFactoryVtable[7]=(void*)compatEnumAdapters;
+  gFactoryVtable[8]=(void*)compatFactoryMakeWindowAssociation;
+  gFactoryVtable[9]=(void*)compatFactoryGetWindowAssociation;
+  gFactoryVtable[10]=(void*)compatFactoryUnsupported;
+  gFactoryVtable[11]=(void*)compatFactoryUnsupported;
   gCompatFactory.vtbl=gFactoryVtable;
   // Adapter slots observed by grcAdapterD3D11:
   // Release @ +0x10, EnumOutputs @ +0x38, GetDesc @ +0x40.
