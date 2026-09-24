@@ -1466,6 +1466,33 @@ extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetDevice
  auto real=realVkGDPA();if(!real||!name)return nullptr;return real(device,name);
 }
 
+using GtavNativeAdapterInitFn=bool(*)();
+static GtavNativeAdapterInitFn origGtavNativeAdapterInit=nullptr;
+static bool hookGtavNativeAdapterInit(){
+ gtavdiag::checkpoint("native-vulkan-loader-init-hook-enter");
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
+ // libgtav keeps vkGetInstanceProcAddr at grVulkan globals +0xb0 after dlsym.
+ // Replace that dispatch slot before Initialize asks it for vkCreateInstance/CreateDevice.
+ if(gtavBase){
+   auto slot=reinterpret_cast<PFN_vkGetInstanceProcAddr*>(gtavBase+0x8aac0b0);
+   if(slot&&*slot){
+     *slot=&vkGetInstanceProcAddr;
+     gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-patched");
+   }
+ }
+ bool ok=origGtavNativeAdapterInit?origGtavNativeAdapterInit():false;
+ return ok;
+}
+static bool installVulkanLoaderInitHook(){
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);if(!gtavBase)return false;
+ static constexpr uint32_t expected[4]={0xa9ba7bfdu,0xa9016ffcu,0xa90267fau,0xa9035ff8u};
+ if(std::memcmp((void*)(gtavBase+0x622f0b8),expected,16)!=0){gtavdiag::checkpoint("native-vulkan-loader-init-prologue-mismatch");return false;}
+ uint32_t saved[4]{};void* tramp=nullptr;
+ bool ok=patchJump(gtavBase+0x622f0b8,(void*)hookGtavNativeAdapterInit,saved,&tramp);
+ if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
+ return ok;
+}
+
 
 static bool probeGameAndroidSurface(){
  static std::atomic<bool> ready{false},attempted{false};if(ready.load())return true;SDL_Window* win=gGameSDLWindow.load();if(!win||!g.instance||!g.device||!g.physical||!g.queue)return false;if(attempted.exchange(true))return false;void* sdl=gameSDLHandle();auto create=(SDLVulkanCreateSurfaceFn)(sdl?dlsym(sdl,"SDL_Vulkan_CreateSurface"):nullptr);auto size=(SDLVulkanGetDrawableSizeFn)(sdl?dlsym(sdl,"SDL_Vulkan_GetDrawableSize"):nullptr);if(!create)return false;VkSurfaceKHR surface{};if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-engine-surface-create-failed");return false;}int w=0,h=0;if(size)size(win,&w,&h);gtavdiag::checkpoint("native-android-surface-ready");auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");VkBool32 yes=0;VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;if(!support||!caps||!formats||!modes||support(g.physical,g.family,surface,&yes)!=VK_SUCCESS||!yes||caps(g.physical,surface,&cp)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-present-queue-incompatible");return false;}formats(g.physical,surface,&fc,nullptr);modes(g.physical,surface,&mc,nullptr);std::vector<VkSurfaceFormatKHR> fs(fc);if(fc)formats(g.physical,surface,&fc,fs.data());std::vector<VkPresentModeKHR> ms(mc);if(mc)modes(g.physical,surface,&mc,ms.data());VkSurfaceFormatKHR sf=fc?fs[0]:VkSurfaceFormatKHR{VK_FORMAT_R8G8B8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};for(auto& f:fs)if(f.format==VK_FORMAT_R8G8B8A8_UNORM){sf=f;break;}VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;for(auto m:ms)if(m==VK_PRESENT_MODE_MAILBOX_KHR){pm=m;break;}VkExtent2D ex=cp.currentExtent;if(ex.width==UINT32_MAX)ex={(uint32_t)std::max(1,w),(uint32_t)std::max(1,h)};if(!(cp.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT)){gtavdiag::checkpoint("native-engine-no-transfer-dst");return false;}uint32_t ic=cp.minImageCount+1;if(cp.maxImageCount&&ic>cp.maxImageCount)ic=cp.maxImageCount;VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};si.surface=surface;si.minImageCount=ic;si.imageFormat=sf.format;si.imageColorSpace=sf.colorSpace;si.imageExtent=ex;si.imageArrayLayers=1;si.imageUsage=VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;si.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;si.preTransform=cp.currentTransform;si.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;si.presentMode=pm;si.clipped=VK_TRUE;auto cs=(PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(g.device,"vkCreateSwapchainKHR");auto gi=(PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(g.device,"vkGetSwapchainImagesKHR");if(!cs||!gi){gtavdiag::checkpoint("native-engine-swapchain-procs-unresolved");return false;}VkSwapchainKHR sc{};if(cs(g.device,&si,nullptr,&sc)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-swapchain-create-failed");return false;}uint32_t ni=0;gi(g.device,sc,&ni,nullptr);std::vector<VkImage> imgs(ni);gi(g.device,sc,&ni,imgs.data());gPresentProbe={};gPresentProbe.instance=g.instance;gPresentProbe.surface=surface;gPresentProbe.physical=g.physical;gPresentProbe.family=g.family;gPresentProbe.device=g.device;gPresentProbe.queue=g.queue;gPresentProbe.swapchain=sc;gPresentProbe.format=sf.format;gPresentProbe.extent=ex;gPresentProbe.images=std::move(imgs);gtavdiag::checkpoint("native-engine-swapchain-ready");ready.store(true);return true;
@@ -2031,6 +2058,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_cuto
  return drawHooksInstalled.load(std::memory_order_acquire)&&g.device&&observedNativeCommandBuffer.load(std::memory_order_acquire)!=VK_NULL_HANDLE;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
+ installVulkanLoaderInitHook();
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){gtavdiag::checkpoint("native-hook-libgtav-missing");return false;}
  auto mark=[&](const char* name,bool ok){gtavdiag::checkpoint(ok?name:"native-hook-optional-missing",ok?nullptr:name);return ok;};
