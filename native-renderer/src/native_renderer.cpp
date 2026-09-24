@@ -1578,6 +1578,10 @@ static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
 static std::atomic<void*> lastCompatDrawnRTV{nullptr};
 static std::atomic<void*> lastCompatFinalTransferDst{nullptr};
 static std::atomic<void*> lastCompatFullSizeRTV{nullptr};
+static std::atomic<uint64_t> compatPresentWriteSerial{0};
+static std::atomic<uint64_t> lastCompatDrawnSerial{0};
+static std::atomic<uint64_t> lastCompatTransferSerial{0};
+static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
 // Present candidates must describe the command buffer/frame currently being
 // recorded. Keeping candidates across frames can make an unrelated old
 // CopyResource/Resolve win presentation forever, producing a valid present of
@@ -1587,6 +1591,9 @@ static void resetCompatPresentSourcesForNewFrame(){
  lastCompatDrawnRTV.store(nullptr,std::memory_order_release);
  lastCompatFinalTransferDst.store(nullptr,std::memory_order_release);
  lastCompatFullSizeRTV.store(nullptr,std::memory_order_release);
+ lastCompatDrawnSerial.store(0,std::memory_order_release);
+ lastCompatTransferSerial.store(0,std::memory_order_release);
+ lastCompatFullSizeSerial.store(0,std::memory_order_release);
  gtavdiag::checkpoint("native-present-sources-reset");
 }
 static bool hasUsableEnginePresentSource(){return lastCompatFullSizeRTV.load(std::memory_order_acquire)!=nullptr||lastCompatFinalTransferDst.load(std::memory_order_acquire)!=nullptr||lastCompatDrawnRTV.load(std::memory_order_acquire)!=nullptr;}
@@ -2450,23 +2457,23 @@ static bool ensureEnginePresentSync(){if(gPresentSyncReady)return true;if(!g.dev
 static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!cb||ix>=gPresentProbe.images.size())return false;
  VkImage src{};VkImageLayout old{};VkFormat srcFormat=VK_FORMAT_UNDEFINED;uint32_t sw=0,sh=0;void* presentResource=&gCompatBackBuffer;
- if(void* rtv=lastCompatFullSizeRTV.load(std::memory_order_acquire)){
-   void* r=compatUnderlyingResource(rtv);if(!r)r=rtv;auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;
-   if(!compat&&mapWrappedImage(r,2u,true)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-fullsize-rage-source");}
-   else if(compat&&createCompatOwnedImage(r,2u,rtv)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-fullsize-compat-source");}
- }
- else if(void* tr=lastCompatFinalTransferDst.load(std::memory_order_acquire)){
-   void* r=compatUnderlyingResource(tr);if(!r)r=tr;auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;
-   if(compat&&createCompatOwnedImage(r,2u,tr)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-transfer-source");}
-   else if(!compat&&mapWrappedImage(r,2u,true)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-native-transfer-source");}
- }
- else if(void* rtv=lastCompatDrawnRTV.load(std::memory_order_acquire)){
-   void* r=compatUnderlyingResource(rtv);if(!r)r=rtv;auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;
-   if(!compat&&mapWrappedImage(r,2u,true)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-drawn-rage-source");}
-   else if(compat&&createCompatOwnedImage(r,2u,rtv)){presentResource=r;gtavdiag::checkpoint("native-engine-present-current-drawn-compat-source");}
- }
- else if(void* rtv=lastCompatPrimaryRTV.load(std::memory_order_acquire)){if(void* r=compatUnderlyingResource(rtv)){if(createCompatOwnedImage(r,2u,rtv))presentResource=r;}}
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end()){src=it->second.image;old=it->second.layout;srcFormat=it->second.format;sw=it->second.width;sh=it->second.height;}else{auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi==imageMeta.end()||!mi->second.image){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=mi->second.image;old=mi->second.observedLayout==VK_IMAGE_LAYOUT_UNDEFINED?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:mi->second.observedLayout;srcFormat=mi->second.format;sw=mi->second.width?mi->second.width:gCompatSwapWidth.load();sh=mi->second.height?mi->second.height:gCompatSwapHeight.load();char d[160];snprintf(d,sizeof(d),"resource=%p image=%p fmt=%d extent=%ux%u layout=%d",presentResource,(void*)src,(int)mi->second.format,sw,sh,(int)old);gtavdiag::checkpoint("native-engine-present-rage-meta-source",d);}}
+ uint64_t fs=lastCompatFullSizeSerial.load(std::memory_order_acquire);
+ uint64_t ts=lastCompatTransferSerial.load(std::memory_order_acquire);
+ uint64_t ds=lastCompatDrawnSerial.load(std::memory_order_acquire);
+ void* chosen=nullptr; enum { SRC_NONE, SRC_FULLSIZE, SRC_TRANSFER, SRC_DRAWN } sourceKind=SRC_NONE;
+ if(fs>=ts&&fs>=ds&&fs){chosen=lastCompatFullSizeRTV.load(std::memory_order_acquire);sourceKind=SRC_FULLSIZE;}
+ else if(ts>=ds&&ts){chosen=lastCompatFinalTransferDst.load(std::memory_order_acquire);sourceKind=SRC_TRANSFER;}
+ else if(ds){chosen=lastCompatDrawnRTV.load(std::memory_order_acquire);sourceKind=SRC_DRAWN;}
+ if(chosen){
+   void* r=compatUnderlyingResource(chosen);if(!r)r=chosen;
+   auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;
+   bool mapped=compat?createCompatOwnedImage(r,2u,chosen):mapWrappedImage(r,2u,true);
+   if(mapped){
+     presentResource=r;
+     char sd[160];snprintf(sd,sizeof(sd),"kind=%u serial=%llu full=%llu transfer=%llu drawn=%llu resource=%p",(unsigned)sourceKind,(unsigned long long)std::max(fs,std::max(ts,ds)),(unsigned long long)fs,(unsigned long long)ts,(unsigned long long)ds,r);
+     gtavdiag::checkpoint("native-engine-present-newest-written-source",sd);
+   }
+ } {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end()){src=it->second.image;old=it->second.layout;srcFormat=it->second.format;sw=it->second.width;sh=it->second.height;}else{auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi==imageMeta.end()||!mi->second.image){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=mi->second.image;old=mi->second.observedLayout==VK_IMAGE_LAYOUT_UNDEFINED?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:mi->second.observedLayout;srcFormat=mi->second.format;sw=mi->second.width?mi->second.width:gCompatSwapWidth.load();sh=mi->second.height?mi->second.height:gCompatSwapHeight.load();char d[160];snprintf(d,sizeof(d),"resource=%p image=%p fmt=%d extent=%ux%u layout=%d",presentResource,(void*)src,(int)mi->second.format,sw,sh,(int)old);gtavdiag::checkpoint("native-engine-present-rage-meta-source",d);}}
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
  for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
@@ -2526,13 +2533,13 @@ static bool compatGpuCopyResource(void* dst,void* src){
  if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;
  if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;
  VkImage di{},si{};uint32_t w=0,h=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end()||dit->second.format!=sit->second.format||dit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT||sit->second.aspect!=VK_IMAGE_ASPECT_COLOR_BIT)return false;di=dit->second.image;si=sit->second.image;w=std::min(dit->second.width,sit->second.width);h=std::min(dit->second.height,sit->second.height);}
- VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={w,h,1};vkCmdCopyImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);lastCompatFinalTransferDst.store(dst,std::memory_order_release);gtavdiag::checkpoint("native-compat-gpu-copy-resource");return true;
+ VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={w,h,1};vkCmdCopyImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);lastCompatFinalTransferDst.store(dst,std::memory_order_release);lastCompatTransferSerial.store(compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1,std::memory_order_release);gtavdiag::checkpoint("native-compat-gpu-copy-resource");return true;
 }
 static bool compatGpuCopySubresource(void* dst,uint32_t ds,uint32_t x,uint32_t y,uint32_t z,void* src,uint32_t ss,const void* box){
  if(box||x||y||z||ds||ss){gtavdiag::checkpoint("native-compat-gpu-copy-subresource-complex");return false;}return compatGpuCopyResource(dst,src);
 }
 static bool compatGpuResolveResource(void* dst,uint32_t ds,void* src,uint32_t ss){
- if(ds||ss){gtavdiag::checkpoint("native-compat-gpu-resolve-subresource-complex");return false;}void* dr=compatUnderlyingResource(dst);if(!dr)dr=dst;void* sr=compatUnderlyingResource(src);if(!sr)sr=src;auto* d=compatResourceObject(dr);auto* s=compatResourceObject(sr);if(!d||!s||d->vtbl!=gCompatTexture2DVtable||s->vtbl!=gCompatTexture2DVtable||d->descSize<44||s->descSize<44)return false;auto* dd=(uint32_t*)d->desc;auto* sd=(uint32_t*)s->desc;uint32_t dsamp=std::max(1u,dd[5]),ssamp=std::max(1u,sd[5]);if(ssamp==1&&dsamp==1)return compatGpuCopyResource(dst,src);if(ssamp<=1||dsamp!=1||dd[4]!=sd[4])return false;if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;VkImage di{},si{};uint32_t w=std::min(dd[0],sd[0]),h=std::min(dd[1],sd[1]);{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end())return false;di=dit->second.image;si=sit->second.image;}VkImageResolve r{};r.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};r.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};r.extent={w,h,1};vkCmdResolveImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);lastCompatFinalTransferDst.store(dst,std::memory_order_release);gtavdiag::checkpoint("native-compat-gpu-resolve");return true;
+ if(ds||ss){gtavdiag::checkpoint("native-compat-gpu-resolve-subresource-complex");return false;}void* dr=compatUnderlyingResource(dst);if(!dr)dr=dst;void* sr=compatUnderlyingResource(src);if(!sr)sr=src;auto* d=compatResourceObject(dr);auto* s=compatResourceObject(sr);if(!d||!s||d->vtbl!=gCompatTexture2DVtable||s->vtbl!=gCompatTexture2DVtable||d->descSize<44||s->descSize<44)return false;auto* dd=(uint32_t*)d->desc;auto* sd=(uint32_t*)s->desc;uint32_t dsamp=std::max(1u,dd[5]),ssamp=std::max(1u,sd[5]);if(ssamp==1&&dsamp==1)return compatGpuCopyResource(dst,src);if(ssamp<=1||dsamp!=1||dd[4]!=sd[4])return false;if(!createCompatOwnedImage(dr,2u,dst)||!createCompatOwnedImage(sr,1u,src))return false;if(!transitionCompatOwnedImage(gCompatRecordingCB,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)||!transitionCompatOwnedImage(gCompatRecordingCB,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))return false;VkImage di{},si{};uint32_t w=std::min(dd[0],sd[0]),h=std::min(dd[1],sd[1]);{std::lock_guard<std::mutex> l(imageMetaMutex);auto dit=compatOwnedImages.find((uint64_t)(uintptr_t)dr),sit=compatOwnedImages.find((uint64_t)(uintptr_t)sr);if(dit==compatOwnedImages.end()||sit==compatOwnedImages.end())return false;di=dit->second.image;si=sit->second.image;}VkImageResolve r{};r.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};r.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};r.extent={w,h,1};vkCmdResolveImage(gCompatRecordingCB,si,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,di,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);lastCompatFinalTransferDst.store(dst,std::memory_order_release);lastCompatTransferSerial.store(compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1,std::memory_order_release);gtavdiag::checkpoint("native-compat-gpu-resolve");return true;
 }
 static bool syncCompatOwnedImage(VkCommandBuffer cb,void* object){
  if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;if(resource==&gCompatBackBuffer)return true;
@@ -3132,13 +3139,16 @@ extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int
 extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
 static void rememberDrawnPrimaryRTV(void* ctx){
  std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()||!it->second.rtvCount||!it->second.rtv[0])return;
- void* v=it->second.rtv[0];lastCompatDrawnRTV.store(v,std::memory_order_release);
+ void* v=it->second.rtv[0];
+ uint64_t serial=compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1;
+ lastCompatDrawnRTV.store(v,std::memory_order_release);
+ lastCompatDrawnSerial.store(serial,std::memory_order_release);
  uint32_t w=0,h=0;void* r=compatUnderlyingResource(v);if(!r)r=v;auto* rr=compatResourceObject(r);
  if(rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){w=((uint32_t*)rr->desc)[0];h=((uint32_t*)rr->desc)[1];}
  else {
    if(mapWrappedImage(r,2u,true)){std::lock_guard<std::mutex> ml(imageMetaMutex);auto mi=imageMeta.find((uint64_t)(uintptr_t)v);if(mi==imageMeta.end())mi=imageMeta.find((uint64_t)(uintptr_t)r);if(mi!=imageMeta.end()){w=mi->second.width;h=mi->second.height;}}
  }
- uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){lastCompatFullSizeRTV.store(v,std::memory_order_release);static std::atomic<uint32_t> fsn{0};uint32_t fn=fsn.fetch_add(1,std::memory_order_relaxed);if(fn<8||fn%512==0){char fd[128];snprintf(fd,sizeof(fd),"view=%p resource=%p size=%ux%u swap=%ux%u",v,r,w,h,tw,th);gtavdiag::checkpoint("native-fullsize-rtv-selected",fd);}}
+ uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){lastCompatFullSizeRTV.store(v,std::memory_order_release);lastCompatFullSizeSerial.store(serial,std::memory_order_release);static std::atomic<uint32_t> fsn{0};uint32_t fn=fsn.fetch_add(1,std::memory_order_relaxed);if(fn<8||fn%512==0){char fd[128];snprintf(fd,sizeof(fd),"view=%p resource=%p size=%ux%u swap=%ux%u",v,r,w,h,tw,th);gtavdiag::checkpoint("native-fullsize-rtv-selected",fd);}}
  static std::atomic<uint32_t> dn{0};uint32_t n=dn.fetch_add(1,std::memory_order_relaxed);if(n<12||n%512==0){char d[192];snprintf(d,sizeof(d),"view=%p resource=%p compat=%u size=%ux%u fmt=%u",v,r,(rr&&rr->vtbl==gCompatTexture2DVtable)?1u:0u,w,h,(rr&&rr->descSize>=20)?((uint32_t*)rr->desc)[4]:0u);gtavdiag::checkpoint("native-last-drawn-rtv",d);}
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
