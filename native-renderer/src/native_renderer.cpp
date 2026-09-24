@@ -1870,7 +1870,7 @@ static bool mapWrappedImage(void* rage,uint32_t kind,bool renderTarget){
  // Materialize a real Vulkan image for them instead of passing their address
  // into grcTexture/grcRenderTarget wrapper code.
  bool compatObject=(rage==&gCompatBackBuffer);
- if(!compatObject){auto* rr=(CompatResourceObject*)rage;compatObject=(rr->vtbl==gCompatTexture2DVtable);}
+ if(!compatObject){auto* rr=compatResourceObject(rage);compatObject=(rr&&rr->vtbl==gCompatTexture2DVtable);}
  if(compatObject && createCompatOwnedImage(rage,kind,original))return true;
  resolveNativeMappingFns();
  NativeWrappedImage w{};
@@ -2415,8 +2415,9 @@ struct CompatOwnedBuffer { VkBuffer buffer{}; VkDeviceMemory memory{}; VkDeviceS
 static std::mutex compatBufferMutex;
 static std::unordered_map<uint64_t,CompatOwnedBuffer> compatOwnedBuffers;
 static bool mapCompatBuffer(void* p,uint32_t kind){
- if(!p||!g.device||!g.physical)return false;auto* r=(CompatResourceObject*)p;if(r->vtbl!=gCompatBufferVtable)return false;
+ if(!p||!g.device||!g.physical)return false;
  if(gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)p,kind))return true;
+ auto* r=compatResourceObject(p);if(!r||r->vtbl!=gCompatBufferVtable)return false;
  VkDeviceSize size=r->backing.size();if(r->descSize>=4){uint32_t declared=*(uint32_t*)r->desc;if(declared>size)size=declared;}if(!size)size=256;
  std::lock_guard<std::mutex> l(compatBufferMutex);auto it=compatOwnedBuffers.find((uint64_t)(uintptr_t)p);
  if(it==compatOwnedBuffers.end()){
@@ -2449,7 +2450,8 @@ static bool mapCompatSampler(void* p){
 static std::mutex compatBufferViewMutex;
 static std::unordered_map<uint64_t,VkBufferView> compatBufferViews;
 static VkBufferView mapCompatBufferView(void* view,bool storage){
- if(!view||!g.device)return VK_NULL_HANDLE;auto* v=(CompatViewObject*)view;if(v->vtbl!=gCompatViewVtable||!v->resource)return VK_NULL_HANDLE;
+ if(!view||!g.device)return VK_NULL_HANDLE;
+ auto* v=compatViewObject(view);if(!v||!v->resource)return VK_NULL_HANDLE;
  if(!mapCompatBuffer(v->resource,storage?NR_UAV:NR_SRV))return VK_NULL_HANDLE;
  uint64_t key=((uint64_t)(uintptr_t)view<<1)|(storage?1ull:0ull);{std::lock_guard<std::mutex> l(compatBufferViewMutex);auto it=compatBufferViews.find(key);if(it!=compatBufferViews.end())return it->second;}
  uint32_t fmt=0,first=0,count=0;if(v->descSize>=16){const uint32_t* d=(const uint32_t*)v->desc;fmt=d[0];first=d[2];count=d[3];}
@@ -2473,8 +2475,13 @@ static bool updateCompatGraphicsDescriptors(const RageMirrorState& m,VkDescripto
     uint32_t reg=d.reg+e;void* p=nullptr;if(d.scalarType==23&&reg<16)p=cbs?cbs[reg]:nullptr;else if(d.scalarType==24&&reg<32)p=srvs?srvs[reg]:nullptr;else if(d.scalarType==22&&reg<16)p=samplers?samplers[reg]:nullptr;else continue;
     if(!p)continue;VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=d.binding;w.dstArrayElement=e;w.descriptorCount=1;w.descriptorType=d.type;
     if(d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER||d.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER){
-      void* resource=p;if(auto* v=(CompatViewObject*)p;v->vtbl==gCompatViewVtable&&v->resource)resource=v->resource;
-      if(!mapCompatBuffer(resource,d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV))return false;auto* rr=(CompatResourceObject*)resource;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)resolveMapped(resource,d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV),0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};bis.push_back(bi);w.pBufferInfo=&bis.back();
+      void* resource=p;if(auto* v=compatViewObject(p);v&&v->resource)resource=v->resource;
+      uint32_t role=d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER?NR_CBUFFER:NR_SRV;
+      if(!mapCompatBuffer(resource,role))return false;
+      VkBuffer mapped=(VkBuffer)(uintptr_t)resolveMapped(resource,role);if(!mapped)return false;
+      auto* rr=compatResourceObject(resource);
+      VkDeviceSize range=(rr&&!rr->backing.empty())?(VkDeviceSize)rr->backing.size():VK_WHOLE_SIZE;
+      VkDescriptorBufferInfo bi{mapped,0,range};bis.push_back(bi);w.pBufferInfo=&bis.back();
     }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE||d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
       uint32_t kind=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?NR_UAV:NR_SRV;if(!mapWrappedImage(p,kind,false))return false;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return false;VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);w.pImageInfo=&iis.back();
     }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLER){
@@ -2498,8 +2505,12 @@ static bool updateCompatComputeDescriptors(const RageMirrorState& m,VkDescriptor
    uint32_t reg=d.reg+e;void* p=nullptr;if(d.scalarType==23&&reg<16)p=m.csCB[reg];else if(d.scalarType==24&&reg<32)p=m.csSRV[reg];else if(d.scalarType==22&&reg<16)p=m.csSampler[reg];else if(d.scalarType==25&&reg<16)p=m.csUAV[reg];else continue;if(!p)continue;
    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=desc;w.dstBinding=d.binding;w.dstArrayElement=e;w.descriptorCount=1;w.descriptorType=d.type;
    if(d.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER||d.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER){
-    void* resource=p;if(auto* v=(CompatViewObject*)p;v->vtbl==gCompatViewVtable&&v->resource)resource=v->resource;uint32_t role=d.scalarType==23?NR_CBUFFER:(d.scalarType==25?NR_UAV:NR_SRV);
-    if(!mapCompatBuffer(resource,role))return false;auto* rr=(CompatResourceObject*)resource;VkDescriptorBufferInfo bi{(VkBuffer)(uintptr_t)resolveMapped(resource,role),0,rr->backing.empty()?VK_WHOLE_SIZE:(VkDeviceSize)rr->backing.size()};bis.push_back(bi);w.pBufferInfo=&bis.back();
+    void* resource=p;if(auto* v=compatViewObject(p);v&&v->resource)resource=v->resource;uint32_t role=d.scalarType==23?NR_CBUFFER:(d.scalarType==25?NR_UAV:NR_SRV);
+    if(!mapCompatBuffer(resource,role))return false;
+    VkBuffer mapped=(VkBuffer)(uintptr_t)resolveMapped(resource,role);if(!mapped)return false;
+    auto* rr=compatResourceObject(resource);
+    VkDeviceSize range=(rr&&!rr->backing.empty())?(VkDeviceSize)rr->backing.size():VK_WHOLE_SIZE;
+    VkDescriptorBufferInfo bi{mapped,0,range};bis.push_back(bi);w.pBufferInfo=&bis.back();
    }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE||d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
     uint32_t role=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?NR_UAV:NR_SRV;if(!mapWrappedImage(p,role,false))return false;VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)p);if(!v)return false;VkDescriptorImageInfo ii{};ii.imageView=v;ii.imageLayout=d.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;iis.push_back(ii);w.pImageInfo=&iis.back();
    }else if(d.type==VK_DESCRIPTOR_TYPE_SAMPLER){
@@ -2812,7 +2823,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
  if(!ctx||!x||!y||!z||!g.device)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}if(!m.cs)return false;
  if(!ensureCompatComputeState(m)){gtavdiag::checkpoint("native-dispatch-fail-pipeline");return false;}VkCommandBuffer cb=currentNativeCommandBuffer();if(!cb){gtavdiag::checkpoint("native-dispatch-fail-command-buffer");return false;}
  for(uint32_t i=0;i<32;i++)if(m.csSRV[i]){if(!syncCompatOwnedImage(cb,m.csSRV[i]))return false;transitionCompatOwnedImage(cb,m.csSRV[i],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);}
- for(uint32_t i=0;i<16;i++)if(m.csUAV[i]){void* u=compatUnderlyingResource(m.csUAV[i]);if(u&&((CompatResourceObject*)u)->vtbl==gCompatTexture2DVtable){if(!syncCompatOwnedImage(cb,m.csUAV[i]))return false;transitionCompatOwnedImage(cb,m.csUAV[i],VK_IMAGE_LAYOUT_GENERAL);}}
+ for(uint32_t i=0;i<16;i++)if(m.csUAV[i]){void* u=compatUnderlyingResource(m.csUAV[i]);auto* ur=compatResourceObject(u);if(ur&&ur->vtbl==gCompatTexture2DVtable){if(!syncCompatOwnedImage(cb,m.csUAV[i]))return false;transitionCompatOwnedImage(cb,m.csUAV[i],VK_IMAGE_LAYOUT_GENERAL);}}
  uint64_t key=hashMix((uint64_t)(uintptr_t)m.cs,0x43534e4154495645ull);VkPipeline pipe=(VkPipeline)(uintptr_t)gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE);VkPipelineLayout layout=(VkPipelineLayout)(uintptr_t)gtav_native_renderer_resolve_resource(key,NR_PIPELINE_LAYOUT);VkDescriptorSet desc=(VkDescriptorSet)(uintptr_t)gtav_native_renderer_resolve_resource(key,NR_DESCRIPTOR_SET);
  if(!pipe||!layout||!desc||!updateCompatComputeDescriptors(m,desc))return false;vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_COMPUTE,pipe);vkCmdBindDescriptorSets(cb,VK_PIPELINE_BIND_POINT_COMPUTE,layout,0,1,&desc,0,nullptr);vkCmdDispatch(cb,x,y,z);return true;
 }
