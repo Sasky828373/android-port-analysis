@@ -255,14 +255,26 @@ static void* gD3DDeviceVtable[64]{};
 static void* gD3DContextVtable[128]{};
 static void* gDXGIDeviceVtable[16]{};
 
-static int32_t compatD3DQueryInterface(void* self,const void*,void** out) {
+static bool compatGuidEq(const void* a,uint32_t d1,uint16_t d2,uint16_t d3,const uint8_t d4[8]){
+  if(!a)return false;const uint8_t* p=(const uint8_t*)a;uint32_t x1;uint16_t x2,x3;
+  std::memcpy(&x1,p,4);std::memcpy(&x2,p+4,2);std::memcpy(&x3,p+6,2);
+  return x1==d1&&x2==d2&&x3==d3&&std::memcmp(p+8,d4,8)==0;
+}
+static int32_t compatD3DQueryInterface(void* self,const void* iid,void** out) {
   gtavdiag::checkpoint("compat-d3d11-query-interface");
   if(!out) return (int32_t)0x80004003u;
-  // grcDevice::RetrieveVideoMemory queries the temporary ID3D11Device for a
-  // DXGI device interface, then immediately calls IDXGIObject::GetParent (+0x30).
-  // Returning the D3D device itself here gives that call the wrong vtable.
-  if(self==&gCompatD3DDevice) *out=&gCompatDXGIDevice;
-  else *out=self;
+  if(self==&gCompatD3DDevice){
+    static const uint8_t iidDXGIDeviceD4[8]={0x8c,0x32,0x88,0xfd,0x5f,0x44,0xc8,0x4c};
+    static const uint8_t iidD3D11DeviceD4[8]={0x82,0x53,0x81,0x9d,0xf9,0xbb,0xf1,0x40};
+    static const uint8_t iidIUnknownD4[8]={0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46};
+    if(compatGuidEq(iid,0x54ec77fau,0x1377,0x44e6,iidDXGIDeviceD4)){*out=&gCompatDXGIDevice;return 0;}
+    if(compatGuidEq(iid,0xdb6f6ddbu,0xac77,0x4e88,iidD3D11DeviceD4)||
+       compatGuidEq(iid,0x00000000u,0x0000,0x0000,iidIUnknownD4)){*out=self;return 0;}
+    *out=nullptr;
+    gtavdiag::checkpoint("compat-d3d11-query-interface-unsupported");
+    return (int32_t)0x80004002u;
+  }
+  *out=self;
   return 0;
 }
 static uint32_t compatD3DAddRef(void*) { return 2; }
@@ -1110,9 +1122,9 @@ static void initCompatD3D11() {
   gDXGIDeviceVtable[0]=(void*)compatD3DQueryInterface;
   gDXGIDeviceVtable[1]=(void*)compatD3DAddRef;
   gDXGIDeviceVtable[2]=(void*)compatD3DRelease;
-  gDXGIDeviceVtable[3]=(void*)compatDXGIGetParentUnsupported;
-  gDXGIDeviceVtable[4]=(void*)compatDXGIGetParentUnsupported;
-  gDXGIDeviceVtable[5]=(void*)compatDXGIGetParentUnsupported;
+  gDXGIDeviceVtable[3]=(void*)compatDXGISetPrivateData;
+  gDXGIDeviceVtable[4]=(void*)compatDXGISetPrivateDataInterface;
+  gDXGIDeviceVtable[5]=(void*)compatDXGIGetPrivateData;
   gDXGIDeviceVtable[6]=(void*)compatDXGIDeviceGetParent;
   gDXGIDeviceVtable[7]=(void*)compatDXGIDeviceGetAdapter;
   gCompatDXGIDevice.vtbl=gDXGIDeviceVtable;
