@@ -22,6 +22,6 @@ set_target_properties(dxbc_spv PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(gtav_native_renderer SHARED src/native_renderer.cpp)
 target_compile_features(gtav_native_renderer PRIVATE cxx_std_20)
-target_compile_options(gtav_native_renderer PRIVATE -O3 -fvisibility=hidden -ffunction-sections -fdata-sections)
-target_link_options(gtav_native_renderer PRIVATE -Wl,--gc-sections)
+target_compile_options(gtav_native_renderer PRIVATE -O3 -DNDEBUG -flto=thin -fomit-frame-pointer -fvisibility=hidden -ffunction-sections -fdata-sections)
+target_link_options(gtav_native_renderer PRIVATE -flto=thin -Wl,--gc-sections)
 target_link_libraries(gtav_native_renderer PRIVATE dxbc_spv vulkan android log dl)
