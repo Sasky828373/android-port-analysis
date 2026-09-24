@@ -41,6 +41,7 @@ using SDLVulkanGetDrawableSizeFn=void(*)(SDL_Window*,int*,int*);
 
 extern "C" bool gtav_native_renderer_install_early_vulkan_hook();
 extern "C" PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance,const char*);
+static bool installGtavDlsymCallHook();
 namespace gtavdiag {
 static const char* kPath="/storage/emulated/0/Games/GTAV/Config/gtav-native-crash.txt";
 static std::atomic<uint32_t> seq{0};
