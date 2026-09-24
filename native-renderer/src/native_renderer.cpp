@@ -955,8 +955,11 @@ static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* v
 static int32_t compatDXGIDeviceGetParent(void* self, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-parent");
   if(self!=&gCompatDXGIDevice){
+    // This slot is also reached by a non-COM ABI path in libgtav that consumes
+    // x0 as a pointer. Returning an HRESULT there becomes the bogus address
+    // 0x80004002. Return null instead so the foreign path can take its fallback.
     gtavdiag::checkpoint("compat-dxgi-device-get-parent-foreign-call");
-    return (int32_t)0x80004002u;
+    return 0;
   }
   if(!out) return (int32_t)0x80004003u;
   initCompatDXGI();
@@ -967,7 +970,7 @@ static int32_t compatDXGIDeviceGetAdapter(void* self, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-adapter");
   if(self!=&gCompatDXGIDevice){
     gtavdiag::checkpoint("compat-dxgi-device-get-adapter-foreign-call");
-    return (int32_t)0x80004002u;
+    return 0;
   }
   if(!out) return (int32_t)0x80004003u;
   initCompatDXGI();
