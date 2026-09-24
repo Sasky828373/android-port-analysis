@@ -1540,6 +1540,7 @@ static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
+static constexpr uint32_t PROFILE_PASS=1,PROFILE_DISPATCH=2,PROFILE_COPY_BUFFER=3,PROFILE_COPY_IMAGE=4,PROFILE_BLIT=5,PROFILE_RESOLVE=6;
 static void profilePassSwitch(void* rtv0,void* dsv);
 static void profileCountDraw(bool indexed,uint32_t elements);
 static uint32_t profileBeginExact(uint32_t kind,uintptr_t a,uintptr_t b);
