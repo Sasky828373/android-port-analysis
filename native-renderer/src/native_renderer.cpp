@@ -3083,8 +3083,10 @@ static void rememberDrawnPrimaryRTV(void* ctx){
  void* v=it->second.rtv[0];lastCompatDrawnRTV.store(v,std::memory_order_release);
  uint32_t w=0,h=0;void* r=compatUnderlyingResource(v);if(!r)r=v;auto* rr=compatResourceObject(r);
  if(rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){w=((uint32_t*)rr->desc)[0];h=((uint32_t*)rr->desc)[1];}
- else {std::lock_guard<std::mutex> ml(imageMetaMutex);auto mi=imageMeta.find((uint64_t)(uintptr_t)r);if(mi!=imageMeta.end()){w=mi->second.width;h=mi->second.height;}}
- uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3)lastCompatFullSizeRTV.store(v,std::memory_order_release);
+ else {
+   if(mapWrappedImage(r,2u,true)){std::lock_guard<std::mutex> ml(imageMetaMutex);auto mi=imageMeta.find((uint64_t)(uintptr_t)v);if(mi==imageMeta.end())mi=imageMeta.find((uint64_t)(uintptr_t)r);if(mi!=imageMeta.end()){w=mi->second.width;h=mi->second.height;}}
+ }
+ uint32_t tw=gCompatSwapWidth.load(),th=gCompatSwapHeight.load();if(w&&h&&tw&&th&&w*4>=tw*3&&h*4>=th*3){lastCompatFullSizeRTV.store(v,std::memory_order_release);static std::atomic<uint32_t> fsn{0};uint32_t fn=fsn.fetch_add(1,std::memory_order_relaxed);if(fn<8||fn%512==0){char fd[128];snprintf(fd,sizeof(fd),"view=%p resource=%p size=%ux%u swap=%ux%u",v,r,w,h,tw,th);gtavdiag::checkpoint("native-fullsize-rtv-selected",fd);}}
  static std::atomic<uint32_t> dn{0};uint32_t n=dn.fetch_add(1,std::memory_order_relaxed);if(n<12||n%512==0){char d[192];snprintf(d,sizeof(d),"view=%p resource=%p compat=%u size=%ux%u fmt=%u",v,r,(rr&&rr->vtbl==gCompatTexture2DVtable)?1u:0u,w,h,(rr&&rr->descSize>=20)?((uint32_t*)rr->desc)[4]:0u);gtavdiag::checkpoint("native-last-drawn-rtv",d);}
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);rememberDrawnPrimaryRTV(ctx);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
