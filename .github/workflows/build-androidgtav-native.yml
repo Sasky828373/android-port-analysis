@@ -26,6 +26,66 @@ jobs:
       - name: Checkout control repo
         uses: actions/checkout@v4
 
+      - name: Probe AndroidGTAV upstream before toolchain setup
+        if: github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "${GITHUB_WORKSPACE}/.androidgtav-probe"
+          cd "${GITHUB_WORKSPACE}"
+
+          git clone --depth 1 --recurse-submodules \
+            https://gitcode.com/linyushu520/AndroidGTAV.git \
+            "${GITHUB_WORKSPACE}/AndroidGTAV" \
+            >"${GITHUB_WORKSPACE}/.androidgtav-probe/clone.log" 2>&1
+          CLONE_RC=$?
+
+          echo "clone_rc=${CLONE_RC}" > "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
+          echo "runner=${RUNNER_OS} ${RUNNER_ARCH}" >> "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
+          echo "date=$(date -u +%FT%TZ)" >> "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
+
+          if [ "${CLONE_RC}" -eq 0 ]; then
+            cd "${GITHUB_WORKSPACE}/AndroidGTAV"
+            git rev-parse HEAD > "${GITHUB_WORKSPACE}/.androidgtav-probe/upstream-sha.txt"
+
+            {
+              echo "=== ANDROID BUILD TREE ==="
+              find . -path '*android_build*' -maxdepth 10 -print | sort | head -1600
+              echo
+              echo "=== BUILD ENTRYPOINTS ==="
+              find . -maxdepth 11 -type f \( \
+                -iname '*.sh' -o -iname '*.py' -o -iname '*.bat' -o -iname '*.cmd' -o \
+                -iname 'CMakeLists.txt' -o -iname 'Makefile' -o \
+                -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o \
+                -iname 'gradlew' -o -iname 'package_apk.py' -o -iname 'PACKAGING.md' \
+              \) | sort | head -2400
+            } > "${GITHUB_WORKSPACE}/.androidgtav-probe/layout.txt"
+
+            PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
+            [ -z "${PACKAGING}" ] || cp "${PACKAGING}" "${GITHUB_WORKSPACE}/.androidgtav-probe/PACKAGING.md"
+
+            PKG="$(find . -type f -iname 'package_apk.py' | head -1 || true)"
+            if [ -n "${PKG}" ]; then
+              cp "${PKG}" "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk.py"
+              python3 "${PKG}" --help > "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk-help.txt" 2>&1 || true
+            fi
+          fi
+
+          cd "${GITHUB_WORKSPACE}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .androidgtav-probe
+          if ! git diff --cached --quiet; then
+            git commit -m "Capture AndroidGTAV probe diagnostics [skip ci]"
+            git push origin HEAD:androidgtav-native-build
+          fi
+
+          if [ "${CLONE_RC}" -ne 0 ]; then
+            cat "${GITHUB_WORKSPACE}/.androidgtav-probe/clone.log"
+            exit "${CLONE_RC}"
+          fi
+          exit 0
+
       - name: Install host dependencies
         run: |
           sudo apt-get update
@@ -64,9 +124,11 @@ jobs:
 
       - name: Clone upstream AndroidGTAV
         run: |
-          git clone --depth 1 --recurse-submodules \
-            https://gitcode.com/linyushu520/AndroidGTAV.git \
-            "${GITHUB_WORKSPACE}/AndroidGTAV"
+          if [ ! -d "${GITHUB_WORKSPACE}/AndroidGTAV/.git" ]; then
+            git clone --depth 1 --recurse-submodules \
+              https://gitcode.com/linyushu520/AndroidGTAV.git \
+              "${GITHUB_WORKSPACE}/AndroidGTAV"
+          fi
           cd "${GITHUB_WORKSPACE}/AndroidGTAV"
           git submodule update --init --recursive || true
           git rev-parse HEAD | tee "${GITHUB_WORKSPACE}/androidgtav-upstream-sha.txt"
