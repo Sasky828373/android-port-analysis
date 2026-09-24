@@ -364,7 +364,7 @@ static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoin
 static void compatCtxGenerateMips(void*,void*){gtavdiag::checkpoint("compat-context-generate-mips");}
 static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("compat-context-set-resource-min-lod");}
 static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
-static void compatResolveBacking(void*,uint32_t,void*,uint32_t); static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");compatResolveBacking(dst,ds,src,ss);}
+static void compatResolveBacking(void*,uint32_t,void*,uint32_t); static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");uint32_t t=profileBeginExact(PROFILE_RESOLVE,(uintptr_t)src,(uintptr_t)dst);compatResolveBacking(dst,ds,src,ss);profileEndExact(t);}
 static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
 static void compatCtxHSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-shader-resources");}
 static void compatCtxHSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-hs-set-shader");}
@@ -1540,6 +1540,17 @@ static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
 static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
+static void profilePassSwitch(void* rtv0,void* dsv);
+static void profileCountDraw(bool indexed,uint32_t elements);
+static uint32_t profileBeginExact(uint32_t kind,uintptr_t a=0,uintptr_t b=0);
+static void profileEndExact(uint32_t token);
+static void profileCancelExact(uint32_t token);
+static void profileBeginFrame(uint32_t slot,VkCommandBuffer cb);
+static void profileEndFrame(uint32_t slot,VkCommandBuffer cb);
+static void profileReadAndLog(uint32_t slot);
+static bool profileInit();
+static void profileDestroy();
+static constexpr uint32_t PROFILE_DISPATCH=2,PROFILE_COPY_BUFFER=3,PROFILE_COPY_IMAGE=4,PROFILE_BLIT=5,PROFILE_RESOLVE=6;
 static std::atomic<bool> drawHooksInstalled{false};
 static GtavNativeGetDrawState drawStateProvider{};
 struct RageMirrorState {
@@ -1765,9 +1776,9 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_draw
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_dispatch(VkCommandBuffer c,uint32_t x,uint32_t y,uint32_t z){if(c&&x&&y&&z)vkCmdDispatch(c,x,y,z);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_rendering(VkCommandBuffer c,VkRect2D a,uint32_t n,const VkRenderingAttachmentInfo* col,const VkRenderingAttachmentInfo* dep){if(!c)return;VkRenderingInfo r{VK_STRUCTURE_TYPE_RENDERING_INFO};r.renderArea=a;r.layerCount=1;r.colorAttachmentCount=n;r.pColorAttachments=col;r.pDepthAttachment=dep;if(pBeginRendering)pBeginRendering(c,&r);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_end_rendering(VkCommandBuffer c){if(c&&pEndRendering)pEndRendering(c);}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_copy_buffer(VkCommandBuffer c,VkBuffer s,VkBuffer d,VkDeviceSize n){if(c&&s&&d&&n){VkBufferCopy r{0,0,n};vkCmdCopyBuffer(c,s,d,1,&r);}}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_copy_image(VkCommandBuffer c,VkImage s,VkImageLayout sl,VkImage d,VkImageLayout dl,const VkImageCopy* r,uint32_t n){if(c&&s&&d&&r&&n)vkCmdCopyImage(c,s,sl,d,dl,n,r);}
-extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_blit_image(VkCommandBuffer c,VkImage s,VkImageLayout sl,VkImage d,VkImageLayout dl,const VkImageBlit* r,uint32_t n,VkFilter f){if(c&&s&&d&&r&&n)vkCmdBlitImage(c,s,sl,d,dl,n,r,f);}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_copy_buffer(VkCommandBuffer c,VkBuffer s,VkBuffer d,VkDeviceSize n){if(c&&s&&d&&n){uint32_t t=profileBeginExact(PROFILE_COPY_BUFFER,(uintptr_t)s,(uintptr_t)d);VkBufferCopy r{0,0,n};vkCmdCopyBuffer(c,s,d,1,&r);profileEndExact(t);}}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_copy_image(VkCommandBuffer c,VkImage s,VkImageLayout sl,VkImage d,VkImageLayout dl,const VkImageCopy* r,uint32_t n){if(c&&s&&d&&r&&n){uint32_t t=profileBeginExact(PROFILE_COPY_IMAGE,(uintptr_t)s,(uintptr_t)d);vkCmdCopyImage(c,s,sl,d,dl,n,r);profileEndExact(t);}}
+extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_blit_image(VkCommandBuffer c,VkImage s,VkImageLayout sl,VkImage d,VkImageLayout dl,const VkImageBlit* r,uint32_t n,VkFilter f){if(c&&s&&d&&r&&n){uint32_t t=profileBeginExact(PROFILE_BLIT,(uintptr_t)s,(uintptr_t)d);vkCmdBlitImage(c,s,sl,d,dl,n,r,f);profileEndExact(t);}}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_clear_color(VkCommandBuffer c,VkImage i,VkImageLayout l,const VkClearColorValue* v,const VkImageSubresourceRange* r){if(c&&i&&v&&r)vkCmdClearColorImage(c,i,l,v,1,r);}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_clear_depth(VkCommandBuffer c,VkImage i,VkImageLayout l,const VkClearDepthStencilValue* v,const VkImageSubresourceRange* r){if(c&&i&&v&&r)vkCmdClearDepthStencilImage(c,i,l,v,1,r);}
 extern "C" __attribute__((visibility("default"))) VkResult gtav_native_renderer_create_shader(const uint32_t* s,size_t n,VkShaderModule* o){if(!g.device||!s||!n||!o)return VK_ERROR_INITIALIZATION_FAILED;VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=n;ci.pCode=s;return vkCreateShaderModule(g.device,&ci,nullptr,o);}
@@ -1824,7 +1835,7 @@ OBJHOOK(hVSSRV,vsSRV,32,oVSSRV) OBJHOOK(hPSSRV,psSRV,32,oPSSRV) OBJHOOK(hCSSRV,c
 OBJHOOK(hVSSamp,vsSampler,16,oVSSamp) OBJHOOK(hPSSamp,psSampler,16,oPSSamp) OBJHOOK(hCSSamp,csSampler,16,oCSSamp)
 #undef OBJHOOK
 static void hCSUAV(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* counts){{std::lock_guard<std::mutex> l(mirrorMutex);mirrorObjs(mirror(c).csUAV,16,f,n,v);}if(oCSUAV)oCSUAV(c,f,n,v,counts);}
-static void hOMRT(void* c,uint32_t n,void* const* r,void* d){{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;for(uint32_t i=0;i<s.rtvCount;i++)capture("RTV",s.rtv[i]);capture("DSV",d);}if(oOMRT)oOMRT(c,n,r,d);}
+static void hOMRT(void* c,uint32_t n,void* const* r,void* d){void* r0=(r&&n)?r[0]:nullptr;profilePassSwitch(r0,d);{std::lock_guard<std::mutex> l(mirrorMutex);auto& s=mirror(c);s.rtvCount=n>8?8:n;mirrorObjs(s.rtv,8,0,s.rtvCount,r);s.dsv=d;for(uint32_t i=0;i<s.rtvCount;i++)capture("RTV",s.rtv[i]);capture("DSV",d);}if(oOMRT)oOMRT(c,n,r,d);}
 
 
 using OrigDraw=void(*)(void*,uint32_t,uint32_t); using OrigDrawIndexed=void(*)(void*,uint32_t,uint32_t,int32_t);
@@ -1854,6 +1865,8 @@ static uint32_t gCompatFrameIndex=0;
 static VkCommandBuffer gCompatRecordingCB=VK_NULL_HANDLE;
 static bool gCompatFrameCmdReady=false;
 
+#include "gpu_profiler.inl"
+
 static bool ensureCompatFrameCommandRing(){
  if(gCompatFrameCmdReady)return true;
  if(!g.device||!g.commands)return false;
@@ -1866,6 +1879,7 @@ static bool ensureCompatFrameCommandRing(){
    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
    if(vkCreateFence(g.device,&fi,nullptr,&gCompatFrameCmd[i].fence)!=VK_SUCCESS)return false;
  }
+ if(!profileInit())gtavdiag::checkpoint("gpu-profiler-unavailable");
  gCompatFrameCmdReady=true;
  gtavdiag::checkpoint("compat-command-ring-ready");
  return true;
@@ -1876,6 +1890,7 @@ static void submitAndBeginCompatFrameCommand(){
 
  // Submit the command buffer that recorded the frame which just reached Present.
  if(gCompatRecordingCB){
+   profileEndFrame(gCompatFrameIndex,gCompatRecordingCB);
    VkResult er=vkEndCommandBuffer(gCompatRecordingCB);
    if(er==VK_SUCCESS){
      CompatFrameCmd& prev=gCompatFrameCmd[gCompatFrameIndex];
@@ -1902,6 +1917,7 @@ static void submitAndBeginCompatFrameCommand(){
  if(next.inFlight){
    VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);
    if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}
+   profileReadAndLog(gCompatFrameIndex);
    vkResetFences(g.device,1,&next.fence);
    next.inFlight=false;
  }
@@ -1910,6 +1926,7 @@ static void submitAndBeginCompatFrameCommand(){
  bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  if(vkBeginCommandBuffer(next.cb,&bi)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-begin-failed");return;}
  gCompatRecordingCB=next.cb;
+ profileBeginFrame(gCompatFrameIndex,next.cb);
  publishNativeCommandBuffer(next.cb,"compat-command-buffer-recording");
 }
 static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source){
@@ -2029,18 +2046,19 @@ extern "C" __attribute__((visibility("default"))) VkCommandBuffer gtav_native_re
 static std::atomic<uint64_t> nativeDraws{0},nativeIndexedDraws{0},nativeDispatches{0},fallbackDraws{0};
 static void hookDraw(void* c,uint32_t n,uint32_t f){
  if(!g.device) attachFromGtavRuntime();
- if(gtav_native_renderer_rage_draw(c,n,f)){nativeDraws.fetch_add(1,std::memory_order_relaxed);return;}
+ if(gtav_native_renderer_rage_draw(c,n,f)){nativeDraws.fetch_add(1,std::memory_order_relaxed);profileCountDraw(false,n);return;}
  fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDraw)origDraw(c,n,f);
 }
 static void hookDrawIndexed(void* c,uint32_t n,uint32_t f,int32_t v){
  if(!g.device) attachFromGtavRuntime();
- if(gtav_native_renderer_rage_draw_indexed(c,n,f,v)){nativeIndexedDraws.fetch_add(1,std::memory_order_relaxed);return;}
+ if(gtav_native_renderer_rage_draw_indexed(c,n,f,v)){nativeIndexedDraws.fetch_add(1,std::memory_order_relaxed);profileCountDraw(true,n);return;}
  fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDrawIndexed)origDrawIndexed(c,n,f,v);
 }
 static void hookDispatch(void* c,uint32_t x,uint32_t y,uint32_t z){
  if(!g.device) attachFromGtavRuntime();
- if(gtav_native_renderer_rage_dispatch(c,x,y,z)){nativeDispatches.fetch_add(1,std::memory_order_relaxed);return;}
- fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDispatch)origDispatch(c,x,y,z);
+ uint32_t t=profileBeginExact(PROFILE_DISPATCH,x,(uintptr_t(y)<<32)|z);
+ if(gtav_native_renderer_rage_dispatch(c,x,y,z)){nativeDispatches.fetch_add(1,std::memory_order_relaxed);profileEndExact(t);return;}
+ profileCancelExact(t);fallbackDraws.fetch_add(1,std::memory_order_relaxed);if(origDispatch)origDispatch(c,x,y,z);
 }
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_native_commands(){
  return nativeDraws.load(std::memory_order_relaxed)+nativeIndexedDraws.load(std::memory_order_relaxed)+nativeDispatches.load(std::memory_order_relaxed);
@@ -3143,6 +3161,7 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shut
  gCompatFrameCmdReady=false;gCompatRecordingCB=VK_NULL_HANDLE;
  for(auto& p:gPresentBridge){if(p.fence)vkDestroyFence(g.device,p.fence,nullptr);if(p.done)vkDestroySemaphore(g.device,p.done,nullptr);p.fence=VK_NULL_HANDLE;p.done=VK_NULL_HANDLE;p.cb=VK_NULL_HANDLE;p.inFlight=false;}
  gPresentBridgeReady.store(false,std::memory_order_release);
+ profileDestroy();
  if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);
  g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;
 }
