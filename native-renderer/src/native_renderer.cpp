@@ -2492,7 +2492,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
  for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
- pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
+ if(old==VK_IMAGE_LAYOUT_UNDEFINED){gtavdiag::checkpoint("native-engine-present-rejected-undefined-layout");return false;}\n pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
  pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
  if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
@@ -2512,7 +2512,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  else if(old==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;restoreStage=VK_PIPELINE_STAGE_TRANSFER_BIT;}
  else if(old==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL){post[1].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;restoreStage=VK_PIPELINE_STAGE_TRANSFER_BIT;}
  else if(old==VK_IMAGE_LAYOUT_GENERAL){post[1].dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
- else if(old==VK_IMAGE_LAYOUT_UNDEFINED){post[1].newLayout=VK_IMAGE_LAYOUT_GENERAL;post[1].dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
+ else if(old==VK_IMAGE_LAYOUT_UNDEFINED){gtavdiag::checkpoint("native-engine-present-rejected-undefined-layout");return false;}
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,restoreStage|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
  VkImageLayout restored=post[1].newLayout;
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=restored;auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi!=imageMeta.end())mi->second.observedLayout=restored;}
@@ -2578,7 +2578,7 @@ static void invalidateImageResource(uint64_t rage){
 static void registerImageMeta(void* rage,const NativeWrappedImage& w){
  if(!rage||!w.image)return;
  const uint64_t key=(uint64_t)(uintptr_t)rage;
- NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();m.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+ NativeImageMeta m{};m.image=w.image;m.format=(VkFormat)w.format;m.aspect=(VkImageAspectFlags)w.aspect;m.observedLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; if(auto* rr=compatResourceObject(rage);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=44){auto* d=(uint32_t*)rr->desc;m.width=d[0];m.height=d[1];m.samples=(VkSampleCountFlagBits)std::max(1u,d[5]);} else {m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();}m.width=gCompatSwapWidth.load();m.height=gCompatSwapHeight.load();m.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
  std::lock_guard<std::mutex> l(imageMetaMutex);
  auto it=imageMeta.find(key);
  // If GTA reuses a RAGE object for a different native image/format, an old
