@@ -28,12 +28,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build meson cmake pkg-config glslang-tools python3 git zip
 
-      - name: Install Android NDK
-        uses: android-actions/setup-android@v3
-
       - name: Install NDK r29
         run: |
-          sdkmanager "ndk;29.0.14206865"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - name: Build DXVK 3.1.1 native for Android ARM64
