@@ -1442,6 +1442,20 @@ struct PresentProbeRuntime {
  std::vector<VkImage> images;
 };
 static PresentProbeRuntime gPresentProbe;
+static void* systemVulkanHandle(){static void* h=nullptr;if(!h){h=dlopen("libvulkan.so",RTLD_NOW|RTLD_NOLOAD);if(!h)h=dlopen("libvulkan.so",RTLD_NOW|RTLD_LOCAL);}return h;}
+extern "C" __attribute__((visibility("default"))) VkResult vkCreateInstance(const VkInstanceCreateInfo* in,const VkAllocationCallbacks* a,VkInstance* out){
+ using Fn=VkResult(*)(const VkInstanceCreateInfo*,const VkAllocationCallbacks*,VkInstance*);static Fn real=nullptr;if(!real)real=(Fn)dlsym(systemVulkanHandle(),"vkCreateInstance");if(!real)return VK_ERROR_INITIALIZATION_FAILED;
+ if(!in)return real(in,a,out);std::vector<const char*> e;for(uint32_t i=0;i<in->enabledExtensionCount;i++)e.push_back(in->ppEnabledExtensionNames[i]);
+ auto add=[&](const char* n){for(auto x:e)if(x&&strcmp(x,n)==0)return;e.push_back(n);};add(VK_KHR_SURFACE_EXTENSION_NAME);add(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+ VkInstanceCreateInfo ci=*in;ci.enabledExtensionCount=(uint32_t)e.size();ci.ppEnabledExtensionNames=e.data();VkResult r=real(&ci,a,out);if(r==VK_SUCCESS)gtavdiag::checkpoint("native-vk-instance-surface-ext-injected");return r;
+}
+extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhysicalDevice p,const VkDeviceCreateInfo* in,const VkAllocationCallbacks* a,VkDevice* out){
+ using Fn=VkResult(*)(VkPhysicalDevice,const VkDeviceCreateInfo*,const VkAllocationCallbacks*,VkDevice*);static Fn real=nullptr;if(!real)real=(Fn)dlsym(systemVulkanHandle(),"vkCreateDevice");if(!real)return VK_ERROR_INITIALIZATION_FAILED;
+ if(!in)return real(p,in,a,out);std::vector<const char*> e;for(uint32_t i=0;i<in->enabledExtensionCount;i++)e.push_back(in->ppEnabledExtensionNames[i]);
+ bool has=false;for(auto x:e)if(x&&strcmp(x,VK_KHR_SWAPCHAIN_EXTENSION_NAME)==0)has=true;if(!has)e.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+ VkDeviceCreateInfo ci=*in;ci.enabledExtensionCount=(uint32_t)e.size();ci.ppEnabledExtensionNames=e.data();VkResult r=real(p,&ci,a,out);if(r==VK_SUCCESS)gtavdiag::checkpoint("native-vk-device-swapchain-ext-injected");return r;
+}
+
 static bool probeGameAndroidSurface(){
  static std::atomic<bool> done{false},failed{false}; if(done.load(std::memory_order_acquire))return true;
  SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
@@ -1453,8 +1467,25 @@ static bool probeGameAndroidSurface(){
  VkSurfaceKHR surface=VK_NULL_HANDLE;
  if(create(win,g.instance,&surface)&&surface){
    int w=0,h=0;if(size)size(win,&w,&h);char detail[128];snprintf(detail,sizeof(detail),"engine surface=%p extent=%dx%d",(void*)surface,w,h);
-   gtavdiag::checkpoint("native-android-surface-ready",detail);auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(g.instance,"vkDestroySurfaceKHR");if(destroy)destroy(g.instance,surface,nullptr);
-   done.store(true,std::memory_order_release);return true;
+   gtavdiag::checkpoint("native-android-surface-ready",detail);
+   // Keep an engine-instance surface. This is the zero-copy path: same VkInstance,
+   // physical device, device and queue that render the compatibility backbuffer.
+   gPresentProbe.instance=g.instance;gPresentProbe.surface=surface;gPresentProbe.physical=g.physical;gPresentProbe.family=g.family;gPresentProbe.device=g.device;gPresentProbe.queue=g.queue;
+   auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");
+   auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+   auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");
+   auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");
+   VkBool32 yes=VK_FALSE;VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;
+   if(!support||!caps||!formats||!modes||support(g.physical,g.family,surface,&yes)!=VK_SUCCESS||!yes||caps(g.physical,surface,&cp)!=VK_SUCCESS){gtavdiag::checkpoint("native-engine-present-queue-incompatible");return false;}
+   formats(g.physical,surface,&fc,nullptr);modes(g.physical,surface,&mc,nullptr);std::vector<VkSurfaceFormatKHR> fs(fc);if(fc)formats(g.physical,surface,&fc,fs.data());std::vector<VkPresentModeKHR> ms(mc);if(mc)modes(g.physical,surface,&mc,ms.data());
+   VkSurfaceFormatKHR sf=fc?fs[0]:VkSurfaceFormatKHR{VK_FORMAT_R8G8B8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};for(auto& f:fs)if(f.format==VK_FORMAT_R8G8B8A8_UNORM){sf=f;break;}
+   VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;for(auto m:ms)if(m==VK_PRESENT_MODE_MAILBOX_KHR){pm=m;break;}VkExtent2D ex=cp.currentExtent;if(ex.width==UINT32_MAX){ex={(uint32_t)std::max(1,w),(uint32_t)std::max(1,h)};}
+   uint32_t ic=cp.minImageCount+1;if(cp.maxImageCount&&ic>cp.maxImageCount)ic=cp.maxImageCount;VkImageUsageFlags iu=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;if(cp.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT)iu|=VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+   VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};si.surface=surface;si.minImageCount=ic;si.imageFormat=sf.format;si.imageColorSpace=sf.colorSpace;si.imageExtent=ex;si.imageArrayLayers=1;si.imageUsage=iu;si.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;si.preTransform=cp.currentTransform;si.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;si.presentMode=pm;si.clipped=VK_TRUE;
+   auto cs=(PFN_vkCreateSwapchainKHR)vkGetDeviceProcAddr(g.device,"vkCreateSwapchainKHR");auto gi=(PFN_vkGetSwapchainImagesKHR)vkGetDeviceProcAddr(g.device,"vkGetSwapchainImagesKHR");if(!cs||!gi){gtavdiag::checkpoint("native-engine-swapchain-procs-unresolved");return false;}
+   VkResult sr=cs(g.device,&si,nullptr,&gPresentProbe.swapchain);if(sr!=VK_SUCCESS){char z[64];snprintf(z,sizeof(z),"result=%d",(int)sr);gtavdiag::checkpoint("native-engine-swapchain-create-failed",z);return false;}
+   uint32_t ni=0;gi(g.device,gPresentProbe.swapchain,&ni,nullptr);gPresentProbe.images.resize(ni);gi(g.device,gPresentProbe.swapchain,&ni,gPresentProbe.images.data());gPresentProbe.format=sf.format;gPresentProbe.extent=ex;
+   char z[160];snprintf(z,sizeof(z),"images=%u format=%d extent=%ux%u",(unsigned)ni,(int)sf.format,ex.width,ex.height);gtavdiag::checkpoint("native-engine-swapchain-ready",z);done.store(true,std::memory_order_release);return true;
  }
  auto getExt=(int(*)(SDL_Window*,unsigned*,const char**))(sdl?dlsym(sdl,"SDL_Vulkan_GetInstanceExtensions"):nullptr);
  if(!getExt){gtavdiag::checkpoint("native-present-instance-ext-unresolved");return false;}
