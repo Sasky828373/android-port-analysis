@@ -45,3 +45,5 @@ hook-before-forced-vulkan-init cce52c8
 patch-gipa-after-adapter-init cbb3f01
 
 dlsym-got-vulkan-loader 5af6fef
+
+fix-dlsym-hook-forward-decl c89b70f
