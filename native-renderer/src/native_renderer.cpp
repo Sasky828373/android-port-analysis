@@ -364,7 +364,7 @@ static void compatCtxClearUAVFloat(void*,void*,const float*){gtavdiag::checkpoin
 static void compatCtxGenerateMips(void*,void*){gtavdiag::checkpoint("compat-context-generate-mips");}
 static void compatCtxSetResourceMinLOD(void*,void*,float){gtavdiag::checkpoint("compat-context-set-resource-min-lod");}
 static float compatCtxGetResourceMinLOD(void*,void*){gtavdiag::checkpoint("compat-context-get-resource-min-lod");return 0.0f;}
-static void compatResolveBacking(void*,uint32_t,void*,uint32_t); static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");uint32_t t=profileBeginExact(PROFILE_RESOLVE,(uintptr_t)src,(uintptr_t)dst);compatResolveBacking(dst,ds,src,ss);profileEndExact(t);}
+static void compatResolveBacking(void*,uint32_t,void*,uint32_t); static void compatCtxResolveSubresource(void*,void* dst,uint32_t ds,void* src,uint32_t ss,uint32_t){gtavdiag::checkpoint("compat-context-resolve-subresource");compatResolveBacking(dst,ds,src,ss);}
 static void compatCtxExecuteCommandList(void*,void*,int){gtavdiag::checkpoint("compat-context-execute-command-list");}
 static void compatCtxHSSetShaderResources(void*,uint32_t,uint32_t,void* const*){gtavdiag::checkpoint("compat-context-hs-set-shader-resources");}
 static void compatCtxHSSetShader(void*,void*,void* const*,uint32_t){gtavdiag::checkpoint("compat-context-hs-set-shader");}
@@ -1542,7 +1542,7 @@ static PFN_vkCmdPipelineBarrier2 pBarrier2{};
 static PFN_vkQueueSubmit2 pSubmit2{};
 static void profilePassSwitch(void* rtv0,void* dsv);
 static void profileCountDraw(bool indexed,uint32_t elements);
-static uint32_t profileBeginExact(uint32_t kind,uintptr_t a=0,uintptr_t b=0);
+static uint32_t profileBeginExact(uint32_t kind,uintptr_t a,uintptr_t b);
 static void profileEndExact(uint32_t token);
 static void profileCancelExact(uint32_t token);
 static void profileBeginFrame(uint32_t slot,VkCommandBuffer cb);
@@ -1550,7 +1550,6 @@ static void profileEndFrame(uint32_t slot,VkCommandBuffer cb);
 static void profileReadAndLog(uint32_t slot);
 static bool profileInit();
 static void profileDestroy();
-static constexpr uint32_t PROFILE_DISPATCH=2,PROFILE_COPY_BUFFER=3,PROFILE_COPY_IMAGE=4,PROFILE_BLIT=5,PROFILE_RESOLVE=6;
 static std::atomic<bool> drawHooksInstalled{false};
 static GtavNativeGetDrawState drawStateProvider{};
 struct RageMirrorState {
