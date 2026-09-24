@@ -1466,32 +1466,6 @@ extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetDevice
  auto real=realVkGDPA();if(!real||!name)return nullptr;return real(device,name);
 }
 
-using GtavNativeAdapterInitFn=bool(*)();
-static GtavNativeAdapterInitFn origGtavNativeAdapterInit=nullptr;
-static bool hookGtavNativeAdapterInit(){
- gtavdiag::checkpoint("native-vulkan-loader-init-hook-enter");
- if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
- // libgtav keeps vkGetInstanceProcAddr at grVulkan globals +0xb0 after dlsym.
- // Replace that dispatch slot before Initialize asks it for vkCreateInstance/CreateDevice.
- if(gtavBase){
-   auto slot=reinterpret_cast<PFN_vkGetInstanceProcAddr*>(gtavBase+0x8aac0b0);
-   if(slot&&*slot){
-     *slot=&vkGetInstanceProcAddr;
-     gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-patched");
-   }
- }
- bool ok=origGtavNativeAdapterInit?origGtavNativeAdapterInit():false;
- return ok;
-}
-static bool installVulkanLoaderInitHook(){
- if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);if(!gtavBase)return false;
- static constexpr uint32_t expected[4]={0xa9ba7bfdu,0xa9016ffcu,0xa90267fau,0xa9035ff8u};
- if(std::memcmp((void*)(gtavBase+0x622f0b8),expected,16)!=0){gtavdiag::checkpoint("native-vulkan-loader-init-prologue-mismatch");return false;}
- uint32_t saved[4]{};void* tramp=nullptr;
- bool ok=patchJump(gtavBase+0x622f0b8,(void*)hookGtavNativeAdapterInit,saved,&tramp);
- if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
- return ok;
-}
 
 
 static bool probeGameAndroidSurface(){
@@ -2057,6 +2031,34 @@ extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_cutover_active(){
  return drawHooksInstalled.load(std::memory_order_acquire)&&g.device&&observedNativeCommandBuffer.load(std::memory_order_acquire)!=VK_NULL_HANDLE;
 }
+using GtavNativeAdapterInitFn=bool(*)();
+static GtavNativeAdapterInitFn origGtavNativeAdapterInit=nullptr;
+static bool hookGtavNativeAdapterInit(){
+ gtavdiag::checkpoint("native-vulkan-loader-init-hook-enter");
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
+ // libgtav keeps vkGetInstanceProcAddr at grVulkan globals +0xb0 after dlsym.
+ // Replace that dispatch slot before Initialize asks it for vkCreateInstance/CreateDevice.
+ if(gtavBase){
+   auto slot=reinterpret_cast<PFN_vkGetInstanceProcAddr*>(gtavBase+0x8aac0b0);
+   if(slot&&*slot){
+     *slot=&vkGetInstanceProcAddr;
+     gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-patched");
+   }
+ }
+ bool ok=origGtavNativeAdapterInit?origGtavNativeAdapterInit():false;
+ return ok;
+}
+static bool installVulkanLoaderInitHook(){
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);if(!gtavBase)return false;
+ static constexpr uint32_t expected[4]={0xa9ba7bfdu,0xa9016ffcu,0xa90267fau,0xa9035ff8u};
+ if(std::memcmp((void*)(gtavBase+0x622f0b8),expected,16)!=0){gtavdiag::checkpoint("native-vulkan-loader-init-prologue-mismatch");return false;}
+ uint32_t saved[4]{};void* tramp=nullptr;
+ bool ok=patchJump(gtavBase+0x622f0b8,(void*)hookGtavNativeAdapterInit,saved,&tramp);
+ if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
+ return ok;
+}
+
+
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  installVulkanLoaderInitHook();
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
