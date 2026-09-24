@@ -303,7 +303,7 @@ static void profileReadAndLog(uint32_t slot){
     }
   }
 
-  put("\n");
+  put("%s","\n");
   profileAppend(out,n);
 }
 
