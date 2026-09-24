@@ -952,15 +952,23 @@ static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* v
   // an uninitialised output object/version.
   return (int32_t)0x887A0004u;
 }
-static int32_t compatDXGIDeviceGetParent(void*, const void*, void** out) {
+static int32_t compatDXGIDeviceGetParent(void* self, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-parent");
+  if(self!=&gCompatDXGIDevice){
+    gtavdiag::checkpoint("compat-dxgi-device-get-parent-foreign-call");
+    return (int32_t)0x80004002u;
+  }
   if(!out) return (int32_t)0x80004003u;
   initCompatDXGI();
   *out=&gCompatAdapter;
   return 0;
 }
-static int32_t compatDXGIDeviceGetAdapter(void*, void** out) {
+static int32_t compatDXGIDeviceGetAdapter(void* self, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-adapter");
+  if(self!=&gCompatDXGIDevice){
+    gtavdiag::checkpoint("compat-dxgi-device-get-adapter-foreign-call");
+    return (int32_t)0x80004002u;
+  }
   if(!out) return (int32_t)0x80004003u;
   initCompatDXGI();
   *out=&gCompatAdapter;
