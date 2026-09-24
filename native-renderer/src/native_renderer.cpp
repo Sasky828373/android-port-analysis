@@ -40,6 +40,7 @@ using SDLVulkanGetDrawableSizeFn=void(*)(SDL_Window*,int*,int*);
 
 
 extern "C" bool gtav_native_renderer_install_early_vulkan_hook();
+extern "C" PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance,const char*);
 namespace gtavdiag {
 static const char* kPath="/storage/emulated/0/Games/GTAV/Config/gtav-native-crash.txt";
 static std::atomic<uint32_t> seq{0};
@@ -1684,6 +1685,7 @@ static bool attachFromGtavRuntime(){
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){ if(attempt<=8) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait: libgtav base unavailable attempt=%u",attempt); return false; }
  // libgtav is now mapped: patch its adapter Initialize before our first forced late init.
+ installGtavDlsymCallHook();
  gtav_native_renderer_install_early_vulkan_hook();
  auto gi=(GetInstanceFn)(gtavBase+0x6232890);
  auto gp=(GetPhysicalDeviceFn)(gtavBase+0x623289c);
@@ -2033,6 +2035,40 @@ extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_
 extern "C" __attribute__((visibility("default"))) uint64_t gtav_native_renderer_fallback_commands(){return fallbackDraws.load(std::memory_order_relaxed);}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_cutover_active(){
  return drawHooksInstalled.load(std::memory_order_acquire)&&g.device&&observedNativeCommandBuffer.load(std::memory_order_acquire)!=VK_NULL_HANDLE;
+}
+using GtavDlsymFn=void*(*)(void*,const char*);
+static GtavDlsymFn origGtavDlsym=nullptr;
+static void* hookGtavDlsym(void* handle,const char* name){
+ void* p=origGtavDlsym?origGtavDlsym(handle,name):nullptr;
+ if(name&&strcmp(name,"vkGetInstanceProcAddr")==0){
+   gtavdiag::checkpoint("native-vulkan-loader-dlsym-gipa-intercept");
+   return reinterpret_cast<void*>(&vkGetInstanceProcAddr);
+ }
+ return p;
+}
+static bool installGtavDlsymCallHook(){
+ static std::atomic<bool> installed{false};if(installed.load(std::memory_order_acquire))return true;
+ if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);if(!gtavBase)return false;
+ // grVulkanNativeDeviceAdapter::Initialize: BL dlsym@plt at +0x622f0fc.
+ uintptr_t call=gtavBase+0x622f0fc;
+ uint32_t ins=*reinterpret_cast<uint32_t*>(call);
+ if((ins&0xfc000000u)!=0x94000000u){gtavdiag::checkpoint("native-vulkan-loader-dlsym-call-mismatch");return false;}
+ int64_t imm=(int64_t)(ins&0x03ffffffu);if(imm&0x02000000u)imm|=~0x03ffffffll;
+ uintptr_t plt=(uintptr_t)((int64_t)call+(imm<<2));
+ // Patch the PLT/GOT target used by this dlsym call, preserving the real resolver.
+ // AArch64 standard PLT: ADRP x16; LDR x17,[x16,#imm]; ADD x16,x16,#imm; BR x17.
+ uint32_t a=*reinterpret_cast<uint32_t*>(plt),b=*reinterpret_cast<uint32_t*>(plt+4),d=*reinterpret_cast<uint32_t*>(plt+8);
+ if((a&0x9f00001fu)!=0x90000010u||(b&0xffc003ffu)!=0xf9400211u||(d&0xffc003ffu)!=0x91000210u){gtavdiag::checkpoint("native-vulkan-loader-dlsym-plt-mismatch");return false;}
+ int64_t adrp=((int64_t)((a>>5)&0x7ffff)<<2)|((a>>29)&3);if(adrp&(1ll<<20))adrp|=~((1ll<<21)-1);
+ uintptr_t page=(plt&~uintptr_t(0xfff))+(adrp<<12);
+ uintptr_t got=page+(((b>>10)&0xfff)<<3);
+ auto slot=reinterpret_cast<void**>(got);if(!slot||!*slot)return false;
+ origGtavDlsym=reinterpret_cast<GtavDlsymFn>(*slot);
+ long ps=sysconf(_SC_PAGESIZE);uintptr_t pg=got&~(uintptr_t(ps)-1);
+ if(mprotect((void*)pg,ps,PROT_READ|PROT_WRITE)!=0)return false;
+ *slot=reinterpret_cast<void*>(&hookGtavDlsym);__builtin___clear_cache((char*)pg,(char*)(pg+ps));
+ mprotect((void*)pg,ps,PROT_READ);
+ installed.store(true,std::memory_order_release);gtavdiag::checkpoint("native-vulkan-loader-dlsym-got-patched");return true;
 }
 using GtavNativeAdapterInitFn=bool(*)();
 static GtavNativeAdapterInitFn origGtavNativeAdapterInit=nullptr;
