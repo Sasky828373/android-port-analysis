@@ -35,3 +35,5 @@ vulkan-loader-proc-intercept dc7f1d9
 libgtav-vulkan-loader-dispatch-hook 408d0ee
 
 fix-loader-hook-order 659b299
+
+early-vulkan-loader-hook b20add4
