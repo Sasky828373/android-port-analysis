@@ -67,6 +67,8 @@ jobs:
           gta5/src/dev_ng/android_build/
           gta5/src/dev_ng/rage/
           gta5/src/dev_ng/game/
+          gta5/src/dev_ng/rage/3rdparty/
+          gta5/src/dev_ng/rage/scaleform/
           "@ | Set-Content -Encoding ascii .git/info/sparse-checkout
 
           git checkout --force FETCH_HEAD
@@ -146,6 +148,17 @@ jobs:
             echo "::error::No Vulkan source list entries found"
             exit 1
           fi
+
+          # Upstream build_sys.sh expects Scaleform at rage/3rdparty/Scaleform/Src,
+          # while this Git snapshot stores it under rage/scaleform. Bridge the
+          # historical path if the full 3rdparty copy is absent.
+          if [ ! -d ../rage/3rdparty/Scaleform/Src ] && [ -d ../rage/scaleform/Src ]; then
+            mkdir -p ../rage/3rdparty/Scaleform
+            cp -a ../rage/scaleform/Src ../rage/3rdparty/Scaleform/
+          fi
+
+          echo "Scaleform expected path:"
+          ls -la ../rage/3rdparty/Scaleform/Src || true
 
           CONFIG=release bash scripts/build_sys.sh ci_native/sources.txt ci_native/compiled
 
