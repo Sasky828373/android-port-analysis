@@ -1591,6 +1591,78 @@ static OrigPassEndAndSubmit origPassEndAndSubmit{};
 static std::atomic<VkCommandBuffer> observedNativeCommandBuffer{VK_NULL_HANDLE};
 static thread_local VkCommandBuffer tlsNativeCommandBuffer=VK_NULL_HANDLE;
 static std::atomic<uint64_t> observedCommandBufferEpoch{0};
+
+// Fallback recording path for the D3D-shaped compatibility frontend.
+// The historical RAGE submission hook addresses are not executed by this build,
+// so keep our own small ring of primary command buffers on GTA's real graphics queue.
+struct CompatFrameCmd {
+ VkCommandBuffer cb{VK_NULL_HANDLE};
+ VkFence fence{VK_NULL_HANDLE};
+ bool inFlight{false};
+};
+static CompatFrameCmd gCompatFrameCmd[3]{};
+static uint32_t gCompatFrameIndex=0;
+static VkCommandBuffer gCompatRecordingCB=VK_NULL_HANDLE;
+static bool gCompatFrameCmdReady=false;
+
+static bool ensureCompatFrameCommandRing(){
+ if(gCompatFrameCmdReady)return true;
+ if(!g.device||!g.commands)return false;
+ VkCommandBuffer bufs[3]{};
+ VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+ ai.commandPool=g.commands; ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount=3;
+ if(vkAllocateCommandBuffers(g.device,&ai,bufs)!=VK_SUCCESS)return false;
+ for(uint32_t i=0;i<3;i++){
+   gCompatFrameCmd[i].cb=bufs[i];
+   VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+   if(vkCreateFence(g.device,&fi,nullptr,&gCompatFrameCmd[i].fence)!=VK_SUCCESS)return false;
+ }
+ gCompatFrameCmdReady=true;
+ gtavdiag::checkpoint("compat-command-ring-ready");
+ return true;
+}
+
+static void submitAndBeginCompatFrameCommand(){
+ if(!ensureCompatFrameCommandRing())return;
+
+ // Submit the command buffer that recorded the frame which just reached Present.
+ if(gCompatRecordingCB){
+   VkResult er=vkEndCommandBuffer(gCompatRecordingCB);
+   if(er==VK_SUCCESS){
+     CompatFrameCmd& prev=gCompatFrameCmd[gCompatFrameIndex];
+     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+     si.commandBufferCount=1; si.pCommandBuffers=&gCompatRecordingCB;
+     VkResult sr=vkQueueSubmit(g.queue,1,&si,prev.fence);
+     if(sr==VK_SUCCESS){
+       prev.inFlight=true;
+       gtavdiag::checkpoint("compat-command-buffer-submitted");
+     }else{
+       gtavdiag::checkpoint("compat-command-buffer-submit-failed");
+     }
+   }else{
+     gtavdiag::checkpoint("compat-command-buffer-end-failed");
+   }
+   if(tlsNativeCommandBuffer==gCompatRecordingCB)tlsNativeCommandBuffer=VK_NULL_HANDLE;
+   VkCommandBuffer expected=gCompatRecordingCB;
+   observedNativeCommandBuffer.compare_exchange_strong(expected,VK_NULL_HANDLE,std::memory_order_acq_rel);
+   gCompatRecordingCB=VK_NULL_HANDLE;
+   gCompatFrameIndex=(gCompatFrameIndex+1)%3;
+ }
+
+ CompatFrameCmd& next=gCompatFrameCmd[gCompatFrameIndex];
+ if(next.inFlight){
+   VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);
+   if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}
+   vkResetFences(g.device,1,&next.fence);
+   next.inFlight=false;
+ }
+ if(vkResetCommandBuffer(next.cb,0)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-reset-failed");return;}
+ VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+ bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+ if(vkBeginCommandBuffer(next.cb,&bi)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-begin-failed");return;}
+ gCompatRecordingCB=next.cb;
+ publishNativeCommandBuffer(next.cb,"compat-command-buffer-recording");
+}
 static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source){
  if(!cb)return;
  tlsNativeCommandBuffer=cb;
@@ -2550,6 +2622,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){
  bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
  uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
+ if(attached)submitAndBeginCompatFrameCommand();
 
  // Hook installation was deliberately removed from the ELF constructor because
  // libgtav's graphics bootstrap is not ready there. Present is the first verified
@@ -2594,6 +2667,8 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shut
   imageViews.clear();imageMeta.clear();}
  {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();}
  if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);
+ for(auto& f:gCompatFrameCmd){if(f.fence)vkDestroyFence(g.device,f.fence,nullptr);f.fence=VK_NULL_HANDLE;f.cb=VK_NULL_HANDLE;f.inFlight=false;}
+ gCompatFrameCmdReady=false;gCompatRecordingCB=VK_NULL_HANDLE;
  if(g.commands)vkDestroyCommandPool(g.device,g.commands,nullptr);
  g.descriptors=VK_NULL_HANDLE;g.commands=VK_NULL_HANDLE;g.device=VK_NULL_HANDLE;g.queue=VK_NULL_HANDLE;
 }
