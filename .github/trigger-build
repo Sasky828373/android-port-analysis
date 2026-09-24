@@ -65,3 +65,5 @@ fix-backbuffer-kind b70991c
 visible-swapchain-probe eae6046
 
 live-final-rtv-present c24739e
+
+restore-live-rtv-layout 6d0600b
