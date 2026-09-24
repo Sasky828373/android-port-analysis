@@ -1397,6 +1397,31 @@ extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSw
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
 static Runtime g;
+static std::mutex descriptorPoolMutex;
+static std::vector<VkDescriptorPool> descriptorPools;
+static uint32_t descriptorPoolGeneration=0;
+
+static VkDescriptorPool createCompatDescriptorPool(uint32_t scale){
+ if(!g.device)return VK_NULL_HANDLE;
+ const uint32_t sets=16384u*std::max(1u,scale);
+ VkDescriptorPoolSize s[]={
+   {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,sets*8u},
+   {VK_DESCRIPTOR_TYPE_SAMPLER,sets*8u},
+   {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,sets*16u},
+   {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,sets*4u},
+   {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,sets*4u},
+   {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,sets*2u},
+   {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,sets*2u},
+   {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,sets*2u}
+ };
+ VkDescriptorPoolCreateInfo di{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+ di.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+ di.maxSets=sets;di.poolSizeCount=(uint32_t)(sizeof(s)/sizeof(s[0]));di.pPoolSizes=s;
+ VkDescriptorPool pool=VK_NULL_HANDLE;
+ if(vkCreateDescriptorPool(g.device,&di,nullptr,&pool)!=VK_SUCCESS)return VK_NULL_HANDLE;
+ return pool;
+}
+
 static std::mutex resourceMutex;
 static std::unordered_map<uint64_t,GtavNativeResourceHandle> resources;
 struct NativePipelineCacheEntry { VkPipeline pipeline{}; VkPipelineLayout layout{}; VkDescriptorSet descriptor{}; };
@@ -1607,9 +1632,13 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_atta
  g.instance=i;g.physical=p;g.device=d;g.queue=q;g.family=family;load13(d);
  VkCommandPoolCreateInfo ci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT|VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;ci.queueFamilyIndex=family;
  VkResult poolResult=vkCreateCommandPool(d,&ci,nullptr,&g.commands); if(poolResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateCommandPool failed=%d family=%u",(int)poolResult,family);g.commands=VK_NULL_HANDLE;return false;}
- VkDescriptorPoolSize s[]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,8192},{VK_DESCRIPTOR_TYPE_SAMPLER,8192},{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,16384},{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,4096},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,4096},{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,2048},{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,2048}};
- VkDescriptorPoolCreateInfo di{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};di.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;di.maxSets=8192;di.poolSizeCount=7;di.pPoolSizes=s;
- VkResult descResult=vkCreateDescriptorPool(d,&di,nullptr,&g.descriptors); if(descResult!=VK_SUCCESS){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateDescriptorPool failed=%d",(int)descResult);vkDestroyCommandPool(d,g.commands,nullptr);g.commands=VK_NULL_HANDLE;g.descriptors=VK_NULL_HANDLE;return false;} return true;
+ {
+   std::lock_guard<std::mutex> l(descriptorPoolMutex);
+   g.descriptors=createCompatDescriptorPool(1);
+   if(!g.descriptors){__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE","vkCreateDescriptorPool failed");vkDestroyCommandPool(d,g.commands,nullptr);g.commands=VK_NULL_HANDLE;return false;}
+   descriptorPools.clear();descriptorPools.push_back(g.descriptors);descriptorPoolGeneration=1;
+ }
+ return true;
 }
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_alloc_command_buffer(VkCommandBuffer* out){if(!out||!g.device||!g.commands)return false;VkCommandBufferAllocateInfo a{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};a.commandPool=g.commands;a.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;a.commandBufferCount=1;return vkAllocateCommandBuffers(g.device,&a,out)==VK_SUCCESS;}
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_bind_pipeline(VkCommandBuffer c,VkPipelineBindPoint p,VkPipeline v){if(c&&v)vkCmdBindPipeline(c,p,v);}
@@ -2025,8 +2054,29 @@ extern "C" __attribute__((visibility("default"))) VkPipelineLayout gtav_native_r
  VkPipelineLayout l=VK_NULL_HANDLE;return vkCreatePipelineLayout(g.device,&ci,nullptr,&l)==VK_SUCCESS?l:VK_NULL_HANDLE;
 }
 extern "C" __attribute__((visibility("default"))) VkDescriptorSet gtav_native_renderer_alloc_descriptor_set(VkDescriptorSetLayout layout){
- if(!g.device||!g.descriptors||!layout)return VK_NULL_HANDLE;VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=g.descriptors;ai.descriptorSetCount=1;ai.pSetLayouts=&layout;
- VkDescriptorSet s=VK_NULL_HANDLE;return vkAllocateDescriptorSets(g.device,&ai,&s)==VK_SUCCESS?s:VK_NULL_HANDLE;
+ if(!g.device||!layout)return VK_NULL_HANDLE;
+ std::lock_guard<std::mutex> l(descriptorPoolMutex);
+ for(size_t attempt=0;attempt<descriptorPools.size();++attempt){
+   VkDescriptorPool pool=descriptorPools[descriptorPools.size()-1-attempt];
+   VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+   ai.descriptorPool=pool;ai.descriptorSetCount=1;ai.pSetLayouts=&layout;
+   VkDescriptorSet s=VK_NULL_HANDLE;VkResult vr=vkAllocateDescriptorSets(g.device,&ai,&s);
+   if(vr==VK_SUCCESS)return s;
+   if(vr!=VK_ERROR_OUT_OF_POOL_MEMORY && vr!=VK_ERROR_FRAGMENTED_POOL){
+     char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)vr);gtavdiag::checkpoint("native-descriptor-alloc-error",d);
+   }
+ }
+ uint32_t scale=std::min<uint32_t>(4u,std::max<uint32_t>(1u,descriptorPoolGeneration));
+ VkDescriptorPool extra=createCompatDescriptorPool(scale);
+ if(!extra){gtavdiag::checkpoint("native-descriptor-overflow-pool-create-failed");return VK_NULL_HANDLE;}
+ descriptorPools.push_back(extra);descriptorPoolGeneration++;
+ g.descriptors=extra;
+ VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+ ai.descriptorPool=extra;ai.descriptorSetCount=1;ai.pSetLayouts=&layout;
+ VkDescriptorSet s=VK_NULL_HANDLE;VkResult vr=vkAllocateDescriptorSets(g.device,&ai,&s);
+ if(vr==VK_SUCCESS){gtavdiag::checkpoint("native-descriptor-overflow-pool-grown");return s;}
+ char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)vr);gtavdiag::checkpoint("native-descriptor-overflow-alloc-failed",d);
+ return VK_NULL_HANDLE;
 }
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_update_descriptors(const VkWriteDescriptorSet* writes,uint32_t count){
  if(g.device&&writes&&count)vkUpdateDescriptorSets(g.device,count,writes,0,nullptr);
@@ -2470,9 +2520,9 @@ static bool ensureCompatComputeState(const RageMirrorState& m){
  if(vkCreateDescriptorSetLayout(g.device,&dci,nullptr,&dsl)!=VK_SUCCESS){gtavdiag::checkpoint("native-compute-descriptor-layout-failed");return false;}
  VkPushConstantRange push{};push.stageFlags=VK_SHADER_STAGE_COMPUTE_BIT;push.offset=0;push.size=128;VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;lci.pushConstantRangeCount=1;lci.pPushConstantRanges=&push;VkPipelineLayout layout=VK_NULL_HANDLE;
  if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
- if(!updateCompatComputeDescriptors(m,desc)){vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ if(!updateCompatComputeDescriptors(m,desc)){/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};stage.stage=VK_SHADER_STAGE_COMPUTE_BIT;stage.module=cs;stage.pName="main";VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};ci.stage=stage;ci.layout=layout;VkPipeline pipe=VK_NULL_HANDLE;VkResult vr=vkCreateComputePipelines(g.device,VK_NULL_HANDLE,1,&ci,nullptr,&pipe);
- if(vr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)vr);gtavdiag::checkpoint("native-compute-pipeline-create-failed",d);vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ if(vr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)vr);gtavdiag::checkpoint("native-compute-pipeline-create-failed",d);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  if(!gtav_native_renderer_register_compute_state((uint64_t)(uintptr_t)m.cs,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);return false;}gtavdiag::checkpoint("native-compute-pipeline-created");return true;
 }
 static bool ensureCompatGraphicsState(const RageMirrorState& m){
@@ -2499,7 +2549,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};lci.setLayoutCount=1;lci.pSetLayouts=&dsl;lci.pushConstantRangeCount=1;lci.pPushConstantRanges=&push;VkPipelineLayout layout{};
  if(vkCreatePipelineLayout(g.device,&lci,nullptr,&layout)!=VK_SUCCESS){vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-layout-create-failed");return false;}
  VkDescriptorSet desc=gtav_native_renderer_alloc_descriptor_set(dsl);if(!desc){vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-alloc-failed");return false;}
- if(!updateCompatGraphicsDescriptors(m,desc)){vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-update-failed");return false;}
+ if(!updateCompatGraphicsDescriptors(m,desc)){/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);gtavdiag::checkpoint("native-pipeline-descriptor-update-failed");return false;}
  VkPipelineShaderStageCreateInfo stages[2]{};
  stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
  stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
@@ -2543,8 +2593,8 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
  VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
  VkPipeline pipe{};VkResult pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
- if(pr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)pr);gtavdiag::checkpoint("native-pipeline-create-failed",d);vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
- if(!gtav_native_renderer_register_graphics_state(key,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);vkFreeDescriptorSets(g.device,g.descriptors,1,&desc);vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ if(pr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)pr);gtavdiag::checkpoint("native-pipeline-create-failed",d);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
+ if(!gtav_native_renderer_register_graphics_state(key,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  gtavdiag::checkpoint("native-pipeline-created");return true;
 }
 static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
@@ -2553,7 +2603,9 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  RageMirrorState m{};
  { std::lock_guard<std::mutex> l(mirrorMutex);
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
- if(!m.inputLayout)gtavdiag::checkpoint("native-draw-no-input-layout-continue");
+ // ID3D11InputLayout may legally be NULL. In that case the Vulkan pipeline uses
+ // zero vertex attributes; shaders relying on SV_VertexID remain valid.
+ if(!m.inputLayout){/* valid zero-input pipeline */}
  if(!m.vertexBuffers[0]){gtavdiag::checkpoint("native-draw-fail-vb0");return false;}
  if(!m.vs){gtavdiag::checkpoint("native-draw-fail-vs");return false;}
  if(!m.ps){gtavdiag::checkpoint("native-draw-fail-ps");return false;}
@@ -2934,7 +2986,11 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shut
   for(auto& it:imageViews)if(it.second)vkDestroyImageView(g.device,it.second,nullptr);
   imageViews.clear();imageMeta.clear();}
  {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();}
- if(g.descriptors)vkDestroyDescriptorPool(g.device,g.descriptors,nullptr);
+ {
+   std::lock_guard<std::mutex> l(descriptorPoolMutex);
+   for(VkDescriptorPool p:descriptorPools)if(p)vkDestroyDescriptorPool(g.device,p,nullptr);
+   descriptorPools.clear();g.descriptors=VK_NULL_HANDLE;descriptorPoolGeneration=0;
+ }
  for(auto& f:gCompatFrameCmd){if(f.fence)vkDestroyFence(g.device,f.fence,nullptr);f.fence=VK_NULL_HANDLE;f.cb=VK_NULL_HANDLE;f.inFlight=false;}
  gCompatFrameCmdReady=false;gCompatRecordingCB=VK_NULL_HANDLE;
  for(auto& p:gPresentBridge){if(p.fence)vkDestroyFence(g.device,p.fence,nullptr);if(p.done)vkDestroySemaphore(g.device,p.done,nullptr);p.fence=VK_NULL_HANDLE;p.done=VK_NULL_HANDLE;p.cb=VK_NULL_HANDLE;p.inFlight=false;}
