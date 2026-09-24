@@ -3238,7 +3238,9 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
  VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
  VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.lineWidth=1.0f;
- if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;rs.frontFace=d[2]?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=VK_FALSE;}
+ if(auto* s=compatStateObject(m.rasterState);s&&s->descSize>=40){const uint32_t* d=(const uint32_t*)s->desc;rs.polygonMode=d[0]==2?VK_POLYGON_MODE_LINE:VK_POLYGON_MODE_FILL;rs.cullMode=d[1]==2?VK_CULL_MODE_FRONT_BIT:d[1]==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;// Negative-height Vulkan viewport flips framebuffer winding, so invert
+ // D3D11 FrontCounterClockwise when mapping the rasterizer state.
+ rs.frontFace=d[2]?VK_FRONT_FACE_CLOCKWISE:VK_FRONT_FACE_COUNTER_CLOCKWISE;rs.depthBiasEnable=d[3]!=0||d[4]!=0||d[5]!=0;std::memcpy(&rs.depthBiasConstantFactor,&d[3],4);std::memcpy(&rs.depthBiasClamp,&d[4],4);std::memcpy(&rs.depthBiasSlopeFactor,&d[5],4);rs.depthClampEnable=VK_FALSE;}
  VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
  VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
  auto cmp=[](uint32_t x){switch(x){case 1:return VK_COMPARE_OP_NEVER;case 2:return VK_COMPARE_OP_LESS;case 3:return VK_COMPARE_OP_EQUAL;case 4:return VK_COMPARE_OP_LESS_OR_EQUAL;case 5:return VK_COMPARE_OP_GREATER;case 6:return VK_COMPARE_OP_NOT_EQUAL;case 7:return VK_COMPARE_OP_GREATER_OR_EQUAL;default:return VK_COMPARE_OP_ALWAYS;}};
@@ -3377,7 +3379,18 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
  {std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return;m=mergeCompatAliasState(it->second);}
  if(m.viewportCount){
    uint32_t n=m.viewportCount>4?4:m.viewportCount;
-   vkCmdSetViewport(cb,0,n,reinterpret_cast<const VkViewport*>(m.viewports));
+   VkViewport vps[4]{};
+   const VkViewport* src=reinterpret_cast<const VkViewport*>(m.viewports);
+   for(uint32_t i=0;i<n;i++){
+     vps[i]=src[i];
+     // D3D11 and the translated DXBC shaders use the D3D framebuffer Y
+     // convention. Vulkan needs a negative-height viewport to preserve it.
+     vps[i].y=src[i].y+src[i].height;
+     vps[i].height=-src[i].height;
+   }
+   static std::atomic<uint32_t> vpBudget{128};uint32_t vb=vpBudget.fetch_sub(1,std::memory_order_relaxed);
+   if(vb>0){char d[192];snprintf(d,sizeof(d),"x=%.1f y=%.1f w=%.1f h=%.1f -> vkY=%.1f vkH=%.1f",src[0].x,src[0].y,src[0].width,src[0].height,vps[0].y,vps[0].height);gtavdiag::checkpoint("native-viewport-yflip",d);}
+   vkCmdSetViewport(cb,0,n,vps);
  }
  if(m.scissorCount){
    uint32_t n=m.scissorCount>16?16:m.scissorCount;
@@ -3440,7 +3453,7 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
    if(void* u=compatUnderlyingResource(m.dsv)){auto* rr=compatResourceObject(u);if(rr){depth.clearValue.depthStencil.depth=rr->pendingClearDepth;depth.clearValue.depthStencil.stencil=rr->pendingClearStencil;stencilAtt.clearValue=depth.clearValue;if(rr->pendingClearFlags&1u)depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;if(hasStencil&&(rr->pendingClearFlags&2u))stencilAtt.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;rr->pendingClearFlags&=~3u;}}
  }
  uint32_t rw=gCompatSwapWidth.load(),rh=gCompatSwapHeight.load();int32_t rx=0,ry=0;if(m.rtvCount&&m.rtv[0]){void* u=compatUnderlyingResource(m.rtv[0]);if(u){auto* rr=(CompatResourceObject*)u;if(rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){rw=((uint32_t*)rr->desc)[0];rh=((uint32_t*)rr->desc)[1];}}}
- if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);rw=std::min(rw,(uint32_t)std::max(1.0f,v[0].width));float vh=v[0].height<0.0f?-v[0].height:v[0].height;rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
+ if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);float vw=v[0].width<0.0f?-v[0].width:v[0].width;float vh=v[0].height<0.0f?-v[0].height:v[0].height;rw=std::min(rw,(uint32_t)std::max(1.0f,vw));rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
  VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=sp;
  beginRendering(cb,&ri);
  gtavdiag::checkpoint("native-render-scope-begun");
