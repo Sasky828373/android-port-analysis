@@ -55,3 +55,5 @@ trace-vulkan-proc-lookups 8e5d7ed
 intercept-direct-vulkan-dlsym 605c0b6
 
 nonpreemptible-gipa-interceptor 0c8adc4
+
+wire-engine-frame-present 3f822c5
