@@ -63,3 +63,5 @@ materialize-present-backbuffer 906aba4
 fix-backbuffer-kind b70991c
 
 visible-swapchain-probe eae6046
+
+live-final-rtv-present c24739e
