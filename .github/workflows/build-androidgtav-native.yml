@@ -50,7 +50,7 @@ jobs:
 
             {
               echo "=== ANDROID BUILD TREE ==="
-              find . -path '*android_build*' -maxdepth 10 -print | sort | head -1600
+              find . -maxdepth 10 -path '*android_build*' -print | sort | sed -n '1,1600p'
               echo
               echo "=== BUILD ENTRYPOINTS ==="
               find . -maxdepth 11 -type f \( \
@@ -148,7 +148,7 @@ jobs:
             find . -maxdepth 3 -type d | sort | head -500
             echo
             echo "=== ANDROID BUILD TREE ==="
-            find . -path '*android_build*' -maxdepth 9 -print | sort | head -1200
+            find . -maxdepth 9 -path '*android_build*' -print | sort | sed -n '1,1200p'
             echo
             echo "=== BUILD ENTRYPOINTS ==="
             find . -maxdepth 10 -type f \( \
