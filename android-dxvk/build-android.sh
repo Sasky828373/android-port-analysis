@@ -2,11 +2,9 @@
 set -euo pipefail
 
 DXVK_TAG="${DXVK_TAG:-v3.1.1}"
-SDL_TAG="${SDL_TAG:-release-3.4.16}"
 ANDROID_API="${ANDROID_API:-26}"
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
 ROOT="${ROOT:-$PWD/.dxvk-android-build}"
-PREFIX="$ROOT/prefix"
 OUT="$ROOT/out"
 
 : "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME must point to an Android NDK}"
@@ -17,49 +15,173 @@ CC="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang"
 CXX="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++"
 
 rm -rf "$ROOT"
-mkdir -p "$ROOT" "$PREFIX" "$OUT"
+mkdir -p "$ROOT" "$OUT"
 
-echo "==> Building SDL3 $SDL_TAG for Android ARM64"
-git clone --depth 1 --branch "$SDL_TAG" https://github.com/libsdl-org/SDL.git "$ROOT/SDL"
-cmake -S "$ROOT/SDL" -B "$ROOT/sdl-build" -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI="$ANDROID_ABI" \
-  -DANDROID_PLATFORM="android-$ANDROID_API" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DSDL_SHARED=OFF \
-  -DSDL_STATIC=ON \
-  -DSDL_TESTS=OFF \
-  -DSDL_EXAMPLES=OFF \
-  -DSDL_INSTALL=ON \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX"
-ninja -C "$ROOT/sdl-build"
-ninja -C "$ROOT/sdl-build" install
-
-echo "==> Cloning DXVK $DXVK_TAG"
+echo "==> Cloning upstream DXVK $DXVK_TAG"
 git clone --recursive --depth 1 --branch "$DXVK_TAG" https://github.com/doitsujin/dxvk.git "$ROOT/dxvk"
 
-echo "==> Applying minimal Android-native build patch"
-python3 - "$ROOT/dxvk/meson.build" <<'PY'
+echo "==> Installing direct Android WSI"
+mkdir -p "$ROOT/dxvk/src/wsi/android" "$ROOT/dxvk/include/native/wsi"
+cp android-dxvk/android-wsi/native_android.h "$ROOT/dxvk/include/native/wsi/native_android.h"
+cp android-dxvk/android-wsi/wsi_platform_android.h "$ROOT/dxvk/src/wsi/android/wsi_platform_android.h"
+cp android-dxvk/android-wsi/wsi_platform_android.cpp "$ROOT/dxvk/src/wsi/android/wsi_platform_android.cpp"
+
+python3 - "$ROOT/dxvk" <<'PY'
 from pathlib import Path
 import sys
-p = Path(sys.argv[1])
+
+root = Path(sys.argv[1])
+
+# Main Meson: Android is its own native WSI and must not require SDL/GLFW.
+p = root / "meson.build"
 s = p.read_text()
-old = """  link_args += [
+s = s.replace(
+"""  lib_sdl3 = dependency('sdl3', required: get_option('native_sdl3'))
+  lib_sdl2 = dependency('sdl2', required: get_option('native_sdl2'))
+  lib_glfw = dependency('glfw3', required: get_option('native_glfw'))
+  if lib_sdl3.found()
+    compiler_args += ['-DDXVK_WSI_SDL3']
+  endif
+  if lib_sdl2.found()
+    compiler_args += ['-DDXVK_WSI_SDL2']
+  endif
+  if lib_glfw.found()
+    compiler_args += ['-DDXVK_WSI_GLFW']
+  endif
+  if (not lib_sdl3.found() and not lib_sdl2.found() and not lib_glfw.found())
+    error('SDL3, SDL2, or GLFW are required to build dxvk-native')
+  endif
+""",
+"""  if platform == 'android'
+    lib_sdl3 = dependency('', required: false)
+    lib_sdl2 = dependency('', required: false)
+    lib_glfw = dependency('', required: false)
+    compiler_args += ['-DDXVK_WSI_ANDROID', '-DVK_USE_PLATFORM_ANDROID_KHR']
+  else
+    lib_sdl3 = dependency('sdl3', required: get_option('native_sdl3'))
+    lib_sdl2 = dependency('sdl2', required: get_option('native_sdl2'))
+    lib_glfw = dependency('glfw3', required: get_option('native_glfw'))
+    if lib_sdl3.found()
+      compiler_args += ['-DDXVK_WSI_SDL3']
+    endif
+    if lib_sdl2.found()
+      compiler_args += ['-DDXVK_WSI_SDL2']
+    endif
+    if lib_glfw.found()
+      compiler_args += ['-DDXVK_WSI_GLFW']
+    endif
+    if (not lib_sdl3.found() and not lib_sdl2.found() and not lib_glfw.found())
+      error('SDL3, SDL2, or GLFW are required to build dxvk-native')
+    endif
+  endif
+""")
+
+s = s.replace(
+"""  link_args += [
     '-static-libgcc',
     '-static-libstdc++',
   ]
-"""
-new = """  if platform != 'android'
+""",
+"""  if platform != 'android'
     link_args += [
       '-static-libgcc',
       '-static-libstdc++',
     ]
   endif
-"""
-if old not in s:
-    raise SystemExit("Expected DXVK native link block not found")
-p.write_text(s.replace(old, new, 1))
+""")
+p.write_text(s)
+
+# Native handle selection.
+p = root / "include/native/wsi/native_wsi.h"
+s = p.read_text()
+s = s.replace(
+"""#ifdef DXVK_WSI_WIN32
+#error You shouldnt be using this code path.
+#elif DXVK_WSI_SDL3
+""",
+"""#ifdef DXVK_WSI_WIN32
+#error You shouldnt be using this code path.
+#elif DXVK_WSI_ANDROID
+#include "wsi/native_android.h"
+#elif DXVK_WSI_SDL3
+""")
+p.write_text(s)
+
+# Register Android bootstrap.
+p = root / "src/wsi/wsi_platform.h"
+s = p.read_text()
+s = s.replace(
+"""#if defined(DXVK_WSI_WIN32)
+  extern WsiBootstrap Win32WSI;
+#endif
+""",
+"""#if defined(DXVK_WSI_WIN32)
+  extern WsiBootstrap Win32WSI;
+#endif
+#if defined(DXVK_WSI_ANDROID)
+  extern WsiBootstrap AndroidWSI;
+#endif
+""")
+p.write_text(s)
+
+p = root / "src/wsi/wsi_platform.cpp"
+s = p.read_text()
+s = s.replace(
+"""#if defined(DXVK_WSI_WIN32)
+    &Win32WSI,
+#endif
+""",
+"""#if defined(DXVK_WSI_WIN32)
+    &Win32WSI,
+#endif
+#if defined(DXVK_WSI_ANDROID)
+    &AndroidWSI,
+#endif
+""")
+s = s.replace(
+"""#if defined(DXVK_WSI_WIN32)
+        hint = "Win32";
+#else
+        throw DxvkError("DXVK_WSI_DRIVER environment variable unset");
+#endif
+""",
+"""#if defined(DXVK_WSI_WIN32)
+        hint = "Win32";
+#elif defined(DXVK_WSI_ANDROID)
+        hint = "Android";
+#else
+        throw DxvkError("DXVK_WSI_DRIVER environment variable unset");
+#endif
+""")
+p.write_text(s)
+
+# Build Android backend and avoid SDL/GLFW dependency plumbing on Android.
+p = root / "src/wsi/meson.build"
+s = p.read_text()
+s = s.replace(
+"""  'win32/wsi_window_win32.cpp',
+""",
+"""  'win32/wsi_window_win32.cpp',
+  'android/wsi_platform_android.cpp',
+""")
+s = s.replace(
+"""else
+  wsi_deps += [
+    lib_sdl3.partial_dependency(compile_args: true, includes: true),
+    lib_sdl2.partial_dependency(compile_args: true, includes: true),
+    lib_glfw.partial_dependency(compile_args: true, includes: true),
+  ]
+endif
+""",
+"""elif platform != 'android'
+  wsi_deps += [
+    lib_sdl3.partial_dependency(compile_args: true, includes: true),
+    lib_sdl2.partial_dependency(compile_args: true, includes: true),
+    lib_glfw.partial_dependency(compile_args: true, includes: true),
+  ]
+endif
+""")
+p.write_text(s)
 PY
 
 cat > "$ROOT/android-arm64.ini" <<EOF
@@ -88,20 +210,14 @@ c_link_args = ['-Wl,--gc-sections']
 cpp_link_args = ['-Wl,--gc-sections']
 EOF
 
-# NDK clang carries its own sysroot. Do not let Meson/pkg-config prepend it
-# to absolute headers installed in our target prefix.
-export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
-export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
-unset PKG_CONFIG_SYSROOT_DIR
-
-echo "==> Configuring DXVK Native for Android ARM64"
+echo "==> Configuring DXVK Native: direct Android WSI / D3D11 + DXGI"
 meson setup "$ROOT/dxvk-build" "$ROOT/dxvk" \
   --cross-file "$ROOT/android-arm64.ini" \
   --buildtype release \
   --strip \
   -Db_lto=true \
   -Db_ndebug=true \
-  -Dnative_sdl3=enabled \
+  -Dnative_sdl3=disabled \
   -Dnative_sdl2=disabled \
   -Dnative_glfw=disabled \
   -Denable_dxgi=true \
@@ -113,7 +229,7 @@ meson setup "$ROOT/dxvk-build" "$ROOT/dxvk" \
 echo "==> Building"
 ninja -C "$ROOT/dxvk-build" -v
 
-echo "==> Collecting native Android libraries"
+echo "==> Collecting Android ARM64 libraries"
 D3D11_FILE="$ROOT/dxvk-build/src/d3d11/libdxvk_d3d11.so"
 DXGI_FILE="$ROOT/dxvk-build/src/dxgi/libdxvk_dxgi.so"
 test -f "$D3D11_FILE"
@@ -125,8 +241,6 @@ LIBCXX_FILE="$TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
 test -f "$LIBCXX_FILE"
 cp -f "$LIBCXX_FILE" "$OUT/libc++_shared.so"
 
-# Meson's --strip applies to install targets; these files are copied directly
-# from the build tree, so strip them explicitly here.
 "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT/libdxvk_d3d11.so"
 "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT/libdxvk_dxgi.so"
 
@@ -137,13 +251,14 @@ cp -f "$LIBCXX_FILE" "$OUT/libc++_shared.so"
 
 cat > "$OUT/BUILD-INFO.txt" <<EOF
 DXVK=$DXVK_TAG
-SDL=$SDL_TAG
 ABI=$ANDROID_ABI
 API=$ANDROID_API
-WSI=SDL3 Android
+WSI=Direct-ANativeWindow
+VulkanSurface=VK_KHR_android_surface
 Components=D3D11,DXGI
 Runtime=NDK-r29-libc++_shared
 Optimization=Release,O3,LTO,gc-sections,explicit-strip
+SDL=none
 EOF
 
 echo "==> Done"
