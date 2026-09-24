@@ -71,3 +71,5 @@ restore-live-rtv-layout 6d0600b
 last-drawn-rtv-present 8193e7b
 
 classify-present-rtv 0a49339
+
+deep-present-copy-resolve 367b92e
