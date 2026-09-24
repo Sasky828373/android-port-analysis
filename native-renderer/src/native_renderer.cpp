@@ -1512,6 +1512,32 @@ static void load13(VkDevice d){
  if(pBeginRendering&&pEndRendering)gtavdiag::checkpoint("native-dynamic-rendering-ready");
  else gtavdiag::checkpoint("native-dynamic-rendering-missing");
 }
+static PFN_vkCmdBeginRendering resolveBeginRenderingNow(){
+ PFN_vkCmdBeginRendering p=nullptr;
+ if(g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRendering"));
+ if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRenderingKHR"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdBeginRendering"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdBeginRenderingKHR"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdBeginRendering>(dlsym(RTLD_DEFAULT,"vkCmdBeginRendering"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdBeginRendering>(dlsym(RTLD_DEFAULT,"vkCmdBeginRenderingKHR"));
+ return p;
+}
+static PFN_vkCmdEndRendering resolveEndRenderingNow(){
+ PFN_vkCmdEndRendering p=nullptr;
+ if(g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRendering"));
+ if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRenderingKHR"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdEndRendering"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdEndRenderingKHR"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdEndRendering>(dlsym(RTLD_DEFAULT,"vkCmdEndRendering"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdEndRendering>(dlsym(RTLD_DEFAULT,"vkCmdEndRenderingKHR"));
+ return p;
+}
+static void endCompatRenderingNow(VkCommandBuffer cb){
+ if(!cb)return;
+ auto end=resolveEndRenderingNow();
+ if(end)end(cb); else gtavdiag::checkpoint("native-render-scope-end-proc-missing");
+}
+
 static uint64_t resourceKey(uint64_t rage,uint32_t kind){ return (rage<<3)^uint64_t(kind); }
 static uint64_t hashMix(uint64_t h,uint64_t v){h^=v+0x9e3779b97f4a7c15ull+(h<<6)+(h>>2);return h;}
 static uint64_t graphicsStateKey(const RageMirrorState& s){
@@ -2621,7 +2647,9 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
 }
 static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  if(!cb){gtavdiag::checkpoint("native-render-scope-no-command-buffer");return false;}
- if(!pBeginRendering||!pEndRendering){gtavdiag::checkpoint("native-render-scope-no-dynamic-rendering");return false;}
+ auto beginRendering=resolveBeginRenderingNow();
+ auto endRendering=resolveEndRenderingNow();
+ if(!beginRendering||!endRendering){gtavdiag::checkpoint("native-render-scope-no-dynamic-rendering");return false;}
  RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end()){gtavdiag::checkpoint("native-render-scope-no-mirror");return false;}m=it->second;}
  for(uint32_t i=0;i<32;i++){
    if(m.vsSRV[i]){
@@ -2654,7 +2682,10 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
  }
  uint32_t rw=gCompatSwapWidth.load(),rh=gCompatSwapHeight.load();int32_t rx=0,ry=0;if(m.rtvCount&&m.rtv[0]){void* u=compatUnderlyingResource(m.rtv[0]);if(u){auto* rr=(CompatResourceObject*)u;if(rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){rw=((uint32_t*)rr->desc)[0];rh=((uint32_t*)rr->desc)[1];}}}
  if(m.viewportCount){const VkViewport* v=reinterpret_cast<const VkViewport*>(m.viewports);rx=(int32_t)std::max(0.0f,v[0].x);ry=(int32_t)std::max(0.0f,v[0].y);rw=std::min(rw,(uint32_t)std::max(1.0f,v[0].width));float vh=v[0].height<0.0f?-v[0].height:v[0].height;rh=std::min(rh,(uint32_t)std::max(1.0f,vh));}
- VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=sp;pBeginRendering(cb,&ri);return true;
+ VkRect2D area{{rx,ry},{std::max(1u,rw),std::max(1u,rh)}};VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};ri.renderArea=area;ri.layerCount=1;ri.colorAttachmentCount=colorCount;ri.pColorAttachments=colorCount?colors:nullptr;ri.pDepthAttachment=dp;ri.pStencilAttachment=sp;
+ beginRendering(cb,&ri);
+ gtavdiag::checkpoint("native-render-scope-begun");
+ return true;
 }
 static bool refreshCompatDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
  if(!g.device||!desc)return false;
@@ -2723,8 +2754,8 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
 extern "C" bool gtavnative_compat_draw(void* c,uint32_t n,uint32_t f){return gtav_native_renderer_rage_draw(c,n,f);}
 extern "C" bool gtavnative_compat_draw_indexed(void* c,uint32_t n,uint32_t f,int32_t v){return gtav_native_renderer_rage_draw_indexed(c,n,f,v);}
 extern "C" bool gtavnative_compat_dispatch(void* c,uint32_t x,uint32_t y,uint32_t z){return gtav_native_renderer_rage_dispatch(c,x,y,z);}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);pEndRendering(s.command_buffer);return true;}
-extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);pEndRendering(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw(void* ctx,uint32_t vc,uint32_t first){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,false))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDraw(s.command_buffer,vc,1,first,0);gtavdiag::checkpoint("native-vkcmd-draw");endCompatRenderingNow(s.command_buffer);return true;}
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_draw_indexed(void* ctx,uint32_t ic,uint32_t first,int32_t vo){GtavNativeDrawState s{};if(!getDrawState(ctx,&s)||!bindMappedGraphicsState(ctx,s,true))return false;if(!beginCompatRendering(ctx,s.command_buffer)){gtavdiag::checkpoint("native-draw-fail-render-scope");return false;}applyMirroredDynamicState(ctx,s.command_buffer);vkCmdDrawIndexed(s.command_buffer,ic,1,first,vo,0);gtavdiag::checkpoint("native-vkcmd-draw-indexed");endCompatRenderingNow(s.command_buffer);return true;}
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_rage_dispatch(void* ctx,uint32_t x,uint32_t y,uint32_t z){
  if(!ctx||!x||!y||!z||!g.device)return false;RageMirrorState m{};{std::lock_guard<std::mutex> l(mirrorMutex);auto it=mirrorStates.find(ctx);if(it==mirrorStates.end())return false;m=it->second;}if(!m.cs)return false;
  if(!ensureCompatComputeState(m)){gtavdiag::checkpoint("native-dispatch-fail-pipeline");return false;}VkCommandBuffer cb=currentNativeCommandBuffer();if(!cb){gtavdiag::checkpoint("native-dispatch-fail-command-buffer");return false;}
