@@ -2979,7 +2979,16 @@ static bool ensurePresentBridgeHook(){
 extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begin_frame(){
  bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
  uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
- if(attached){submitAndBeginCompatFrameCommand();ensurePresentBridgeHook();}
+ if(attached){submitAndBeginCompatFrameCommand();
+   // The previous grvk::Swapchain::Present hook at +0x6242688 installs but is
+   // never entered on this build. Do not rely on that dead path for visibility.
+   // Commit the compatibility render work on the verified active DXGI Present
+   // boundary so the native queue receives completed frame command buffers.
+   if(gCompatRecordingCB){
+     gtavdiag::checkpoint("native-active-present-submit");
+     submitCompatFrameCommand();
+   }
+ }
 
  // Hook installation was deliberately removed from the ELF constructor because
  // libgtav's graphics bootstrap is not ready there. Present is the first verified
