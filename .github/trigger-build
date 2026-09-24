@@ -37,3 +37,5 @@ libgtav-vulkan-loader-dispatch-hook 408d0ee
 fix-loader-hook-order 659b299
 
 early-vulkan-loader-hook b20add4
+
+fix-early-hook-forward-decl 65eee0d
