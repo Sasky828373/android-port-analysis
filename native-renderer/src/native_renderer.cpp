@@ -1869,45 +1869,54 @@ static bool ensureCompatFrameCommandRing(){
 
 static void submitAndBeginCompatFrameCommand(){
  if(!ensureCompatFrameCommandRing())return;
-
- // Submit the command buffer that recorded the frame which just reached Present.
  if(gCompatRecordingCB){
    profileEndFrame(gCompatFrameIndex,gCompatRecordingCB);
+   CompatFrameCmd& prev=gCompatFrameCmd[gCompatFrameIndex];
+   uint32_t pix=UINT32_MAX; bool presentReady=false;
+   VkPipelineStageFlags waitStage=VK_PIPELINE_STAGE_TRANSFER_BIT;
+   VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+   auto ac=(PFN_vkAcquireNextImageKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkAcquireNextImageKHR"):nullptr);
+   auto qp=(PFN_vkQueuePresentKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkQueuePresentKHR"):nullptr);
+   if(!gPresentProbe.swapchain)gtavdiag::checkpoint("native-engine-present-no-swapchain");
+   else if(!ac||!qp)gtavdiag::checkpoint("native-engine-present-procs-missing");
+   else if(!ensureEnginePresentSync())gtavdiag::checkpoint("native-engine-present-sync-failed");
+   else{
+     VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);
+     if(ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR){
+       gtavdiag::checkpoint("native-engine-acquire-ok");
+       if(recordEnginePresentCopy(gCompatRecordingCB,pix)){
+         gtavdiag::checkpoint("native-engine-copy-recorded");
+         si.waitSemaphoreCount=1;si.pWaitSemaphores=&gPresentAcquire[gCompatFrameIndex];si.pWaitDstStageMask=&waitStage;
+         si.signalSemaphoreCount=1;si.pSignalSemaphores=&gPresentDone[gCompatFrameIndex];presentReady=true;
+       }else gtavdiag::checkpoint("native-engine-copy-record-failed");
+     }else{
+       char d[64];snprintf(d,sizeof(d),"result=%d",(int)ar);gtavdiag::checkpoint("native-engine-acquire-failed",d);
+     }
+   }
    VkResult er=vkEndCommandBuffer(gCompatRecordingCB);
    if(er==VK_SUCCESS){
-     CompatFrameCmd& prev=gCompatFrameCmd[gCompatFrameIndex];
-     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};uint32_t pix=UINT32_MAX;bool dp=false;VkPipelineStageFlags ws=VK_PIPELINE_STAGE_TRANSFER_BIT;auto ac=(PFN_vkAcquireNextImageKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkAcquireNextImageKHR"):nullptr);auto qp=(PFN_vkQueuePresentKHR)(gPresentProbe.swapchain?vkGetDeviceProcAddr(g.device,"vkQueuePresentKHR"):nullptr);if(ac&&qp&&ensureEnginePresentSync()){VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);if((ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR)&&recordEnginePresentCopy(gCompatRecordingCB,pix)){si.waitSemaphoreCount=1;si.pWaitSemaphores=&gPresentAcquire[gCompatFrameIndex];si.pWaitDstStageMask=&ws;si.signalSemaphoreCount=1;si.pSignalSemaphores=&gPresentDone[gCompatFrameIndex];dp=true;}}si.commandBufferCount=1;si.pCommandBuffers=&gCompatRecordingCB;VkResult sr=vkQueueSubmit(g.queue,1,&si,prev.fence);if(sr==VK_SUCCESS&&dp){VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&gPresentDone[gCompatFrameIndex];pi.swapchainCount=1;pi.pSwapchains=&gPresentProbe.swapchain;pi.pImageIndices=&pix;VkResult pr=qp(g.queue,&pi);gtavdiag::checkpoint((pr==VK_SUCCESS||pr==VK_SUBOPTIMAL_KHR)?"native-engine-frame-presented":"native-engine-queue-present-failed");}
+     si.commandBufferCount=1;si.pCommandBuffers=&gCompatRecordingCB;
+     VkResult sr=vkQueueSubmit(g.queue,1,&si,prev.fence);
      if(sr==VK_SUCCESS){
-       prev.inFlight=true;
-       gtavdiag::checkpoint("compat-command-buffer-submitted");
-     }else{
-       gtavdiag::checkpoint("compat-command-buffer-submit-failed");
-     }
-   }else{
-     gtavdiag::checkpoint("compat-command-buffer-end-failed");
-   }
+       prev.inFlight=true;gtavdiag::checkpoint("compat-command-buffer-submitted");
+       if(presentReady){
+         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&gPresentDone[gCompatFrameIndex];pi.swapchainCount=1;pi.pSwapchains=&gPresentProbe.swapchain;pi.pImageIndices=&pix;
+         VkResult pr=qp(g.queue,&pi);
+         if(pr==VK_SUCCESS||pr==VK_SUBOPTIMAL_KHR)gtavdiag::checkpoint("native-engine-frame-presented");
+         else{char d[64];snprintf(d,sizeof(d),"result=%d",(int)pr);gtavdiag::checkpoint("native-engine-queue-present-failed",d);}
+       }
+     }else{char d[64];snprintf(d,sizeof(d),"result=%d",(int)sr);gtavdiag::checkpoint("compat-command-buffer-submit-failed",d);}
+   }else{char d[64];snprintf(d,sizeof(d),"result=%d",(int)er);gtavdiag::checkpoint("compat-command-buffer-end-failed",d);}
    if(tlsNativeCommandBuffer==gCompatRecordingCB)tlsNativeCommandBuffer=VK_NULL_HANDLE;
-   VkCommandBuffer expected=gCompatRecordingCB;
-   observedNativeCommandBuffer.compare_exchange_strong(expected,VK_NULL_HANDLE,std::memory_order_acq_rel);
-   gCompatRecordingCB=VK_NULL_HANDLE;
-   gCompatFrameIndex=(gCompatFrameIndex+1)%3;
+   VkCommandBuffer expected=gCompatRecordingCB;observedNativeCommandBuffer.compare_exchange_strong(expected,VK_NULL_HANDLE,std::memory_order_acq_rel);
+   gCompatRecordingCB=VK_NULL_HANDLE;gCompatFrameIndex=(gCompatFrameIndex+1)%3;
  }
-
  CompatFrameCmd& next=gCompatFrameCmd[gCompatFrameIndex];
- if(next.inFlight){
-   VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);
-   if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}
-   profileReadAndLog(gCompatFrameIndex);
-   vkResetFences(g.device,1,&next.fence);
-   next.inFlight=false;
- }
+ if(next.inFlight){VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}profileReadAndLog(gCompatFrameIndex);vkResetFences(g.device,1,&next.fence);next.inFlight=false;}
  if(vkResetCommandBuffer(next.cb,0)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-reset-failed");return;}
- VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
- bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+ VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
  if(vkBeginCommandBuffer(next.cb,&bi)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-begin-failed");return;}
- gCompatRecordingCB=next.cb;
- profileBeginFrame(gCompatFrameIndex,next.cb);
- publishNativeCommandBuffer(next.cb,"compat-command-buffer-recording");
+ gCompatRecordingCB=next.cb;profileBeginFrame(gCompatFrameIndex,next.cb);publishNativeCommandBuffer(next.cb,"compat-command-buffer-recording");
 }
 static inline void publishNativeCommandBuffer(VkCommandBuffer cb,const char* source){
  if(!cb)return;
@@ -2396,7 +2405,31 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
 }
 
 static bool ensureEnginePresentSync(){if(gPresentSyncReady)return true;if(!g.device||!gPresentProbe.swapchain)return false;VkSemaphoreCreateInfo s{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};for(int i=0;i<3;i++)if(vkCreateSemaphore(g.device,&s,nullptr,&gPresentAcquire[i])!=VK_SUCCESS||vkCreateSemaphore(g.device,&s,nullptr,&gPresentDone[i])!=VK_SUCCESS)return false;return gPresentSyncReady=true;}
-static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){if(!cb||ix>=gPresentProbe.images.size())return false;VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;{std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it==compatOwnedImages.end())return false;src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;it->second.layout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;}VkImageMemoryBarrier b[2]{};for(auto& x:b){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}b[0].oldLayout=old;b[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;b[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;b[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;b[0].image=src;b[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;b[1].image=gPresentProbe.images[ix];vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,b);VkImageBlit x{};x.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};x.srcOffsets[1]={(int32_t)sw,(int32_t)sh,1};x.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};x.dstOffsets[1]={(int32_t)gPresentProbe.extent.width,(int32_t)gPresentProbe.extent.height,1};vkCmdBlitImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&x,VK_FILTER_LINEAR);VkImageMemoryBarrier pb{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};pb.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pb.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;pb.srcQueueFamilyIndex=pb.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;pb.image=gPresentProbe.images[ix];pb.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};pb.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&pb);return true;}
+static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
+ if(!cb||ix>=gPresentProbe.images.size())return false;
+ VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it==compatOwnedImages.end()){gtavdiag::checkpoint("native-engine-present-backbuffer-missing");return false;}src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;}
+ if(!src||!sw||!sh)return false;
+ VkImageMemoryBarrier pre[2]{};
+ for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
+ pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
+ pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
+ vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
+ if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
+   VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={sw,sh,1};
+   vkCmdCopyImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);
+ }else{
+   VkImageBlit bl{};bl.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.srcOffsets[1]={(int32_t)sw,(int32_t)sh,1};bl.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.dstOffsets[1]={(int32_t)gPresentProbe.extent.width,(int32_t)gPresentProbe.extent.height,1};
+   vkCmdBlitImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&bl,VK_FILTER_NEAREST);
+ }
+ VkImageMemoryBarrier post[2]{};
+ for(auto& x:post){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
+ post[0].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;post[0].newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;post[0].srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;post[0].image=gPresentProbe.images[ix];
+ post[1].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;post[1].newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;post[1].srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;post[1].dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;post[1].image=src;
+ vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it!=compatOwnedImages.end())it->second.layout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
+ return true;
+}
 static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLayout target){
  if(!cb||!object)return false;void* resource=compatUnderlyingResource(object);if(!resource)resource=object;const uint64_t key=(uint64_t)(uintptr_t)resource;
  std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find(key);if(it==compatOwnedImages.end())return true;auto& o=it->second;if(o.layout==target)return true;
