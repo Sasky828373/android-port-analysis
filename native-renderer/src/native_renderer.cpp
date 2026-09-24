@@ -39,6 +39,7 @@ using SDLVulkanGetDrawableSizeFn=void(*)(SDL_Window*,int*,int*);
 
 
 
+extern "C" bool gtav_native_renderer_install_early_vulkan_hook();
 namespace gtavdiag {
 static const char* kPath="/storage/emulated/0/Games/GTAV/Config/gtav-native-crash.txt";
 static std::atomic<uint32_t> seq{0};
@@ -83,7 +84,6 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
 }
 __attribute__((constructor)) static void install(){
  // Install the GTA Vulkan loader hook from the ELF constructor, before D3D/renderer bootstrap.
- extern "C" bool gtav_native_renderer_install_early_vulkan_hook();
  gtav_native_renderer_install_early_vulkan_hook();
  ensureDir();
  setenv("GTAV_VULKAN_BACKEND","native",1);
