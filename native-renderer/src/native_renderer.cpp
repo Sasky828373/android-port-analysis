@@ -1437,19 +1437,21 @@ extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(c
  return win;
 }
 static bool probeGameAndroidSurface(){
- static std::atomic<bool> done{false}; if(done.load(std::memory_order_acquire))return true;
+ static std::atomic<bool> done{false},failed{false}; if(done.load(std::memory_order_acquire))return true;
+ // SDL_Vulkan_CreateSurface requires the VkInstance to have been created with the
+ // platform surface extensions. The attached engine instance is not guaranteed to
+ // have VK_KHR_android_surface, so do not hammer SDL thousands of times on failure.
  SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
+ if(failed.exchange(true,std::memory_order_acq_rel))return false;
  void* sdl=gameSDLHandle();
  auto create=(SDLVulkanCreateSurfaceFn)(sdl?dlsym(sdl,"SDL_Vulkan_CreateSurface"):nullptr);
  auto size=(SDLVulkanGetDrawableSizeFn)(sdl?dlsym(sdl,"SDL_Vulkan_GetDrawableSize"):nullptr);
  if(!create){gtavdiag::checkpoint("native-sdl-vulkan-surface-unresolved");return false;}
  VkSurfaceKHR surface=VK_NULL_HANDLE;
- if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-sdl-vulkan-surface-failed");return false;}
+ if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-sdl-vulkan-surface-instance-incompatible");return false;}
  int w=0,h=0;if(size)size(win,&w,&h);
  char detail[128];snprintf(detail,sizeof(detail),"surface=%p extent=%dx%d",(void*)surface,w,h);
  gtavdiag::checkpoint("native-android-surface-ready",detail);
- // Probe only for now: the game window is confirmed and the next stage can build the
- // swapchain against this exact surface. Destroy our temporary probe surface safely.
  auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(g.instance,"vkDestroySurfaceKHR");
  if(destroy)destroy(g.instance,surface,nullptr);
  done.store(true,std::memory_order_release);return true;
