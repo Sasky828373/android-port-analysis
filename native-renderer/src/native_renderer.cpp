@@ -849,8 +849,8 @@ static void compatFormatLayout(uint32_t fmt,uint32_t& bw,uint32_t& bh,uint32_t& 
     case 27:case 28:case 29:case 30:case 31:case 32:case 33:case 34:case 35:case 36:case 37:case 38:case 39:case 40:case 41:case 42:case 43:case 44:case 45:case 46:case 47: bytes=4; break;
     case 48:case 49:case 50:case 51:case 52:case 53:case 54:case 55:case 56:case 57:case 58:case 59: bytes=2; break;
     case 60:case 61:case 62:case 63:case 64:case 65: bytes=1; break;
-    case 70:case 71:case 72:case 79:case 80: bw=bh=4; bytes=8; break;
-    case 73:case 74:case 75:case 76:case 77:case 78:case 81:case 82:case 83:case 84:case 94:case 95:case 96:case 97:case 98:case 99: bw=bh=4; bytes=16; break;
+    case 70:case 71:case 72:case 79:case 80:case 81: bw=bh=4; bytes=8; break;
+    case 73:case 74:case 75:case 76:case 77:case 78:case 82:case 83:case 84:case 94:case 95:case 96:case 97:case 98:case 99: bw=bh=4; bytes=16; break;
     default: break;
   }
 }
@@ -2544,14 +2544,16 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_regi
 struct NativeImageMeta {
  VkImage image{};VkFormat format{VK_FORMAT_UNDEFINED};VkImageAspectFlags aspect{};
  VkImageViewType viewType{VK_IMAGE_VIEW_TYPE_2D};uint32_t baseMip{},levelCount{1},baseLayer{},layerCount{1};
- uint32_t width{},height{};VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};VkImageUsageFlags usage{};VkImageLayout observedLayout{VK_IMAGE_LAYOUT_UNDEFINED};
+ uint32_t width{},height{},dxgiFormat{};VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};VkImageUsageFlags usage{};VkImageLayout observedLayout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
 static std::mutex imageMetaMutex;
 static std::unordered_map<uint64_t,NativeImageMeta> imageMeta;
 static NativeImageMeta compatViewMeta(VkImage image,VkFormat resourceFormat,VkImageAspectFlags aspect,void* publish,uint32_t kind,uint32_t resourceMips,uint32_t resourceLayers){
  NativeImageMeta m{};m.image=image;m.format=resourceFormat;m.aspect=aspect;m.levelCount=std::max(1u,resourceMips);m.layerCount=std::max(1u,resourceLayers);
+ if(void* ur=compatUnderlyingResource(publish)){if(auto* rr=compatResourceObject(ur);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=20)m.dxgiFormat=((uint32_t*)rr->desc)[4];}
+ else if(auto* rr=compatResourceObject(publish);rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=20)m.dxgiFormat=((uint32_t*)rr->desc)[4];
  auto* v=(CompatViewObject*)publish;if(!publish||v->vtbl!=gCompatViewVtable||v->descSize<8){m.levelCount=1;m.layerCount=1;return m;}
- const uint32_t* d=(const uint32_t*)v->desc;VkFormat vf=compatDxgiFormat(d[0]);if(vf!=VK_FORMAT_UNDEFINED)m.format=vf;uint32_t dim=d[1];
+ const uint32_t* d=(const uint32_t*)v->desc;VkFormat vf=compatDxgiFormat(d[0]);if(vf!=VK_FORMAT_UNDEFINED){m.format=vf;if(d[0])m.dxgiFormat=d[0];}uint32_t dim=d[1];
  auto clampMip=[&](uint32_t base,uint32_t count){m.baseMip=std::min(base,resourceMips?resourceMips-1:0u);uint32_t avail=std::max(1u,resourceMips-m.baseMip);m.levelCount=(count==0xffffffffu||count==0)?avail:std::min(count,avail);};
  auto clampLayer=[&](uint32_t base,uint32_t count){m.baseLayer=std::min(base,resourceLayers?resourceLayers-1:0u);uint32_t avail=std::max(1u,resourceLayers-m.baseLayer);m.layerCount=(count==0xffffffffu||count==0)?avail:std::min(count,avail);};
  m.viewType=VK_IMAGE_VIEW_TYPE_2D;m.baseMip=0;m.levelCount=1;m.baseLayer=0;m.layerCount=1;
@@ -2829,6 +2831,14 @@ extern "C" __attribute__((visibility("default"))) VkImageView gtav_native_render
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto v=imageViews.find(rageResource);if(v!=imageViews.end())return v->second;auto it=imageMeta.find(rageResource);if(it==imageMeta.end())return VK_NULL_HANDLE;m=it->second;}
  if(!m.image||m.format==VK_FORMAT_UNDEFINED||!m.aspect)return VK_NULL_HANDLE;
  VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};ci.image=m.image;ci.viewType=m.viewType;ci.format=m.format;
+ if(m.dxgiFormat==65){
+   ci.components.r=VK_COMPONENT_SWIZZLE_ZERO;
+   ci.components.g=VK_COMPONENT_SWIZZLE_ZERO;
+   ci.components.b=VK_COMPONENT_SWIZZLE_ZERO;
+   ci.components.a=VK_COMPONENT_SWIZZLE_R;
+   static std::atomic<uint32_t> a8Budget{64};uint32_t n=a8Budget.fetch_sub(1,std::memory_order_relaxed);
+   if(n>0){char d[128];snprintf(d,sizeof(d),"resource=%p vkfmt=%d",(void*)rageResource,(int)m.format);gtavdiag::checkpoint("native-a8-alpha-swizzle",d);}
+ }
  ci.subresourceRange.aspectMask=m.aspect;ci.subresourceRange.baseMipLevel=m.baseMip;ci.subresourceRange.levelCount=std::max(1u,m.levelCount);ci.subresourceRange.baseArrayLayer=m.baseLayer;ci.subresourceRange.layerCount=std::max(1u,m.layerCount);
  VkImageView view=VK_NULL_HANDLE;if(vkCreateImageView(g.device,&ci,nullptr,&view)!=VK_SUCCESS)return VK_NULL_HANDLE;
  {std::lock_guard<std::mutex> l(imageMetaMutex);auto [it,inserted]=imageViews.emplace(rageResource,view);if(!inserted){vkDestroyImageView(g.device,view,nullptr);view=it->second;}}
