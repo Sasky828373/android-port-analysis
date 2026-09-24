@@ -1,0 +1,2002 @@
+name: Build XHYN Vulkan Hybrid Performance
+# Hybrid build pipeline v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [hybrid-apk-unpacked]
+    paths:
+      - ".github/trigger-build"
+
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xhyn-gameplay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Reconstruct libgtav
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd XHYN_V017_UNPACKED
+          cat libgtav_parts/libgtav.so.part.* > lib/arm64-v8a/libgtav.so
+          test "$(stat -c%s lib/arm64-v8a/libgtav.so)" = "154327768"
+          sha256sum lib/arm64-v8a/libgtav.so > HYBRID-libgtav.sha256
+
+      - name: Preserve original libgtav code during crash isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Crash-isolation build: do not RET-patch telemetry/PIX functions and do not
+          # rewrite the BindCompute control flow. These binary edits are unrelated to
+          # renderer correctness and must not be present while locating startup failure.
+          sha256sum XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          echo "No libgtav instruction patches applied in crash-isolation build." > hybrid-report/native-hotpath-patches.txt
+
+      - name: Capture exact Vulkan runtime init prologue
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=p.read_bytes()
+          va=0x618caf8
+          off=va-0x4000
+          raw=b[off:off+32]
+          if len(raw)!=32:
+              raise SystemExit("grVulkanRuntime::Init bytes unavailable")
+          Path("hybrid-report/vulkan-runtime-init-prologue.txt").write_text(
+              f"VA=0x{va:x}\nFILE_OFF=0x{off:x}\nBYTES={raw.hex()}\n"
+          )
+          print("grVulkanRuntime::Init", hex(va), raw.hex())
+          PY
+
+      - name: Native Vulkan efficiency audit
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          {
+            echo "=== GOLD Vulkan synchronization/submission symbols ==="
+            for f in XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so; do
+              echo "--- $f ---"
+              readelf -Ws "$f" | grep -E 'vk(QueueSubmit|QueuePresent|WaitForFences|ResetFences|WaitSemaphores|SignalSemaphore|AcquireNextImage|AllocateMemory|FreeMemory|AllocateDescriptor|UpdateDescriptor)' || true
+              strings -a "$f" | grep -Ei 'queue submit|wait.*fence|semaphore|descriptor|allocation|memory budget|present wait|frame pace' | head -n 250 || true
+            done
+          } > hybrid-report/native-efficiency-audit.txt
+
+          # Locate actual AArch64 call sites that reference the Vulkan wait/submit symbols.
+          # Report only; no synchronization semantics are changed until a caller is verified.
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          libs = [
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"),
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so"),
+          ]
+          needles = ("vkWaitForFences","vkWaitSemaphores","vkQueueSubmit","vkQueuePresentKHR",
+                     "vkAcquireNextImageKHR","vkUpdateDescriptorSets","vkUpdateDescriptorSetWithTemplate")
+          out=[]
+          for lib in libs:
+            out.append(f"=== {lib.name} dynamic Vulkan imports ===")
+            try:
+              syms=subprocess.check_output(["readelf","-Ws",str(lib)],text=True,errors="replace")
+            except subprocess.CalledProcessError as e:
+              syms=e.output or ""
+            for line in syms.splitlines():
+              if any(n in line for n in needles):
+                out.append(line)
+            out.append("")
+            out.append("=== relocation references ===")
+            try:
+              rel=subprocess.check_output(["readelf","-rW",str(lib)],text=True,errors="replace")
+            except subprocess.CalledProcessError as e:
+              rel=e.output or ""
+            for line in rel.splitlines():
+              if any(n in line for n in needles):
+                out.append(line)
+            out.append("")
+          Path("hybrid-report/vulkan-sync-relocations.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: GOLD embedded Vulkan dispatch audit
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          libs=[
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"),
+            Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so"),
+          ]
+          needles=("vkGetDeviceProcAddr","vkGetInstanceProcAddr","vkWaitForFences","vkWaitSemaphores",
+                   "vkQueueSubmit","vkQueuePresentKHR","vkAcquireNextImageKHR",
+                   "vkUpdateDescriptorSets","vkUpdateDescriptorSetWithTemplate")
+          out=[]
+          for lib in libs:
+            out += [f"=== {lib.name} ==="]
+            for cmd,title in [(["readelf","-Ws",str(lib)],"symbols"),
+                              (["readelf","-rW",str(lib)],"relocations"),
+                              (["readelf","-x",".dynstr",str(lib)],"dynstr")]:
+              out.append(f"-- {title} --")
+              p=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+              hits=[ln for ln in p.stdout.splitlines() if any(n in ln for n in needles)]
+              out.extend(hits or ["(no direct entries)"])
+            # Dynamic dispatch tables often hide direct relocations; retain loader/dispatch strings.
+            s=subprocess.run(["strings","-a","-t","x",str(lib)],text=True,stdout=subprocess.PIPE).stdout
+            out.append("-- string offsets --")
+            hits=[ln for ln in s.splitlines() if any(n in ln for n in needles)]
+            out.extend(hits or ["(no strings)"])
+            out.append("")
+          Path("hybrid-report/gold-vulkan-dispatch-audit.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Disassemble GOLD Vulkan dispatch call sites
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu
+          for f in XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so; do
+            b="$(basename "$f")"
+            aarch64-linux-gnu-objdump -d -C "$f" > "hybrid-report/$b.disasm.txt"
+            strings -a -t x "$f" | grep -Ei 'Failed to wait for WSI fence|Failed to wait for semaphore|Frame pace:|vkWaitForFences|vkWaitSemaphores|vkQueueSubmit|vkQueuePresentKHR|vkAcquireNextImageKHR|vkUpdateDescriptorSets|vkUpdateDescriptorSetWithTemplate' > "hybrid-report/$b.sync-string-offsets.txt" || true
+          done
+          {
+            echo "GOLD uses an internal Vulkan dispatch table; empty ELF imports/relocations are expected."
+            echo "The disassembly and string offsets are the inputs for mapping indirect BLR calls to Presenter/submit/wait code."
+          } > hybrid-report/gold-dispatch-note.txt
+
+      - name: Resolve GOLD Vulkan string Xrefs
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          targets=[
+            b"vkQueuePresentKHR",b"vkQueueSubmit",b"vkQueueSubmit2",
+            b"vkWaitForFences",b"vkWaitSemaphores",b"vkAcquireNextImageKHR",
+            b"vkUpdateDescriptorSets",b"vkUpdateDescriptorSetWithTemplate",
+            b"Presenter: Failed to wait for WSI fence: ",b"Failed to wait for semaphore: "
+          ]
+          data=lib.read_bytes()
+          ph=subprocess.check_output(["readelf","-lW",str(lib)],text=True)
+          seg=[]
+          for line in ph.splitlines():
+            m=re.match(r"\s*LOAD\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)",line)
+            if m: seg.append(tuple(int(x,16) for x in m.groups()))
+          def f2v(off):
+            for fo,va,fs in seg:
+              if fo <= off < fo+fs: return va+(off-fo)
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace")
+          lines=dis.splitlines()
+          ins=[]
+          for i,line in enumerate(lines):
+            m=re.match(r"\s*([0-9a-fA-F]+):\s+[0-9a-fA-F]+\s+([^\s]+)\s*(.*)",line)
+            if m: ins.append((i,int(m.group(1),16),m.group(2),m.group(3)))
+          out=[]
+          for s in targets:
+            off=data.find(s)
+            if off<0: continue
+            va=f2v(off)
+            out.append(f"=== {s.decode(errors='replace')} file=0x{off:x} va={('0x%x'%va) if va is not None else 'N/A'} ===")
+            if va is None: continue
+            # objdump resolves many ADR/ADRP targets in comments/operands; capture direct references.
+            hits=[]
+            hx=f"{va:x}"
+            for idx,(li,addr,mn,op) in enumerate(ins):
+              if hx in op.lower():
+                hits.append(idx)
+            for h in hits[:24]:
+              li=ins[h][0]
+              out.extend(lines[max(0,li-10):min(len(lines),li+15)])
+              out.append("---")
+            if not hits: out.append("no direct resolved xref; likely address built through ADRP+ADD/GOT/dispatch table")
+          Path("hybrid-report/gold-vulkan-xrefs.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Map GOLD Vulkan loader dispatch table
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          names=["vkQueuePresentKHR","vkQueueSubmit","vkQueueSubmit2","vkWaitForFences",
+                 "vkWaitSemaphores","vkAcquireNextImageKHR","vkUpdateDescriptorSets",
+                 "vkUpdateDescriptorSetWithTemplate"]
+          data=lib.read_bytes()
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace")
+          # Vulkan proc names are loader data, not code xrefs. Locate the loader routine instead:
+          # search disassembly around calls to dlsym/dlopen/vkGet*ProcAddr PLT and indirect BLR clusters.
+          lines=dis.splitlines()
+          out=[]
+          keys=("dlsym@plt","dlopen@plt","vkGetInstanceProcAddr","vkGetDeviceProcAddr")
+          for i,line in enumerate(lines):
+            if any(k in line for k in keys):
+              out.append("=== loader/proc resolver call ===")
+              out.extend(lines[max(0,i-18):min(len(lines),i+28)])
+          # Also record all proc-name file offsets in one compact table.
+          out.append("=== Vulkan proc-name offsets ===")
+          for n in names:
+            off=data.find(n.encode())
+            out.append(f"{n}: file_off=0x{off:x}" if off>=0 else f"{n}: missing")
+          Path("hybrid-report/gold-vulkan-loader-map.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Extract native wrapper mapping candidates
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/native-mapping
+          mkdir -p "$OUT"
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+
+          # Do not depend on a narrow grep. Preserve the full symbol table first.
+          "$NM" -C -n "$LIB" > "$OUT/all-symbols.txt"
+          grep -Ei 'WrapTexture|WrapRenderTarget|CreateGraphicsPipelines|CreateComputePipelines|AllocateDescriptorSet|GetOrCreateShaderModule|UpdateImageView|CreateOwnedImage|grVulkanRuntime|Vulkan.*(Buffer|Texture|RenderTarget|Sampler|Descriptor|Pipeline)'             "$OUT/all-symbols.txt" > "$OUT/symbols.txt" || true
+
+          python3 - <<'PY'
+          import pathlib,re,subprocess,os
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          outdir=pathlib.Path("hybrid-report/native-mapping")
+          sy=(outdir/"all-symbols.txt").read_text(errors="replace")
+          ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
+          obj=str(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump")
+          wanted=("WrapTexture","WrapRenderTarget","CreateGraphicsPipelines","CreateComputePipelines",
+                  "AllocateDescriptorSet","GetOrCreateShaderModule","UpdateImageView","CreateOwnedImage")
+          rows=[]
+          for line in sy.splitlines():
+            if not any(w in line for w in wanted): continue
+            m=re.match(r"^([0-9a-fA-F]+)\\s+\\S+\\s+(.+)$",line)
+            if m: rows.append((int(m.group(1),16),m.group(2)))
+          # Known addresses from the verified native-runtime extraction are fallback anchors.
+          known={0x6233230:"CreateGraphicsPipelines",0x6233368:"CreateComputePipelines",
+                 0x62334b0:"GetOrCreateShaderModule",0x6233f1c:"AllocateDescriptorSet",
+                 0x6233c00:"WrapRenderTarget",0x6233ddc:"WrapTexture"}
+          seen={a for a,_ in rows}
+          for a,n in known.items():
+            if a not in seen: rows.append((a,n+" [known-anchor]"))
+          rows=sorted(set(rows))
+          text=[]; idx=[]
+          for a,n in rows:
+            idx.append(f"0x{a:x} {n}")
+            text.append(f"===== {n} @0x{a:x} =====")
+            text.append(subprocess.check_output([obj,"-d","-C",f"--start-address=0x{a:x}",f"--stop-address=0x{a+0x240:x}",lib],text=True,errors="replace"))
+          (outdir/"resolved-addresses.txt").write_text("\n".join(idx)+"\n")
+          (outdir/"wrappers.disasm.txt").write_text("\n".join(text))
+          if not text or (outdir/"wrappers.disasm.txt").stat().st_size < 256:
+            raise SystemExit("native wrapper extraction unexpectedly empty")
+          PY
+          wc -c "$OUT/wrappers.disasm.txt"
+          cat "$OUT/resolved-addresses.txt"
+
+      - name: Extract GOLD resource and pipeline Vulkan calls
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/gold-native-map
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,subprocess
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"
+          data=Path(lib).read_bytes()
+          wanted=[
+            "vkCmdBindVertexBuffers","vkCmdBindIndexBuffer","vkCmdBindPipeline","vkCmdBindDescriptorSets",
+            "vkCreateBuffer","vkCreateImage","vkCreateImageView","vkCreateSampler",
+            "vkCreateShaderModule","vkCreateGraphicsPipelines","vkCreateComputePipelines",
+            "vkCreateDescriptorSetLayout","vkCreatePipelineLayout","vkAllocateDescriptorSets",
+            "vkUpdateDescriptorSets","vkCmdBeginRendering","vkCmdEndRendering"
+          ]
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",lib],text=True,errors="replace").splitlines()
+          out=[]
+          for name in wanted:
+            b=name.encode()+b"\0"; off=data.find(b)
+            out.append(f"=== {name} string_off=0x{off:x} ===")
+            if off<0: continue
+            page=off&~0xfff; lo=off&0xfff
+            hits=0
+            for i,line in enumerate(dis):
+              m=re.search(r'adrp\s+x(\d+),\s*([0-9a-fA-F]+)',line)
+              if not m or int(m.group(2),16)!=page: continue
+              r=m.group(1)
+              for j in range(i+1,min(i+10,len(dis))):
+                if re.search(rf'(add|ldr)\s+x{r},.*#(?:0x)?{lo:x}\b',dis[j]):
+                  out.extend(dis[max(0,i-12):min(len(dis),j+24)])
+                  out.append("---"); hits+=1; break
+            out.append(f"hits={hits}")
+          Path("hybrid-report/gold-native-map/resource-pipeline-xrefs.txt").write_text("\n".join(out)+"\n")
+          PY
+          test -s hybrid-report/gold-native-map/resource-pipeline-xrefs.txt
+          wc -c hybrid-report/gold-native-map/resource-pipeline-xrefs.txt
+
+      - name: Trace GOLD resource producer call sites
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/gold-native-map
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,subprocess
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so"
+          lines=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",lib],text=True,errors="replace").splitlines()
+          slots={
+            "vkCreateBuffer":0x160,"vkCreateImage":0x180,"vkCreateImageView":0x198,
+            "vkCreateShaderModule":0x1a8,"vkCreateGraphicsPipelines":0x1d8,
+            "vkCreateComputePipelines":0x1e0,"vkCreateSampler":0x200,
+            "vkCreateDescriptorSetLayout":0x210,"vkCreatePipelineLayout":0x218,
+            "vkAllocateDescriptorSets":0x238,"vkUpdateDescriptorSets":0x248,
+            "vkCmdBindPipeline":0x300,"vkCmdBindDescriptorSets":0x3c0,
+            "vkCmdBindIndexBuffer":0x3c8,"vkCmdBindVertexBuffers":0x3d0,
+          }
+          ins=[]
+          for idx,line in enumerate(lines):
+            m=re.match(r'\s*([0-9a-fA-F]+):\s+[0-9a-fA-F]+\s+(.+)$',line)
+            if m: ins.append((idx,int(m.group(1),16),m.group(2)))
+          out=[]; summary=[]
+          for name,slot in slots.items():
+            hits=[]
+            for k,(li,addr,op) in enumerate(ins):
+              # Accept direct [base,#slot] loads and split address formation:
+              # add tmp,base,#imm ; ldr fn,[tmp,#rem]. Track a short register window.
+              regs={}
+              fnreg=None
+              for q in range(max(0,k-12),k+1):
+                _,_,x=ins[q]
+                m=re.search(r'\b(?:ldr|ldur)\s+x(\d+),\s*\[x\d+,\s*#(?:0x)?([0-9a-fA-F]+)\]',x)
+                if m and int(m.group(2),16)==slot: fnreg=m.group(1)
+                m=re.search(r'\badd\s+x(\d+),\s*x(\d+),\s*#(?:0x)?([0-9a-fA-F]+)',x)
+                if m: regs[m.group(1)]=(m.group(2),int(m.group(3),16))
+                m=re.search(r'\b(?:ldr|ldur)\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?([0-9a-fA-F]+)\]',x)
+                if m and m.group(2) in regs and regs[m.group(2)][1]+int(m.group(3),16)==slot: fnreg=m.group(1)
+              if fnreg and re.search(rf'\bblr\s+x{fnreg}\b',op):
+                hits.append((li,addr))
+            # Fallback; capture any BLR and nearby immediate equal to slot. This exposes
+            # alternate table-walk patterns for manual correlation without inventing handles.
+            if not hits:
+              for k,(li,addr,op) in enumerate(ins):
+                if not op.startswith("blr "): continue
+                window="\n".join(x[2] for x in ins[max(0,k-18):k+1])
+                if re.search(rf'#(?:0x)?{slot:x}\b',window): hits.append((li,addr))
+            out.append(f"===== {name} slot=0x{slot:x} hits={len(hits)} =====")
+            for li,addr in hits:
+              out.extend(lines[max(0,li-36):min(len(lines),li+40)])
+              out.append("---")
+            summary.append(f"{name} slot=0x{slot:x} hits={len(hits)}")
+          Path("hybrid-report/gold-native-map/resource-producer-call-sites.txt").write_text("\n".join(out)+"\n")
+          Path("hybrid-report/gold-native-map/resource-producer-summary.txt").write_text("\n".join(summary)+"\n")
+          PY
+          cat hybrid-report/gold-native-map/resource-producer-summary.txt
+          test -s hybrid-report/gold-native-map/resource-producer-call-sites.txt
+
+
+      - name: Extract GOLD Vulkan dispatch slot map
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          # The loader map shows a real dlsym-populated function-pointer object around 0x345048.
+          # Dump the whole constructor and every indirect call through that object's slots.
+          aarch64-linux-gnu-objdump -d -C \
+            --start-address=0x345048 --stop-address=0x345700 \
+            XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so \
+            > hybrid-report/gold-vulkan-dispatch-constructor.txt
+          aarch64-linux-gnu-objdump -d -C XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so \
+            | grep -E -B6 -A10 'blr[[:space:]]+x[0-9]+' \
+            > hybrid-report/gold-indirect-call-sites.txt || true
+          {
+            echo "Known constructor stores:"
+            echo "object+0x10 <- dlsym result"
+            echo "object+0x18 <- dlsym result"
+            echo "object+0x20 <- dlsym result"
+            echo "object+0x28 <- dlsym result"
+            echo "object+0x30 <- dlsym result"
+            echo "object+0x38 <- dlsym result"
+            echo "object+0x40 <- dlsym result"
+            echo
+            echo "Next step: resolve each ADRP+ADD name address in constructor to the actual string,"
+            echo "then map LDR [object,#slot] + BLR call sites."
+          } > hybrid-report/gold-dispatch-slots.txt
+
+      - name: Resolve GOLD dispatch symbol names
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          data=lib.read_bytes()
+          src=Path("hybrid-report/gold-vulkan-dispatch-constructor.txt").read_text(errors="replace").splitlines()
+          out=[]
+          page=None
+          for i,line in enumerate(src):
+            m=re.search(r'adrp\s+x1,\s*([0-9a-fA-F]+)',line)
+            if m: page=int(m.group(1),16)
+            m=re.search(r'add\s+x1,\s*x1,\s*#0x([0-9a-fA-F]+)',line)
+            if m and page is not None:
+              va=page+int(m.group(1),16)
+              if i+1 < len(src) and "dlsym@plt" in src[i+1]:
+                end=data.find(b'\0',va,va+256)
+                name=data[va:end].decode(errors="replace") if end>va else "?"
+                slot="?"
+                for j in range(i+2,min(i+8,len(src))):
+                  sm=re.search(r'str\s+x(?:8|0),\s*\[x19(?:,\s*#(\d+))?\]',src[j])
+                  if sm:
+                    slot=int(sm.group(1) or 0); break
+                out.append(f"slot +0x{slot:x} ({slot:3d}) <- {name} @0x{va:x}")
+          Path("hybrid-report/gold-dispatch-symbol-map.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Locate GOLD Vulkan dispatch objects
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          data=lib.read_bytes()
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          wanted=[b"vkQueueSubmit",b"vkQueueSubmit2",b"vkQueuePresentKHR",b"vkWaitForFences",
+                  b"vkWaitSemaphores",b"vkAcquireNextImageKHR",b"vkUpdateDescriptorSets",
+                  b"vkUpdateDescriptorSetWithTemplate",b"vkGetDeviceProcAddr",b"vkGetInstanceProcAddr"]
+          out=[]
+          for s in wanted:
+            off=data.find(s)
+            if off<0: continue
+            out.append(f"=== {s.decode()} @ file/VA 0x{off:x} ===")
+            page=off & ~0xfff; lo=off & 0xfff
+            # Find ADRP to page, then nearby ADD/LDR forming exact address.
+            for i,line in enumerate(dis):
+              m=re.search(r'adrp\s+x(\d+),\s*([0-9a-fA-F]+)',line)
+              if not m or int(m.group(2),16)!=page: continue
+              reg=m.group(1)
+              for j in range(i+1,min(i+8,len(dis))):
+                if re.search(rf'add\s+x{reg},\s*x{reg},\s*#0x{lo:x}\b',dis[j]):
+                  out.append("\n".join(dis[max(0,i-10):min(len(dis),j+18)]))
+                  out.append("---")
+                  break
+          Path("hybrid-report/gold-vulkan-proc-xrefs-v2.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Trace GOLD Vulkan hot dispatch slots
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          slots={
+            "vkQueueSubmit":0x38,
+            "vkQueueSubmit2":0x40,
+            "vkWaitForFences":0x108,
+            "vkWaitSemaphores":0x2f8,
+            "vkAcquireNextImageKHR":0x588,
+            "vkQueuePresentKHR":0x590,
+            "vkUpdateDescriptorSets":0x248,
+            "vkUpdateDescriptorSetWithTemplate":0x2d0,
+          }
+          out=[]
+          for name,slot in slots.items():
+            out.append(f"=== {name} dispatch-slot +0x{slot:x} ===")
+            pats=[
+              re.compile(rf'ldr\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]'),
+              re.compile(rf'ldur\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]'),
+            ]
+            hits=0
+            for i,line in enumerate(dis):
+              if any(p.search(line) for p in pats):
+                # only useful if an indirect call follows shortly
+                window=dis[i:min(i+8,len(dis))]
+                if any(re.search(r'\bblr\s+x\d+',x) for x in window):
+                  out.extend(dis[max(0,i-12):min(len(dis),i+18)])
+                  out.append("---"); hits+=1
+            out.append(f"hits={hits}")
+          Path("hybrid-report/gold-vulkan-hot-slot-calls.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Trace GOLD dispatch through nested device table
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          lib=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so")
+          dis=subprocess.check_output(["aarch64-linux-gnu-objdump","-d","-C",str(lib)],text=True,errors="replace").splitlines()
+          # Direct offset-only matching produced false positives because ordinary C++ vtables share offsets.
+          # Require evidence that the base object came from the GOLD Vulkan dispatch/device object:
+          # look for the characteristic nested load [base,#16/40] before the slot load and BLR.
+          slots={"vkQueueSubmit":0x38,"vkQueueSubmit2":0x40,"vkWaitForFences":0x108,
+                 "vkWaitSemaphores":0x2f8,"vkAcquireNextImageKHR":0x588,"vkQueuePresentKHR":0x590,
+                 "vkUpdateDescriptorSets":0x248,"vkUpdateDescriptorSetWithTemplate":0x2d0}
+          out=[]
+          for name,slot in slots.items():
+            out.append(f"=== {name} expected slot +0x{slot:x} ===")
+            hits=0
+            for i,line in enumerate(dis):
+              if not re.search(rf'ldr\s+x(\d+),\s*\[x(\d+),\s*#(?:0x)?{slot:x}\]',line): continue
+              before="\n".join(dis[max(0,i-10):i])
+              after="\n".join(dis[i:min(len(dis),i+8)])
+              if "blr" not in after: continue
+              # Reject obvious virtual-method patterns and retain dispatch-like object chains.
+              if re.search(r'ldr\s+x\d+,\s*\[x\d+\]\n.*ldr\s+x\d+,\s*\[x\d+,\s*#(?:16|40)\]',before):
+                out.extend(dis[max(0,i-14):min(len(dis),i+14)]); out.append("---"); hits+=1
+            out.append(f"filtered_hits={hits}")
+          Path("hybrid-report/gold-vulkan-hot-slot-calls-v2.txt").write_text("\n".join(out)+"\n")
+          PY
+
+      - name: Native V10 safe instruction audit
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          # Audit the previously identified renderer-statistics locations without modifying code.
+          # This gives exact function context before any V10 native patch is allowed.
+          addrs=[0x61b0398,0x619aa5c,0x4a331a8]
+          out=[]
+          for a in addrs:
+            lo=max(0,a-0x80); hi=a+0x100
+            cmd=["aarch64-linux-gnu-objdump","-d","-C",
+                 f"--start-address=0x{lo:x}",f"--stop-address=0x{hi:x}",str(p)]
+            q=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            out.append(f"=== target 0x{a:x} ===")
+            out.append(q.stdout)
+          Path("hybrid-report/native-v10-candidate-disasm.txt").write_text("\n".join(out))
+          PY
+
+      - name: Native final integrity gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          test "$(stat -c%s "$LIB")" = "154327768"
+          readelf -h "$LIB" | grep -q 'AArch64'
+          readelf -h XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so | grep -q 'AArch64'
+          # Crash-isolation mode intentionally preserves original libgtav instructions.
+          # Integrity here verifies the reconstructed binary itself rather than requiring
+          # the old RET/BindCompute performance patches that were deliberately removed.
+          ORIG_SHA="$(cut -d' ' -f1 XHYN_V017_UNPACKED/HYBRID-libgtav.sha256)"
+          NOW_SHA="$(sha256sum "$LIB" | cut -d' ' -f1)"
+          test "$NOW_SHA" = "$ORIG_SHA"
+          {
+            echo "libgtav size OK"
+            echo "AArch64 ELF OK"
+            echo "original libgtav instruction stream preserved"
+            sha256sum "$LIB" XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          } > hybrid-report/native-final-integrity.txt
+
+      - name: GPU 8.33ms native migration audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          D3D=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_d3d11.so
+          DXGI=XHYN_V017_UNPACKED/lib/arm64-v8a/libdxvk_dxgi.so
+          GTAV=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          {
+            echo "=== Remaining translation libraries ==="
+            file "$D3D" "$DXGI"
+            echo
+            echo "=== Vulkan submission/sync/descriptor surface ==="
+            strings -a "$D3D" | grep -E 'vk(QueueSubmit2?|QueuePresentKHR|WaitForFences|WaitSemaphores|UpdateDescriptorSets|UpdateDescriptorSetWithTemplate|CmdBindDescriptorSets|CmdPipelineBarrier2?|CmdBeginRendering|CmdEndRendering)' | sort -u || true
+            echo
+            echo "=== Native GTA renderer symbols ==="
+            nm -C "$GTAV" 2>/dev/null | grep -Ei 'Vulkan|Descriptor|ConstantBuffer|BindCompute|RenderPass|Pipeline|Barrier' | head -n 1000 || true
+          } > hybrid-report/gpu-native-migration-audit.txt
+          # Hard truth gate; do not label the APK fully native while DXVK translation remains.
+          if test -s "$D3D" && test -s "$DXGI"; then
+            echo "FULL_NATIVE_GPU=NO" >> hybrid-report/gpu-native-migration-audit.txt
+            echo "TARGET_FRAME_MS=8.33" >> hybrid-report/gpu-native-migration-audit.txt
+          fi
+
+      - name: Native Vulkan core hot-path disassembly
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          : > hybrid-report/native-vulkan-core-disasm.txt
+          for spec in             "62355b0:Submission_EndAndSubmit"             "6235f54:PassContext_EndAndSubmit"             "6235cd0:PassContext_TransitionResources"             "6235de0:PassContext_TransitionOwnedResources"             "62347ec:EmitImageBarrier"             "6234ad0:ResourceStateTracker_Transition"             "6233f1c:AllocateDescriptorSet"             "6238708:UpdateDescriptorSet"             "6239c54:UpdateDescriptors"             "623b5d0:WriteDescriptors"             "6234000:AllocateUpload"             "623408c:FlushUpload"; do
+              a="${spec%%:*}"; n="${spec#*:}"
+              lo=$((16#$a - 128)); hi=$((16#$a + 768))
+              printf '\n=== %s 0x%s ===\n' "$n" "$a" >> hybrid-report/native-vulkan-core-disasm.txt
+              aarch64-linux-gnu-objdump -d -C --start-address="$lo" --stop-address="$hi" "$LIB" >> hybrid-report/native-vulkan-core-disasm.txt
+          done
+          {
+            echo "Native Vulkan core candidates audited."
+            echo "No synchronization/barrier removal applied without proof."
+            echo "Target frame time: 8.33 ms."
+          } > hybrid-report/native-vulkan-core-plan.txt
+
+      - name: Native Vulkan instrumentation cleanup V11
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes())
+          delta=0x4000
+          # PassContext::EndAndSubmit contains an unconditional Displayf after every native submission.
+          # Bypass only the formatting/log call block; submission, resource transitions and cleanup stay intact.
+          start=0x6235f98; target=0x6235fc0
+          off=start-delta
+          # encode AArch64 B target
+          imm=(target-start)>>2
+          insn=0x14000000 | (imm & 0x03ffffff)
+          b[off:off+4]=insn.to_bytes(4,"little")
+          p.write_bytes(b)
+          Path("hybrid-report/native-v11-gpu-patch.txt").write_text(
+            "V11 native GPU patch\n"
+            "PassContext::EndAndSubmit: bypass per-submit Displayf block 0x6235f98 -> 0x6235fc0\n"
+            "Preserved: Submission::EndAndSubmit, transitions, deferred destruction, barriers, synchronization\n"
+            "Target frame time: 8.33 ms\n"
+          )
+          PY
+
+      - name: Native Vulkan instrumentation cleanup V12
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes()); delta=0x4000
+          def branch(start,target):
+              off=start-delta
+              imm=(target-start)>>2
+              insn=0x14000000 | (imm & 0x03ffffff)
+              b[off:off+4]=insn.to_bytes(4,"little")
+          # Submission::Begin has steady_clock/Displayf timing diagnostics before normal state setup.
+          # Skip only the measured diagnostic block, preserving the call preceding it and all state setup.
+          branch(0x623554c,0x623557c)
+          p.write_bytes(b)
+          Path("hybrid-report/native-v12-gpu-patch.txt").write_text(
+            "V12 native GPU hot-path cleanup\n"
+            "Submission::Begin: bypass steady_clock + conditional Displayf timing diagnostics 0x623554c -> 0x623557c\n"
+            "V11 per-submit EndAndSubmit Displayf bypass retained by prior workflow step\n"
+            "No Vulkan waits, barriers, descriptor writes or queue submits removed\n"
+            "Target frame time: 8.33 ms\n"
+          )
+          PY
+
+      - name: Extract native Vulkan submission command-buffer layout
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          test -x "$OBJDUMP"
+          "$OBJDUMP" -d --start-address=0x623526c --stop-address=0x62355b0 "$LIB" > hybrid-report/gr-vulkan-submission-begin.txt
+          "$OBJDUMP" -d --start-address=0x62355b0 --stop-address=0x6235760 "$LIB" > hybrid-report/gr-vulkan-submission-submit.txt
+          grep -Eq '^\s*623526c:' hybrid-report/gr-vulkan-submission-begin.txt
+          grep -Eq '^\s*62355b0:' hybrid-report/gr-vulkan-submission-submit.txt
+          {
+            echo 'Submission::Begin=0x623526c'
+            echo 'Submission::EndAndSubmit=0x62355b0'
+            echo 'Goal: identify VkCommandBuffer field offset without guessing'
+          } > hybrid-report/gr-vulkan-submission-layout.txt
+
+      - name: Full native migration extraction pass
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/full-native
+          mkdir -p "$OUT"
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          test -x "$OBJDUMP"; test -x "$NM"
+
+          "$NM" -C -n "$LIB" > "$OUT/all-symbols.txt"
+          grep -E 'grVulkanRuntime|grVulkanRenderGraph|grVulkanResourceStateTracker|grVulkanNativeDeviceAdapter|RageDirect3DDeviceContext11|SwapChain|Present|Acquire|Descriptor|Pipeline|CommandBuffer|RenderTarget|ShaderResource|ConstantBuffer|VertexBuffer|IndexBuffer'             "$OUT/all-symbols.txt" > "$OUT/migration-symbols.txt" || true
+
+          cat > "$OUT/ranges.txt" <<'EOF'
+          0x6157c28 0x615995c grc-device-initclass
+          0x622f884 0x622fa70 vulkan-runtime-init
+          0x618c200 0x618d400 native-runtime-init
+          0x61d2300 0x61d3650 rage-d3d11-context
+          0x6232800 0x6234300 vulkan-runtime-resource-pipeline
+          0x6234700 0x6235100 vulkan-barriers-rendergraph
+          0x6235200 0x6236100 vulkan-submission-passcontext
+          EOF
+          while read -r A B N; do
+            "$OBJDUMP" -d --start-address="$A" --stop-address="$B" "$LIB" > "$OUT/$N.disasm.txt"
+          done < "$OUT/ranges.txt"
+
+          readelf -Ws "$LIB" > "$OUT/dynsym.txt"
+          readelf -d "$LIB" > "$OUT/dynamic.txt"
+          strings -a "$LIB" | grep -Ei 'vulkan|swapchain|present|descriptor|pipeline|render.?target|command.?buffer|d3d11|dxgi' > "$OUT/relevant-strings.txt" || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          out=Path("hybrid-report/full-native")
+          sy=(out/"all-symbols.txt").read_text(errors="replace")
+          names=[
+           "GetInstance","GetPhysicalDevice","GetDevice","GetQueue","GetQueueFamilyIndex",
+           "Submission::Begin","Submission::EndAndSubmit","PassContext::EndAndSubmit",
+           "PassContext::TransitionResources","CreateGraphicsPipelines","CreateComputePipelines",
+           "AllocateDescriptorSet","GetOrCreateShaderModule","EmitImageBarrier"
+          ]
+          lines=[]
+          for n in names:
+            m=next((x for x in sy.splitlines() if n in x),None)
+            lines.append((m or ("MISSING "+n)))
+          (out/"key-addresses.txt").write_text("\n".join(lines)+"\n")
+          PY
+
+          tar -czf hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz -C hybrid-report full-native
+          sha256sum hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz | tee hybrid-report/FULL-NATIVE-EXTRACTION.sha256
+          echo "Full native extraction complete"
+
+      - name: Extract native Vulkan runtime accessors
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          mkdir -p hybrid-report
+          nm -C -n "$LIB" | grep -E 'rage::grVulkanRuntime::(GetDevice|GetQueue|GetQueueFamilyIndex|GetInstance|GetPhysicalDevice)\(' | tee hybrid-report/gr-vulkan-runtime-accessors.txt
+          python3 - <<'PY'
+          import re, pathlib
+          p=pathlib.Path("hybrid-report/gr-vulkan-runtime-accessors.txt")
+          s=p.read_text()
+          wanted=["GetDevice","GetQueue","GetQueueFamilyIndex","GetInstance","GetPhysicalDevice"]
+          out=[]
+          for n in wanted:
+            m=re.search(r"^([0-9a-fA-F]+)\s+\S+\s+.*grVulkanRuntime::"+n+r"\(",s,re.M)
+            if not m: raise SystemExit("Missing grVulkanRuntime::"+n)
+            out.append(f"{n}=0x{int(m.group(1),16):x}")
+          pathlib.Path("hybrid-report/gr-vulkan-runtime-va.txt").write_text("\n".join(out)+"\n")
+          print("\n".join(out))
+          PY
+
+      - name: Extract native Vulkan adapter bootstrap
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/native-adapter
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$NM" -C -n "$LIB" > hybrid-report/native-adapter/symbols.txt
+          readelf -Ws "$LIB" > hybrid-report/native-adapter/all-dynsym.txt
+          # The adapter entry points may be hidden/local or reached through PLT from libgtav.so.
+          # Preserve every Vulkan/JNI/driver candidate instead of assuming exported C++ symbols.
+          grep -Ei 'Vulkan|DriverManager|nativeInitialize|IsRequested|Initialize' hybrid-report/native-adapter/symbols.txt > hybrid-report/native-adapter/bootstrap-symbols.txt || true
+          grep -Ei 'Vulkan|DriverManager|nativeInitialize|IsRequested|Initialize' hybrid-report/native-adapter/all-dynsym.txt > hybrid-report/native-adapter/dynsym.txt || true
+          "$OBJDUMP" -d --demangle --start-address=0x26c20 --stop-address=0x27400 "$LIB" > hybrid-report/native-adapter/bootstrap.disasm.txt
+          test -s hybrid-report/native-adapter/bootstrap.disasm.txt
+          # Also capture the PLT/import side from libgtav.so so we can resolve the adapter calls.
+          "$OBJDUMP" -d --demangle --start-address=0x6cbebc0 --stop-address=0x6cbec40 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/libgtav-adapter-plt.disasm.txt
+          # Resolve which packaged ELF actually defines the adapter symbols used by libgtav's PLT.
+          : > hybrid-report/native-adapter/provider-scan.txt
+          for so in XHYN_V017_UNPACKED/lib/arm64-v8a/*.so; do
+            echo "===== $so =====" >> hybrid-report/native-adapter/provider-scan.txt
+            "$NM" -D -C "$so" 2>/dev/null | grep -E 'grVulkanNativeDeviceAdapter::(IsRequested|Initialize)' >> hybrid-report/native-adapter/provider-scan.txt || true
+          done
+          grep -E ' [TtWw] .*grVulkanNativeDeviceAdapter::(IsRequested|Initialize)' hybrid-report/native-adapter/provider-scan.txt > hybrid-report/native-adapter/provider-definitions.txt || true
+          test -s hybrid-report/native-adapter/provider-definitions.txt
+          # Provider resolved: both adapter functions live in libgtav.so itself.
+          # Capture their exact implementations and nearby data/control flow before patching.
+          "$OBJDUMP" -d --demangle --start-address=0x622ef80 --stop-address=0x622f300 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter.disasm.txt
+          "$OBJDUMP" -s --start-address=0x622ef80 --stop-address=0x622f300 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter.bytes.txt
+          grep -n -E 'grVulkanNativeDeviceAdapter|sysParam|Get@plt|IsRequested|Initialize|Driver|Vulkan' hybrid-report/native-adapter/native-device-adapter.disasm.txt > hybrid-report/native-adapter/native-device-adapter-highlights.txt || true
+          test -s hybrid-report/native-adapter/native-device-adapter.disasm.txt
+          # IsRequested() references four literal strings; dump them and the complete Initialize tail.
+          "$OBJDUMP" -d --demangle --start-address=0x622f0b8 --stop-address=0x622f640 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so > hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+          # llvm-objdump -s can ignore the intended tiny VA window on this ELF and create huge files.
+          # Read exact bytes from the ELF by converting VAs to file offsets with pyelftools.
+          python3 - <<'PY'
+          import subprocess
+          p='XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so'
+          ph=subprocess.check_output(['readelf','-W','-l',p],text=True).splitlines()
+          segs=[]
+          for line in ph:
+            q=line.split()
+            if q and q[0]=='LOAD':
+              segs.append((int(q[2],16),int(q[5],16),int(q[1],16)))
+          req={
+            'isrequested-env1.txt':(0x21212a6,96),
+            'isrequested-value1.txt':(0x2285eda,64),
+            'isrequested-value2.txt':(0x218d945,64),
+            'isrequested-env2.txt':(0x2484d74,96),
+            'isrequested-config-default.txt':(0x23892bc,96),
+          }
+          with open(p,'rb') as f:
+            for name,(va,n) in req.items():
+              for lo,filesz,p_offset in segs:
+                hi=lo+filesz
+                if lo <= va < hi:
+                  off=p_offset+(va-lo); f.seek(off); b=f.read(n)
+                  printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
+                  strings=[s.decode('utf-8','replace') for s in b.split(b'\0') if s]
+                  with open('hybrid-report/native-adapter/'+name,'w') as o:
+                    o.write(f'VA=0x{va:x} file_off=0x{off:x} len={len(b)}\\n')
+                    o.write('hex='+b.hex()+'\\n')
+                    o.write('ascii='+printable+'\\n')
+                    o.write('strings='+repr(strings)+'\\n')
+                  break
+              else: raise RuntimeError(f'VA 0x{va:x} not mapped')
+          PY
+          du -h hybrid-report/native-adapter/isrequested-*.txt
+
+      - name: Extract RAGE D3D11 migration targets
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          nm -C -n "$LIB" 2>/dev/null | grep 'RageDirect3DDeviceContext11::' > hybrid-report/rage-d3d11-symbols.txt || true
+          python3 - <<'PY'
+          import re,subprocess,pathlib,os
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          txt=pathlib.Path("hybrid-report/rage-d3d11-symbols.txt").read_text(errors="ignore")
+          wanted=("Draw(","DrawIndexed(","DrawInstanced(","DrawIndexedInstanced(","RSSetViewports(","RSSetScissorRects(",
+                  "IASetVertexBuffers(","IASetIndexBuffer(","IASetInputLayout(","IASetPrimitiveTopology(",
+                  "VSSetShader(","PSSetShader(","CSSetShader(","VSSetConstantBuffers(","PSSetConstantBuffers(","CSSetConstantBuffers(",
+                  "PSSetShaderResources(","PSSetSamplers(","OMSetRenderTargets(","ClearRenderTargetView(","ClearDepthStencilView(",
+                  "CopyResource(","CopySubresourceRegion(","UpdateSubresource(","Dispatch(")
+          rows=[]
+          for line in txt.splitlines():
+            if any(x in line for x in wanted):
+              m=re.match(r"([0-9a-fA-F]+)\s+\S+\s+(.+)",line)
+              if m: rows.append((int(m.group(1),16),m.group(2)))
+          out=[]
+          for addr,name in rows:
+            start=f"0x{addr:x}"; stop=f"0x{addr+0x80:x}"
+            ndk=os.environ.get("ANDROID_NDK_HOME") or os.environ.get("ANDROID_NDK_ROOT")
+            objdump=(pathlib.Path(ndk)/"toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump") if ndk else pathlib.Path("llvm-objdump")
+            p=subprocess.run([str(objdump),"-d","--start-address="+start,"--stop-address="+stop,lib],text=True,capture_output=True)
+            if p.returncode or not re.search(r"^\s*[0-9a-f]+:",p.stdout,re.M):
+              raise SystemExit(f"Disassembly failed for {name}: {p.stderr}")
+            out += [f"===== {name} @ {start} =====",p.stdout]
+          pathlib.Path("hybrid-report/rage-d3d11-migration-targets.txt").write_text("\n".join(out))
+          print("migration targets:",len(rows))
+          if len(rows)<8: raise SystemExit("Too few D3D11 targets resolved; refusing blind trampoline patching")
+          PY
+          test -s hybrid-report/rage-d3d11-migration-targets.txt
+
+      - name: Enable built-in native Vulkan backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/native-adapter
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          b=bytearray(p.read_bytes())
+          # libgtav.so uses virtual addresses equal to file offsets only in some mappings.
+          # Resolve the IsRequested VA through ELF LOAD segments before patching.
+          import subprocess
+          va=0x622efc8
+          segs=[]
+          for line in subprocess.check_output(['readelf','-W','-l',str(p)],text=True).splitlines():
+            q=line.split()
+            if q and q[0]=='LOAD':
+              segs.append((int(q[2],16),int(q[5],16),int(q[1],16)))
+          for lo,filesz,p_offset in segs:
+            if lo <= va < lo+filesz:
+              off=p_offset+(va-lo)
+              break
+          else:
+            raise SystemExit(f'VA 0x{va:x} not mapped')
+          expected=bytes.fromhex("fd7bbea9f30b00f9fd030091")
+          got=bytes(b[off:off+len(expected)])
+          assert got == expected, (hex(va),hex(off),got.hex())
+          # IsRequested(): mov w0,#1 ; ret ; nop
+          b[off:off+12]=bytes.fromhex("20008052c0035fd61f2003d5")
+          p.write_bytes(b)
+          print("Enabled RAGE grVulkanNativeDeviceAdapter::IsRequested()")
+          PY
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$OBJDUMP" -d --demangle --start-address=0x622efc8 --stop-address=0x622efe0 XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so | tee hybrid-report/native-adapter/isrequested-enabled.disasm.txt
+
+      - name: Extract full grcDevice bootstrap and native handoff
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          OBJDUMP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x6158900 "$LIB" > hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6158380 --stop-address=0x6158580 "$LIB" > hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6158580 --stop-address=0x6158900 "$LIB" > hybrid-report/grc-device-bootstrap/post-device-create.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x622f840 --stop-address=0x622fa40 "$LIB" > hybrid-report/grc-device-bootstrap/vulkan-runtime-init.disasm.txt
+
+          "$NM" -D -C "$LIB" | grep -E 'grcDevice::(InitClass|GetCurrentInner|GetSwapChain|AllocateSwapChain)|grVulkan(Runtime|NativeDeviceAdapter)::(Init|Initialize|IsRequested|IsAvailable)|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/relevant-symbols.txt || true
+
+          grep -n -E 'blr|D3D11|DXGI|grVulkan|GetCurrentInner|SwapChain|cbz|cbnz|tbz|tbnz' hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt > hybrid-report/grc-device-bootstrap/control-flow-highlights.txt || true
+
+          test -s hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+          test -s hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+
+      - name: Resolve exact legacy device bootstrap imports
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          readelf -W -r "$LIB" | grep -Ei '6f319a8|6f31a50|6f31a58|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/device-bootstrap-relocations.txt || true
+          readelf -W -s "$LIB" | grep -E 'g_D3D11CreateDevice|D3D11CreateDevice|CreateDXGIFactory' > hybrid-report/grc-device-bootstrap/device-bootstrap-symbols.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          p=Path("XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so")
+          ph=subprocess.check_output(["readelf","-W","-l",str(p)],text=True)
+          seg=[]
+          for line in ph.splitlines():
+            q=line.split()
+            if q and q[0]=="LOAD":
+              seg.append((int(q[2],16),int(q[5],16),int(q[1],16)))
+          b=p.read_bytes()
+          def readva(va,n=160):
+            for v,sz,o in seg:
+              if v<=va<v+sz: return b[o+va-v:o+va-v+n]
+            return b""
+          # Strings referenced by the fatal D3D creation path and immediate post-create diagnostics.
+          for va,name in [(0x245aff3,"device-create-failure"),(0x20fd3c3,"post-create-display"),(0x24a4b2e,"feature-level-display")]:
+            x=readva(va)
+            Path("hybrid-report/grc-device-bootstrap/"+name+".txt").write_text(f"VA=0x{va:x}\nRAW={x.hex()}\nSTRINGS="+repr([s.decode("utf-8","replace") for s in re.findall(rb"[ -~]{4,}",x)]))
+          PY
+
+      - name: Trace D3D11 bootstrap pointer initialization
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$OBJDUMP" -d --demangle --start-address=0x6157df0 --stop-address=0x6158450 "$LIB" > hybrid-report/grc-device-bootstrap/device-pointer-flow.disasm.txt
+          "$OBJDUMP" -d --demangle --start-address=0x6cbeb40 --stop-address=0x6cbec00 "$LIB" > hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
+          readelf -W -r "$LIB" | grep -Ei 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain|CreateDXGIFactory|8a74050|8a74058|6f31998|6f319a8' > hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt || true
+
+      - name: Resolve native grcDevice candidates and exact D3D out objects
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+
+          {
+            echo "=== exact D3D11CreateDeviceAndSwapChain call reconstruction ==="
+            echo "GOT 0x6f319a8 -> rage::g_D3D11CreateDeviceAndSwapChain @ 0x8a74050"
+            echo "InitClass loads x25 from GOT 0x6f319a8; [x25] is the function pointer used by blr x8 @ 0x615843c"
+            echo "stack args at call: [sp+0]=x24 ppSwapChain, [sp+8]=x23 ppDevice, [sp+16]=x10 pFeatureLevel, [sp+24]=x9 ppImmediateContext"
+            echo "x24 comes from GOT 0x6f31a58 -> rage::grcDevice::sm_pSwapChain @ 0x8a735d8"
+            echo "x23 = 0x8aa7860; x9 = 0x8aa7868"
+          } > hybrid-report/grc-device-bootstrap/d3d-call-reconstruction.txt
+
+          "$NM" -n -C "$LIB" | awk '
+            BEGIN { lo=strtonum("0x8aa7600"); hi=strtonum("0x8aa7a80") }
+            /^[0-9a-fA-F]+ / {
+              a=strtonum("0x"$1);
+              if (a>=lo && a<=hi) print
+            }' > hybrid-report/grc-device-bootstrap/d3d-out-object-symbols.txt || true
+
+          "$NM" -n -C "$LIB" | grep -Ei 'grcDevice.*(Vulkan|Vk)|grVulkan.*Device|vtable for .*Vulkan|Vulkan.*vtable|grVulkanNativeDeviceAdapter|grVulkanRuntime|AllocateSwapChain|GetCurrentInner'             > hybrid-report/grc-device-bootstrap/native-device-candidates.txt || true
+
+          "$OBJDUMP" -d --demangle --start-address=0x6158120 --stop-address=0x61584b0 "$LIB"             > hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
+
+      - name: Trace grcDevice singleton and Vulkan handoff call sites
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/grc-device-bootstrap
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+
+          "$NM" -n -C "$LIB" | grep -Ei 'InitSingleton|theDevice11|s_Device11Wrapper|g_pd3dDevice(Context)?|grcDevice.*(Ctor|Init|AllocateSwapChain|GetCurrentInner)|grVulkanNativeDeviceAdapter|grVulkanRuntime::Init'             > hybrid-report/grc-device-bootstrap/device-singleton-symbols.txt || true
+
+          "$OBJDUMP" -d --demangle --start-address=0x61b1d80 --stop-address=0x61b2050 "$LIB"             > hybrid-report/grc-device-bootstrap/current-inner-swapchain.disasm.txt
+
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B8 -A14 -E '622f884|622f0b8|622efc8|8aa76ce|8aa7998|8aa7860|8aa7868'             > hybrid-report/grc-device-bootstrap/native-handoff-xrefs.txt || true
+
+      - name: Upload tiny grcDevice bootstrap evidence
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grc-device-bootstrap-${{ github.run_number }}
+          compression-level: 9
+          path: |
+            hybrid-report/grc-device-bootstrap/initclass-full.disasm.txt
+            hybrid-report/grc-device-bootstrap/device-create-window.disasm.txt
+            hybrid-report/grc-device-bootstrap/post-device-create.disasm.txt
+            hybrid-report/grc-device-bootstrap/vulkan-runtime-init.disasm.txt
+            hybrid-report/grc-device-bootstrap/relevant-symbols.txt
+            hybrid-report/grc-device-bootstrap/control-flow-highlights.txt
+            hybrid-report/grc-device-bootstrap/device-bootstrap-relocations.txt
+            hybrid-report/grc-device-bootstrap/device-bootstrap-symbols.txt
+            hybrid-report/grc-device-bootstrap/device-create-failure.txt
+            hybrid-report/grc-device-bootstrap/post-create-display.txt
+            hybrid-report/grc-device-bootstrap/feature-level-display.txt
+            hybrid-report/grc-device-bootstrap/device-pointer-flow.disasm.txt
+            hybrid-report/grc-device-bootstrap/d3d-import-plt.disasm.txt
+            hybrid-report/grc-device-bootstrap/d3d-pointer-relocations.txt
+            hybrid-report/grc-device-bootstrap/d3d-call-reconstruction.txt
+            hybrid-report/grc-device-bootstrap/d3d-out-object-symbols.txt
+            hybrid-report/grc-device-bootstrap/native-device-candidates.txt
+            hybrid-report/grc-device-bootstrap/exact-device-create-flow.disasm.txt
+            hybrid-report/grc-device-bootstrap/device-singleton-symbols.txt
+            hybrid-report/grc-device-bootstrap/current-inner-swapchain.disasm.txt
+            hybrid-report/grc-device-bootstrap/native-handoff-xrefs.txt
+
+
+
+      - name: Trace exact DXGI factory consumer and adapter calls
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OUT=hybrid-report/dxgi-factory
+          mkdir -p "$OUT"
+
+          "$NM" -n -C "$LIB" | grep -Ei 'CreateDXGIFactory|g_CreateDXGIFactory|DXGI|Adapter|InitAdapterOrdinal|InitClass' > "$OUT/symbols.txt" || true
+          "$READELF" -Wr "$LIB" | grep -Ei 'CreateDXGIFactory|DXGI|Adapter' > "$OUT/relocations.txt" || true
+
+          python3 - <<'PY'
+          import re,subprocess,os
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          obj=os.environ["ANDROID_NDK_HOME"]+"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          nm=os.environ["ANDROID_NDK_HOME"]+"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          syms=subprocess.check_output([nm,"-n","-C",lib],text=True,errors="replace")
+          out="hybrid-report/dxgi-factory"
+          targets=[]
+          for line in syms.splitlines():
+              if re.search(r'CreateDXGIFactory|InitAdapterOrdinal|grcDevice::InitClass',line,re.I):
+                  m=re.match(r'([0-9a-fA-F]+)\s+\S+\s+(.+)',line)
+                  if m: targets.append((int(m.group(1),16),m.group(2)))
+          with open(out+"/targeted-disassembly.txt","w") as w:
+              for va,name in targets:
+                  start=max(0,va-0x100); stop=va+0x500
+                  w.write("\n===== %s @ 0x%x =====\n"%(name,va))
+                  p=subprocess.run([obj,"-d","--demangle","--start-address=0x%x"%start,"--stop-address=0x%x"%stop,lib],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                  w.write(p.stdout)
+          PY
+
+          # InitClass is already proven to own the graphics bootstrap; capture a
+          # wider exact window so factory result checks and subsequent indirect
+          # vtable calls are visible without another full-lib objdump.
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x6158600 "$LIB" > "$OUT/initclass-factory-flow.txt"
+
+          {
+            echo "Goal: identify CreateDXGIFactory call, HRESULT handling, output object storage, and every indirect call consuming that object."
+            echo "Runtime proof: null/E_FAIL continued to SIGBUS before D3D11CreateDevice*, so factory state is required."
+          } > "$OUT/README.txt"
+
+      - name: Upload DXGI factory consumer trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxgi-factory-trace-${{ github.run_number }}
+          path: |
+            hybrid-report/dxgi-factory/symbols.txt
+            hybrid-report/dxgi-factory/relocations.txt
+            hybrid-report/dxgi-factory/targeted-disassembly.txt
+            hybrid-report/dxgi-factory/initclass-factory-flow.txt
+            hybrid-report/dxgi-factory/README.txt
+          if-no-files-found: error
+
+      - name: Trace D3D11 adapter manager factory usage
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          OUT=hybrid-report/dxgi-adapter-manager
+          mkdir -p "$OUT"
+          "$OBJDUMP" -d --demangle --start-address=0x61a5d60 --stop-address=0x61a6200 "$LIB" > "$OUT/adapter-manager-flow.txt"
+          {
+            echo "InitSingleton constructs grcAdapterManagerD3D11 at 0x61a5d84."
+            echo "It then calls virtual slot +0x18 with argument 28; symbol map identifies Enumerate(unsigned int) at 0x61a5dbc."
+            echo "Runtime null/E_FAIL factory test SIGBUSes before D3D11CreateDevice*, so this trace captures exact factory output consumption."
+          } > "$OUT/README.txt"
+
+      - name: Upload D3D11 adapter manager trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxgi-adapter-manager-${{ github.run_number }}
+          path: hybrid-report/dxgi-adapter-manager/
+          if-no-files-found: error
+
+      - name: Trace grcAdapterD3D11 constructor and post-GetDesc calls
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          OUT=hybrid-report/dxgi-adapter-object
+          mkdir -p "$OUT"
+          "$OBJDUMP" -d --demangle --start-address=0x61a5400 --stop-address=0x61a5d84 "$LIB" > "$OUT/adapter-object-flow.txt"
+          {
+            echo "Runtime reached compat factory, EnumAdapters and adapter GetDesc, then SIGSEGV pc=0."
+            echo "Trace grcAdapterD3D11 constructor and all IDXGIAdapter calls to identify the next missing vtable slot."
+            echo "Known manager call: adapter object stored at grcAdapterD3D11+0x10; GetDesc uses vtable +0x40."
+          } > "$OUT/README.txt"
+
+      - name: Upload DXGI adapter object trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxgi-adapter-object-${{ github.run_number }}
+          path: hybrid-report/dxgi-adapter-object/
+          if-no-files-found: error
+
+      - name: Trace post-shader bootstrap crash
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== crash LR libgtav+0x6196748 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x6196400 --stop-address=0x6196b00 "$LIB"
+          echo "=== nearest symbol ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000006196748" {last=$0} END{print last}' || true
+
+      - name: Trace post-shader bootstrap crash
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== crash LR libgtav+0x6196748 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x6196400 --stop-address=0x6196b00 "$LIB"
+          echo "=== nearest symbol ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000006196748" {last=$0} END{print last}' || true
+
+      - name: Trace CreateViewsForTexture consumers
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          {
+            echo "=== CreateViewsForTexture / Reset wider trace ==="
+            "$OBJDUMP" -d --demangle --start-address=0x61ac800 --stop-address=0x61adc00 "$LIB"
+            echo "=== symbols ==="
+            "$NM" -n -C "$LIB" | awk '$1 >= "00000000061ac800" && $1 <= "00000000061adc00" {print}' || true
+          } | tee createviews-consumers.txt
+
+      - name: Upload CreateViewsForTexture trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: createviews-consumers-${{ github.run_number }}
+          path: createviews-consumers.txt
+
+      - name: Trace current Map consumer crash 0x61ba42c
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          {
+            echo "=== current crash LR libgtav+0x61ba42c ==="
+            "$OBJDUMP" -d --demangle --start-address=0x61ba000 --stop-address=0x61ba900 "$LIB"
+            echo "=== nearest LR symbol ==="
+            "$NM" -n -C "$LIB" | awk '$1 <= "00000000061ba42c" {last=$0} END{print last}' || true
+          } | tee current-map-consumer.txt
+
+      - name: Upload current Map consumer trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-map-consumer-${{ github.run_number }}
+          path: current-map-consumer.txt
+
+      - name: Trace post-Map crash 0x6bca36c
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          {
+            echo "=== post-Map crash LR libgtav+0x6bca36c ==="
+            "$OBJDUMP" -d --demangle --start-address=0x6bca000 --stop-address=0x6bca700 "$LIB"
+            echo "=== nearest LR symbol ==="
+            "$NM" -n -C "$LIB" | awk '$1 <= "0000000006bca36c" {last=$0} END{print last}' || true
+          } | tee post-map-crash.txt
+
+      - name: Upload post-Map crash trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-map-crash-${{ github.run_number }}
+          path: post-map-crash.txt
+
+      - name: Upload post-GetBuffer crash trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-getbuffer-crash-${{ github.run_number }}
+          path: post-getbuffer-crash.txt
+
+      - name: Trace crash after shader compatibility phase
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          {
+            echo "=== crash PC libgtav+0x61bb610 / LR +0x61bb4d0 ==="
+            "$OBJDUMP" -d --demangle --start-address=0x61bb300 --stop-address=0x61bb780 "$LIB"
+            echo "=== nearest PC symbol ==="
+            "$NM" -n -C "$LIB" | awk '$1 <= "00000000061bb610" {last=$0} END{print last}' || true
+            echo "=== nearest LR symbol ==="
+            "$NM" -n -C "$LIB" | awk '$1 <= "00000000061bb4d0" {last=$0} END{print last}' || true
+          } | tee post-shader-swapchain-crash.txt
+
+      - name: Upload post-shader swapchain trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-shader-swapchain-trace-${{ github.run_number }}
+          path: post-shader-swapchain-crash.txt
+
+      - name: Trace native-runtime crash after D3D bootstrap
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== crash LR libgtav+0x618dbbc ==="
+          "$OBJDUMP" -d --demangle --start-address=0x618d900 --stop-address=0x618df00 "$LIB"
+          echo "=== nearest symbol ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "000000000618dbbc" {last=$0} END{print last}' || true
+
+      - name: Trace post-swapchain crash LR
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          echo "=== post-swapchain crash libgtav+0x61abd18 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x61abb80 --stop-address=0x61abe80 "$LIB"
+
+      - name: Trace output-enumeration crash LR
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== crash LR libgtav+0x61a45c8 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x61a4400 --stop-address=0x61a4800 "$LIB"
+          echo "=== nearest symbol ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "00000000061a45c8" {last=$0} END{print last}' || true
+
+      - name: Disassemble mapped crash instruction
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          echo "=== mapped crash VMA 0x4a6a910 / file 0x4a66910 ==="
+          "$OBJDUMP" -d --demangle --start-address=0x4a6a780 --stop-address=0x4a6ab00 "$LIB"
+          echo "=== nearest symbols ==="
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000004a6a910" {a[NR]=$0} END{for(i=NR-8;i<=NR+8;i++) if(i in a) print a[i]}' || true
+
+      - name: Print ELF crash mapping inline
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          echo "=== PT_LOAD mapping for runtime offset 0x4a6a910 ==="
+          "$READELF" -lW "$LIB" | grep -E 'LOAD|Type|FileSiz'
+          python3 - <<'PY'
+          import re,subprocess
+          lib="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"; pc=0x4a6a910
+          out=subprocess.check_output(["readelf","-lW",lib],text=True)
+          for line in out.splitlines():
+              if line.lstrip().startswith("LOAD"):
+                  xs=re.findall(r'0x[0-9a-fA-F]+',line)
+                  if len(xs)>=5:
+                      off,va,pa,fs,ms=map(lambda x:int(x,16),xs[:5])
+                      if va<=pc<va+ms:
+                          fo=off+pc-va
+                          print(f"MATCH va=0x{va:x} off=0x{off:x} filesz=0x{fs:x} memsz=0x{ms:x} => file=0x{fo:x}")
+          PY
+          echo "=== section table ==="
+          "$OBJDUMP" -h "$LIB" | grep -E 'text|plt|LOAD|CODE' || true
+
+      - name: Map crash PC through ELF segments
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/runtime-crash-elf-map
+          mkdir -p "$OUT"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          "$READELF" -lW "$LIB" > "$OUT/program-headers.txt"
+          "$READELF" -SW "$LIB" > "$OUT/sections.txt"
+          python3 - <<'PY' > "$OUT/mapping.txt"
+          import re
+          pc=0x4a6a910
+          txt=open("hybrid-report/runtime-crash-elf-map/program-headers.txt").read().splitlines()
+          print(f"runtime-relative-pc=0x{pc:x}")
+          for line in txt:
+              if line.lstrip().startswith("LOAD"):
+                  xs=re.findall(r'0x[0-9a-fA-F]+',line)
+                  if len(xs)>=5:
+                      off,va,pa,fs,ms=map(lambda x:int(x,16),xs[:5])
+                      if va <= pc < va+ms:
+                          print("MATCH",line)
+                          print(f"file-offset=0x{off+(pc-va):x}")
+          PY
+          cat "$OUT/mapping.txt"
+          # Also retain the closest executable section/symbol context instead of
+          # assuming runtime-relative PC equals llvm-objdump VMA.
+          "$OBJDUMP" -h "$LIB" > "$OUT/objdump-sections.txt"
+
+      - name: Upload crash ELF mapping
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-crash-elf-map-${{ github.run_number }}
+          path: hybrid-report/runtime-crash-elf-map/
+
+      - name: Resolve runtime crash PC 0x4a6a910
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/runtime-crash-4a6a910
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$OBJDUMP" -d --demangle --start-address=0x4a6a780 --stop-address=0x4a6ab00 "$LIB" > "$OUT/crash-window.txt"
+          "$NM" -n -C "$LIB" | awk '$1 <= "0000000004a6a910" {last=$0} END{print last}' > "$OUT/nearest-symbol.txt" || true
+          "$READELF" -Ws "$LIB" | grep -Ei '4a6a|DXGI|D3D11|SwapChain' > "$OUT/symbol-context.txt" || true
+          grep -n -B80 -A120 -E '4a6a910|blr|br[[:space:]]+x|#0x10\]|cbz|cbnz|tbz|tbnz' "$OUT/crash-window.txt" > "$OUT/crash-control-flow.txt" || true
+          cat "$OUT/nearest-symbol.txt"
+          cat "$OUT/crash-window.txt"
+
+      - name: Upload resolved runtime crash
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-crash-4a6a910-${{ github.run_number }}
+          path: hybrid-report/runtime-crash-4a6a910/
+
+      - name: Audit remaining bootstrap crash surfaces
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/bootstrap-crash-audit
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$NM" -n -C "$LIB" | grep -Ei 'grcDevice::|grcAdapter|DXGI|D3D11|VulkanNative|VulkanRuntime|SwapChain' > "$OUT/bootstrap-symbols.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6157a00 --stop-address=0x61b2100 "$LIB" | grep -n -B16 -A36 -E 'blr|br[[:space:]]+x|ldr[[:space:]].*#0x(8|10|18|20|28|30|38|40|48|50|60|128)\]|cbz|cbnz|tbz|tbnz' > "$OUT/indirect-null-surfaces.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x615995c "$LIB" > "$OUT/initclass-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1c00 --stop-address=0x61b2100 "$LIB" > "$OUT/device-helpers-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x622ef00 --stop-address=0x6235400 "$LIB" > "$OUT/native-vulkan-bootstrap.txt"
+          "$READELF" -Ws "$LIB" | grep -E 'UND.*(D3D|DXGI|vk|Vulkan)' > "$OUT/unresolved-graphics-imports.txt" || true
+          grep -n -B20 -A60 -E 'CreateDevice|CreateDXGI|SwapChain|GetCurrentInner|AllocateSwapChain|blr|#0x10\]' "$OUT/initclass-full.txt" > "$OUT/initclass-risk-windows.txt" || true
+
+      - name: Upload bootstrap crash audit
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-crash-audit-${{ github.run_number }}
+          path: hybrid-report/bootstrap-crash-audit/
+
+      - name: Resolve post-video-memory callers precisely
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-video-memory-exact
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # The previous grep mixed symbol bodies with textual matches. Emit bounded
+          # functions and direct BL callsites around the confirmed bootstrap region.
+          "$OBJDUMP" -d --demangle --start-address=0x6157c28 --stop-address=0x615995c "$LIB" > "$OUT/initclass-full.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1c80 --stop-address=0x61b1f40 "$LIB" > "$OUT/device-helper-window.txt"
+          grep -n -B24 -A70 -E 'bl[[:space:]]+0x61b1|blr|#0x10\]|cbz|cbnz|tbz|tbnz' "$OUT/initclass-full.txt" > "$OUT/initclass-consumers.txt" || true
+          grep -n -B20 -A60 -E 'blr|#0x10\]|ret|bl[[:space:]]' "$OUT/device-helper-window.txt" > "$OUT/helper-consumers.txt" || true
+
+      - name: Upload exact post-video-memory callers
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-video-memory-exact-${{ github.run_number }}
+          path: hybrid-report/post-video-memory-exact/
+
+      - name: Trace post-RetrieveVideoMemory crash path
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-video-memory
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          # Runtime proves RetrieveVideoMemory's QI/GetParent/GetDesc chain completes,
+          # then crashes on a null+0x10 dereference. Resolve the function and every
+          # caller so the next patch is based on the exact consumer.
+          "$NM" -n -C "$LIB" | grep -Ei 'RetrieveVideoMemory|DetermineAvailableMemory|DetermineManufacturer|grcDevice::InitClass|grcAdapter' > "$OUT/relevant-symbols.txt" || true
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B48 -A120 -E 'RetrieveVideoMemory|61b1d[0-9a-f]{2}|61a5ad8' > "$OUT/xrefs-and-callers.txt" || true
+          grep -n -B40 -A90 -E 'blr|cbz|cbnz|tbz|tbnz|#0x10\]' "$OUT/xrefs-and-callers.txt" > "$OUT/null-offset-consumers.txt" || true
+          test -s "$OUT/xrefs-and-callers.txt"
+
+      - name: Upload post-video-memory trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-video-memory-${{ github.run_number }}
+          path: hybrid-report/post-video-memory/
+
+      - name: Trace g_D3D11CreateDevice indirect xrefs
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/d3d11-create-device-xrefs
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # g_D3D11CreateDevice is reached through GOT 0x6f31998 -> global 0x8a74058.
+          # Find the GOT-page loads, then retain enough context to reconstruct args
+          # and the exact vtable slot consumed after QueryInterface.
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B48 -A120 -E '#0x998\]|8a74058|g_D3D11CreateDevice([^A]|$)' > "$OUT/got-xrefs.txt" || true
+          grep -n -B36 -A80 -E 'blr|#0x[0-9a-f]+\]' "$OUT/got-xrefs.txt" > "$OUT/virtual-after-create.txt" || true
+          test -s "$OUT/got-xrefs.txt"
+
+      - name: Upload D3D11CreateDevice indirect xrefs
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-create-device-xrefs-${{ github.run_number }}
+          path: hybrid-report/d3d11-create-device-xrefs/
+
+      - name: Trace exact QueryInterface consumer and failing virtual
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/d3d11-qi-consumer
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # Runtime proves QueryInterface succeeds but the next virtual is NOT the
+          # guessed IDXGIDevice::GetAdapter slot. Capture register setup and every
+          # virtual offset around the exact post-create continuation.
+          "$OBJDUMP" -d --demangle --start-address=0x6158380 --stop-address=0x6158800 "$LIB" > "$OUT/post-create-exact.txt"
+          grep -n -B32 -A72 -E 'blr|#0x[0-9a-f]+\]' "$OUT/post-create-exact.txt" > "$OUT/all-virtual-windows.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6158800 --stop-address=0x615995c "$LIB" > "$OUT/initclass-tail.txt"
+          grep -n -B24 -A48 -E 'blr|QueryInterface|DXGI|D3D|SwapChain' "$OUT/initclass-tail.txt" > "$OUT/tail-highlights.txt" || true
+
+      - name: Upload exact QueryInterface consumer trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-qi-consumer-${{ github.run_number }}
+          path: hybrid-report/d3d11-qi-consumer/
+
+      - name: Trace post-D3D11CreateDevice object consumers
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/post-d3d11-device
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          # Runtime reached QueryInterface and one unknown device/context virtual before
+          # crashing at +0x10. Capture the complete InitClass continuation plus helpers.
+          "$OBJDUMP" -d --demangle --start-address=0x6158400 --stop-address=0x615995c "$LIB" > "$OUT/initclass-after-device.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1800 --stop-address=0x61b2400 "$LIB" > "$OUT/device-accessors.txt"
+          grep -n -B20 -A50 -E 'blr|#0x10\]|#0x18\]|#0x20\]|#0x28\]|#0x30\]|#0x38\]|#0x40\]|#0x48\]|#0x50\]|#0x58\]|#0x60\]|#0x128\]' "$OUT/initclass-after-device.txt" > "$OUT/virtual-call-windows.txt" || true
+          grep -n -B16 -A36 -E 'QueryInterface|SwapChain|GetCurrentInner|AllocateSwapChain|D3D11|DXGI|blr' "$OUT/initclass-after-device.txt" > "$OUT/bootstrap-highlights.txt" || true
+
+      - name: Upload post-D3D11CreateDevice trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-d3d11-device-${{ github.run_number }}
+          path: hybrid-report/post-d3d11-device/
+
+      - name: Trace D3D11CreateDevice-only callsites and consumers
+        if: ${{ false }}
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OUT=hybrid-report/d3d11-device-only
+          mkdir -p "$OUT"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$NM" -D -C "$LIB" | grep -E 'D3D11CreateDevice($|@)|D3D11CreateDeviceAndSwapChain|g_D3D11CreateDevice' > "$OUT/symbols.txt" || true
+          "$READELF" -W -r "$LIB" | grep -E 'D3D11CreateDevice|D3D11CreateDeviceAndSwapChain' > "$OUT/relocations.txt" || true
+          "$OBJDUMP" -d --demangle --start-address=0x6158100 --stop-address=0x6158900 "$LIB" > "$OUT/initclass-device-region.txt"
+          "$OBJDUMP" -d --demangle "$LIB" | grep -n -B24 -A60 -E 'D3D11CreateDevice(@plt)?|g_D3D11CreateDevice' > "$OUT/all-device-callsite-xrefs.txt" || true
+          grep -n -B16 -A36 -E 'blr|cbz|cbnz|tbz|tbnz|ldr.*\[x[0-9]+.*#0x' "$OUT/initclass-device-region.txt" > "$OUT/indirect-consumers.txt" || true
+
+      - name: Upload D3D11CreateDevice-only trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-device-only-${{ github.run_number }}
+          path: hybrid-report/d3d11-device-only/
+
+      - name: Trace full D3D11 bootstrap compatibility surface
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          READELF="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          OUT=hybrid-report/full-d3d11-bootstrap
+          mkdir -p "$OUT"
+          "$OBJDUMP" -d --demangle --start-address=0x6157a64 --stop-address=0x6159000 "$LIB" > "$OUT/grc-device-init.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61a5330 --stop-address=0x61a6040 "$LIB" > "$OUT/adapter-bootstrap.txt"
+          "$OBJDUMP" -d --demangle --start-address=0x61b1800 --stop-address=0x61b2400 "$LIB" > "$OUT/device-accessors.txt"
+          "$NM" -D -C "$LIB" | grep -E 'D3D11|DXGI|grcDevice|grcAdapterD3D11|grcAdapterD3D11Output' > "$OUT/symbols.txt" || true
+          "$READELF" -rW "$LIB" | grep -E 'D3D11|DXGI|grcDevice|grcAdapterD3D11' > "$OUT/relocations.txt" || true
+          {
+            echo "Full static bootstrap surface for replacing legacy DXGI/D3D11 bootstrap with compatibility objects backed by native Vulkan."
+            echo "Known working slots: Factory Release +0x10, EnumAdapters +0x38; Adapter Release +0x10, EnumOutputs +0x38, GetDesc +0x40."
+            echo "D3D11CreateDevice* remain diagnostic traps until every immediately consumed output/vtable slot is derived from this trace."
+          } > "$OUT/README.txt"
+
+      - name: Upload full D3D11 bootstrap trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-d3d11-bootstrap-${{ github.run_number }}
+          path: hybrid-report/full-d3d11-bootstrap/
+          if-no-files-found: error
+
+      - name: Apply first native Vulkan bootstrap patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          python3 - <<'PY'
+          import struct
+          p="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          data=bytearray(open(p,"rb").read())
+
+          # ELF64 PT_LOAD VA -> file offset.
+          e_phoff=struct.unpack_from("<Q",data,0x20)[0]
+          e_phentsize=struct.unpack_from("<H",data,0x36)[0]
+          e_phnum=struct.unpack_from("<H",data,0x38)[0]
+          def vaoff(va):
+              for i in range(e_phnum):
+                  o=e_phoff+i*e_phentsize
+                  p_type=struct.unpack_from("<I",data,o)[0]
+                  if p_type != 1: continue
+                  p_offset=struct.unpack_from("<Q",data,o+0x08)[0]
+                  p_vaddr=struct.unpack_from("<Q",data,o+0x10)[0]
+                  p_filesz=struct.unpack_from("<Q",data,o+0x20)[0]
+                  if p_vaddr <= va < p_vaddr+p_filesz:
+                      return p_offset+(va-p_vaddr)
+              raise RuntimeError(hex(va))
+
+          # Keep IsRequested forced native (already validated as a real adapter path).
+          # Patch the legacy DX feature-level query so native bootstrap does not
+          # immediately dereference a D3D device merely to report FL11_0.
+          va=0x61b1db0
+          off=vaoff(va)
+          original=bytes(data[off:off+8])
+          # mov w0,#0x44c ; ret
+          patch=struct.pack("<II",0x52808980,0xd65f03c0)
+          data[off:off+8]=patch
+
+          open(p,"wb").write(data)
+          print("patched GetDXFeatureLevelSupported",hex(va),
+                "old",original.hex(),"new",patch.hex())
+          PY
+
+          mkdir -p hybrid-report/native-patch
+          {
+            echo "PATCH: grcDevice::GetDXFeatureLevelSupported @ 0x61b1db0"
+            echo "ACTION: return 0x44c (D3D feature level 11.0 engine code) without dereferencing legacy D3D device"
+            echo "PURPOSE: first executable native-Vulkan bootstrap patch; remove one proven post-bootstrap D3D object dependency"
+            echo "NOTE: D3D11CreateDeviceAndSwapChain itself is intentionally not NOPed yet because InitClass immediately consumes real swapchain/device/context objects."
+          } > hybrid-report/native-patch/patch-manifest.txt
+
+      - name: Keep verified bootable engine startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Do not force the unverified native selector here. This libgtav does not
+          # export grVulkanNativeDeviceAdapter::IsRequested in its symbol table, and
+          # the previous hard-coded address froze startup. Keep the engine bytes intact.
+          LIB=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so
+          test -s "$LIB"
+          echo "engine startup left intact; native renderer will attach only after runtime exists"
+
+      - name: Trace crash after CreateDepthStencilView
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/post-inputlayout-crash
+          LIB="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$OBJDUMP" -d --demangle --start-address=0x61bc900 --stop-address=0x61bce00 "$LIB" > hybrid-report/post-inputlayout-crash/61bcb4c.disasm.txt
+          "$NM" -n -C "$LIB" 2>/dev/null | awk '$1 >= "00000000061bc000" && $1 <= "00000000061bd000"' > hybrid-report/post-inputlayout-crash/symbols.txt || true
+
+      - name: Upload post-inputlayout crash trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-inputlayout-crash-${{ github.run_number }}
+          path: hybrid-report/post-inputlayout-crash
+
+      - name: Trace abort after resource/view bootstrap
+        if: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hybrid-report/post-resource-abort
+          LIB="XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so"
+          OBJDUMP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+          NM="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$OBJDUMP" -d --demangle --start-address=0x61bc000 --stop-address=0x61bd800 "$LIB" > hybrid-report/post-resource-abort/render-target-region.disasm.txt
+          "$NM" -n -C "$LIB" 2>/dev/null | awk '$1 >= "00000000061bb000" && $1 <= "00000000061be000"' > hybrid-report/post-resource-abort/symbols.txt || true
+
+      - name: Upload post-resource abort trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-resource-abort-${{ github.run_number }}
+          path: hybrid-report/post-resource-abort
+
+      - name: Upload black-screen crash trace
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: black-screen-crash-${{ github.run_number }}
+          path: hybrid-report/black-screen-crash
+
+      - name: Build native Vulkan compatibility renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf native-renderer/third_party/dxbc-spirv
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/doitsujin/dxbc-spirv.git native-renderer/third_party/dxbc-spirv
+          git -C native-renderer/third_party/dxbc-spirv submodule update --init --recursive --depth 1
+          test -s native-renderer/third_party/dxbc-spirv/dxbc/dxbc_api.cpp
+          test -s native-renderer/third_party/dxbc-spirv/submodules/spirv_headers/include/spirv/unified1/spirv.hpp
+          echo "dxbc-spirv revision: $(git -C native-renderer/third_party/dxbc-spirv rev-parse HEAD)" | tee hybrid-report/dxbc-spirv-revision.txt
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+          : "${ANDROID_NDK_HOME:=${ANDROID_NDK_ROOT:-}}"
+          test -n "$ANDROID_NDK_HOME"
+          cmake -S native-renderer -B native-renderer/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28
+          cmake --build native-renderer/build --parallel 2
+          test -s native-renderer/build/libgtav_native_renderer.so
+          cp -f native-renderer/build/libgtav_native_renderer.so XHYN_V017_UNPACKED/lib/arm64-v8a/
+          sudo apt-get install -y patchelf
+          BRIDGE=XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so
+          patchelf --add-needed libgtav_native_renderer.so "$BRIDGE"
+          patchelf --print-needed "$BRIDGE" | grep -Fx libgtav_native_renderer.so
+          readelf -d "$BRIDGE" | grep -F 'libgtav_native_renderer.so'
+          file XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so | tee hybrid-report/native-renderer-build.txt
+          readelf -Ws XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so | \
+            grep -E 'gtav_native_renderer_(attach|get_dispatch|register_resource|draw|draw_indexed|dispatch|submit)' \
+            | tee -a hybrid-report/native-renderer-build.txt
+
+      - name: Verify hybrid native stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd XHYN_V017_UNPACKED
+          grep -q '^interop_native=true' assets/default-android.ini
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_surface_state'
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_lock_surface'
+          strings -a lib/arm64-v8a/libgtav_vulkan.so | grep -q 'gtav_android_unlock_surface'
+          test -s lib/arm64-v8a/libgtav.so
+          test -s lib/arm64-v8a/libgtav_vulkan.so
+          test -s lib/arm64-v8a/libgtavvk.so
+          test -s lib/arm64-v8a/libgtav_native_renderer.so
+
+      - name: Disable obsolete graphics recovery for native Vulkan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v apktool >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq apktool
+          fi
+          rm -rf /tmp/xhyn-launcher /tmp/xhyn-launcher-built.apk
+          apktool d -f -r "XHYN V_0.17custom.apk" -o /tmp/xhyn-launcher >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          smalis=list(Path("/tmp/xhyn-launcher").glob("smali*/**/*.smali"))
+          needles = ("Invalid graphics recovery value", "Invalid graphics recovery file")
+          hits=[]
+          for p in smalis:
+              s=p.read_text(errors="ignore")
+              if any(n in s for n in needles): hits.append(p)
+          if not hits: raise SystemExit("graphics recovery implementation not found")
+          patched=0
+          for p in hits:
+              lines=p.read_text().splitlines()
+              changed=False
+              for needle in needles:
+                  while True:
+                      try: msg=next(i for i,l in enumerate(lines) if needle in l)
+                      except StopIteration: break
+                      newi=None; throwi=None
+                      for i in range(msg-1,max(-1,msg-20),-1):
+                          if "new-instance" in lines[i] and "Ljava/io/IOException;" in lines[i]:
+                              newi=i; break
+                      for i in range(msg+1,min(len(lines),msg+20)):
+                          if lines[i].strip().startswith("throw "):
+                              throwi=i; break
+                      if newi is None or throwi is None:
+                          raise SystemExit(f"cannot isolate recovery exception {needle} in {p}")
+                      lines[newi:throwi+1]=["    # native Vulkan: obsolete graphics recovery exception removed","    nop"]
+                      changed=True
+              if changed:
+                  p.write_text("\n".join(lines)+"\n"); patched+=1
+          print("recovery implementations patched:",patched)
+          PY
+          apktool b /tmp/xhyn-launcher -o /tmp/xhyn-launcher-built.apk >/dev/null
+          unzip -p /tmp/xhyn-launcher-built.apk classes.dex > /tmp/patched-classes.dex
+          test -s /tmp/patched-classes.dex
+          for s in "Invalid graphics recovery value" "Invalid graphics recovery file"; do
+            if strings /tmp/patched-classes.dex | grep -Fq "$s"; then
+              echo "obsolete recovery error remains: $s" >&2; exit 1
+            fi
+          done
+          unzip -p "XHYN V_0.17custom.apk" classes.dex > /tmp/original-classes.dex
+          ! cmp -s /tmp/original-classes.dex /tmp/patched-classes.dex
+
+      - name: Patch original APK without rebuilding package structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf patchstage out
+          mkdir -p patchstage/assets patchstage/lib/arm64-v8a out
+          cp "XHYN V_0.17custom.apk" out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'META-INF/*' || true
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex || true
+          cp /tmp/patched-classes.dex patchstage/classes.dex
+
+          # Reset launcher-side graphics recovery state. This state is stored outside the
+          # visible settings UI and can survive renderer/package changes.
+          mkdir -p patchstage/assets
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini > /tmp/original-default-android.ini 2>/dev/null || true
+          cp XHYN_V017_UNPACKED/assets/default-android.ini patchstage/assets/
+          # Pure-native package must not advertise renderer payloads that are deliberately absent.
+          cat > patchstage/assets/xhyn-renderers.json <<'JSON'
+          [
+            {
+              "id": "bundled",
+              "name": "Native Vulkan",
+              "experimental": false,
+              "files": {}
+            }
+          ]
+          JSON
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_vulkan.so patchstage/lib/arm64-v8a/
+          cp XHYN_V017_UNPACKED/lib/arm64-v8a/libgtav_native_renderer.so patchstage/lib/arm64-v8a/
+          sudo apt-get update -q
+          sudo apt-get install -y patchelf
+          # DXVK-free package: keep the native renderer as the only compatibility/startup
+          # provider. No DXVK payload is copied back into the APK.
+          patchelf --remove-needed libdxvk_d3d11.so patchstage/lib/arm64-v8a/libgtav.so || true
+          patchelf --remove-needed libdxvk_dxgi.so patchstage/lib/arm64-v8a/libgtav.so || true
+          patchelf --remove-needed libdxvk_d3d10core.so patchstage/lib/arm64-v8a/libgtav.so || true
+          patchelf --add-needed libgtav_native_renderer.so patchstage/lib/arm64-v8a/libgtav.so
+
+          # Keep the renderer as a direct dependency. Android resolves undefined symbols
+          # across the dependency graph; DT_NEEDED order is not a supported patchelf
+          # priority mechanism, so do not rewrite every dependency just to reorder it.
+          patchelf --print-needed patchstage/lib/arm64-v8a/libgtav.so > /tmp/libgtav-needed.txt
+          if grep -q '^libdxvk_' /tmp/libgtav-needed.txt; then echo "DXVK dependency remains" >&2; exit 1; fi
+          zip -q -d out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk 'lib/arm64-v8a/libdxvk_d3d11.so' 'lib/arm64-v8a/libdxvk_dxgi.so' 'lib/arm64-v8a/libdxvk_d3d10core.so' 'assets/dxvk.conf' 'assets/*dxvk*' 'assets/dxvk/*' || true
+
+          cd patchstage
+          zip -q -0 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk classes.dex lib/arm64-v8a/libgtav.so lib/arm64-v8a/libgtav_vulkan.so lib/arm64-v8a/libgtav_native_renderer.so
+          zip -q -9 -u ../out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk assets/default-android.ini assets/xhyn-renderers.json
+          cd ..
+
+      - name: Align sign and validate install package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+
+          "$BT/zipalign" -f -p 4             out/XHYN_V0.17_HYBRID_PERFORMANCE_UNSIGNED.apk             out/XHYN_V0.17_HYBRID_PERFORMANCE_ALIGNED.apk
+          "$BT/zipalign" -c -p 4 out/XHYN_V0.17_HYBRID_PERFORMANCE_ALIGNED.apk
+
+          keytool -genkeypair -noprompt             -keystore out/hybrid.keystore -storepass android -keypass android             -alias hybrid -keyalg RSA -keysize 2048 -validity 10000             -dname "CN=XHYN Hybrid,O=Android,C=DE"
+
+          "$BT/apksigner" sign             --ks out/hybrid.keystore --ks-pass pass:android --key-pass pass:android             --out out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk             out/XHYN_V0.17_HYBRID_PERFORMANCE_ALIGNED.apk
+
+          "$BT/apksigner" verify --verbose --print-certs out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+          "$BT/aapt" dump badging out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | tee out/aapt-badging.txt
+          "$BT/aapt" dump xmltree out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk AndroidManifest.xml >/dev/null
+          unzip -t out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk >/dev/null
+          unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -F 'lib/arm64-v8a/libgtav_native_renderer.so'
+          ! unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk | grep -E 'libdxvk_(d3d11|dxgi|d3d10core)\.so|assets/dxvk\.conf'
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav_vulkan.so | strings | grep -F 'libgtav_native_renderer.so'
+          unzip -l out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > /tmp/apk-list.txt
+          if grep -Eiq 'dxvk' /tmp/apk-list.txt; then
+            echo "DXVK payload remains in final APK" >&2
+            grep -Ei 'dxvk' /tmp/apk-list.txt >&2
+            exit 1
+          fi
+          unzip -p out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk lib/arm64-v8a/libgtav.so > /tmp/final-libgtav.so
+          patchelf --print-needed /tmp/final-libgtav.so > /tmp/final-needed.txt
+          if grep -q '^libdxvk_' /tmp/final-needed.txt; then
+            echo "DXVK dependency remains in packaged libgtav.so" >&2
+            cat /tmp/final-needed.txt >&2
+            exit 1
+          fi
+          cp out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk /tmp/final.apk
+          unzip -t /tmp/final.apk >/dev/null
+          sha256sum out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk > out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
+
+      - name: Publish direct APK release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="native-capture-${GITHUB_RUN_NUMBER}"
+          APK="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk"
+          SUM="out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256"
+          if ! gh release create "$TAG" "$APK" "$SUM" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "XHYN Native Capture ${GITHUB_RUN_NUMBER}" \
+            --notes "Direct APK download. Built from ${GITHUB_SHA} and validated with zipalign, apksigner and unzip -t."; then
+            echo "::warning::GitHub Release unavailable for this token; APK build itself succeeded."
+          fi
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V0.17-NATIVE-${{ github.run_number }}
+          compression-level: 0
+          path: |
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
+
+      - name: Upload tiny Vulkan switch evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-vulkan-switch-${{ github.run_number }}
+          compression-level: 9
+          path: |
+            hybrid-report/native-adapter/isrequested-env1.txt
+            hybrid-report/native-adapter/isrequested-value1.txt
+            hybrid-report/native-adapter/isrequested-value2.txt
+            hybrid-report/native-adapter/isrequested-env2.txt
+            hybrid-report/native-adapter/isrequested-config-default.txt
+            hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+
+      - name: Upload APK and native migration evidence
+        if: ${{ false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHYN-V0.17-NATIVE-MIGRATION
+          path: |
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk
+            out/XHYN_V0.17_HYBRID_PERFORMANCE_SIGNED.apk.sha256
+            hybrid-report/rage-d3d11-symbols.txt
+            hybrid-report/rage-d3d11-migration-targets.txt
+            hybrid-report/full-native/grc-device-initclass.disasm.txt
+            hybrid-report/full-native/vulkan-runtime-init.disasm.txt
+            hybrid-report/native-adapter/bootstrap-symbols.txt
+            hybrid-report/native-adapter/bootstrap.disasm.txt
+            hybrid-report/native-adapter/dynsym.txt
+            hybrid-report/native-adapter/libgtav-adapter-plt.disasm.txt
+            hybrid-report/native-adapter/provider-scan.txt
+            hybrid-report/native-adapter/provider-definitions.txt
+            hybrid-report/native-adapter/native-device-adapter.disasm.txt
+            hybrid-report/native-adapter/native-device-adapter.bytes.txt
+            hybrid-report/native-adapter/native-device-adapter-highlights.txt
+            hybrid-report/native-adapter/native-device-adapter-initialize-full.disasm.txt
+            hybrid-report/native-adapter/isrequested-env1.txt
+            hybrid-report/native-adapter/isrequested-value1.txt
+            hybrid-report/native-adapter/isrequested-value2.txt
+            hybrid-report/native-adapter/isrequested-env2.txt
+            hybrid-report/native-adapter/isrequested-config-default.txt
+            hybrid-report/full-native/key-addresses.txt
+            hybrid-report/FULL-NATIVE-EXTRACTION.tar.gz
+          compression-level: 0
