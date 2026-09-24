@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/prctl.h>
 #include <ucontext.h>
 #include <cstdio>
 #include <cstdlib>
@@ -52,6 +53,9 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
  const char* s=" sp=";memcpy(p,s,strlen(s));p+=strlen(s);p=puthex(p,(uint64_t)uc->uc_mcontext.sp);
  const char* l=" lr=";memcpy(p,l,strlen(l));p+=strlen(l);p=puthex(p,(uint64_t)uc->uc_mcontext.regs[30]);
 #endif
+ const char* ti=" tid=";memcpy(p,ti,strlen(ti));p+=strlen(ti);p=putdec(p,(unsigned)syscall(SYS_gettid));
+ char tname[17]{};syscall(SYS_prctl,PR_GET_NAME,tname,0,0,0);
+ const char* tn=" thread_name=";memcpy(p,tn,strlen(tn));p+=strlen(tn);size_t tnn=strnlen(tname,16);memcpy(p,tname,tnn);p+=tnn;
  const char* x=" thread_last=";memcpy(p,x,strlen(x));p+=strlen(x);const char* z=tlsLast;size_t zn=strlen(z);memcpy(p,z,zn);p+=zn; const char* gx=" global_last=";memcpy(p,gx,strlen(gx));p+=strlen(gx);z=last.load(std::memory_order_relaxed);zn=strlen(z);memcpy(p,z,zn);p+=zn;*p++='\n';
  int fd=open(kPath,O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC,0664);if(fd>=0){
    write(fd,b,p-b);
@@ -1943,7 +1947,7 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_cuto
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_draw_hooks(){
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){gtavdiag::checkpoint("native-hook-libgtav-missing");return false;}
- auto mark=[&](const char* name,bool ok){gtavdiag::checkpoint(ok?name:"native-hook-failed",ok?nullptr:name);return ok;};
+ auto mark=[&](const char* name,bool ok){gtavdiag::checkpoint(ok?name:"native-hook-optional-missing",ok?nullptr:name);return ok;};
  auto install=[&](uintptr_t va,void* hook,void** orig,const char* name){
    uint32_t saved[4]{};void* trampoline=nullptr;
    bool ok=patchJump(gtavBase+va,hook,saved,&trampoline);
@@ -1997,6 +2001,8 @@ extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_inst
  // native hooks are armed. Treat moved optional state veneers as diagnostics rather
  // than blocking the verified Draw/DrawIndexed hooks.
  bool cutover=draw&&drawIndexed;
+ if(cutover)gtavdiag::checkpoint(state?"native-hook-cutover-full-state":"native-hook-cutover-compat-state");
+ else gtavdiag::checkpoint("native-hook-cutover-unavailable");
  drawHooksInstalled.store(cutover,std::memory_order_release);
  char detail[224];snprintf(detail,sizeof(detail),"draw=%d indexed=%d dispatch=%d submission=%d passCapture=%d passEnd=%d state=%d cutover=%d compat-state-fallback=%d",draw,drawIndexed,dispatch,submission,passCapture,passEnd,state,cutover,state?0:1);
  gtavdiag::checkpoint("native-hook-summary",detail);
