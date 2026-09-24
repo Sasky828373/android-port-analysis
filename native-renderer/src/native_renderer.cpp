@@ -1552,6 +1552,7 @@ struct RageMirrorState {
 };
 static std::mutex mirrorMutex;
 static std::unordered_map<void*,RageMirrorState> mirrorStates;
+static std::atomic<void*> lastCompatPrimaryRTV{nullptr};
 static std::atomic<uint32_t> captureBudget{256};
 static std::atomic<uint32_t> attachAttempts{0};
 static std::atomic<uint32_t> attachSuccesses{0};
@@ -1571,7 +1572,7 @@ extern "C" void gtavnative_compat_mirror_shader(void* c,uint32_t stage,void* sh)
 extern "C" void gtavnative_compat_mirror_viewports(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.viewportCount=n>4?4:n;if(p)std::memcpy(m.viewports,p,m.viewportCount*24);}
 extern "C" void gtavnative_compat_mirror_scissors(void* c,uint32_t n,const void* p){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.scissorCount=n>16?16:n;if(p)std::memcpy(m.scissors,p,m.scissorCount*16);}
 extern "C" void gtavnative_compat_mirror_objs(void* c,uint32_t k,uint32_t f,uint32_t n,void* const* v){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);void** d=nullptr;uint32_t cap=16;switch(k){case 0:d=m.vsCB;break;case 1:d=m.psCB;break;case 2:d=m.csCB;break;case 3:d=m.vsSRV;cap=32;break;case 4:d=m.psSRV;cap=32;break;case 5:d=m.csSRV;cap=32;break;case 6:d=m.vsSampler;break;case 7:d=m.psSampler;break;case 8:d=m.csSampler;break;case 9:d=m.csUAV;break;case 10:d=&m.blendState;cap=1;break;case 11:d=&m.depthState;cap=1;break;case 12:d=&m.rasterState;cap=1;break;default:return;}for(uint32_t i=0;i<n&&f+i<cap;i++)d[f+i]=v?v[i]:nullptr;}
-extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
+extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void* const* r,void* d){if(n&&r&&r[0])lastCompatPrimaryRTV.store(r[0],std::memory_order_release);std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.rtvCount=n>8?8:n;for(uint32_t i=0;i<8;i++)m.rtv[i]=(i<m.rtvCount&&r)?r[i]:nullptr;m.dsv=d;}
 
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
@@ -2408,25 +2409,19 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
 static bool ensureEnginePresentSync(){if(gPresentSyncReady)return true;if(!g.device||!gPresentProbe.swapchain)return false;VkSemaphoreCreateInfo s{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};for(int i=0;i<3;i++)if(vkCreateSemaphore(g.device,&s,nullptr,&gPresentAcquire[i])!=VK_SUCCESS||vkCreateSemaphore(g.device,&s,nullptr,&gPresentDone[i])!=VK_SUCCESS)return false;return gPresentSyncReady=true;}
 static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!cb||ix>=gPresentProbe.images.size())return false;
- VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it==compatOwnedImages.end()){gtavdiag::checkpoint("native-engine-present-backbuffer-missing");return false;}src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;}
+ VkImage src{};VkImageLayout old{};uint32_t sw=0,sh=0;void* presentResource=&gCompatBackBuffer;
+ if(void* rtv=lastCompatPrimaryRTV.load(std::memory_order_acquire)){if(void* r=compatUnderlyingResource(rtv)){if(createCompatOwnedImage(r,2u,rtv)){presentResource=r;static std::atomic<bool> once{false};if(!once.exchange(true))gtavdiag::checkpoint("native-engine-present-live-rtv-source");}}}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it==compatOwnedImages.end()){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=it->second.image;old=it->second.layout;sw=it->second.width;sh=it->second.height;}
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
  for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
  pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
  pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
- static std::atomic<uint32_t> presentProbeFrames{0};
- uint32_t probeFrame=presentProbeFrames.fetch_add(1,std::memory_order_relaxed);
- if(probeFrame<180){
-   VkClearColorValue probeColor{{1.0f,0.0f,1.0f,1.0f}};
-   VkImageSubresourceRange rr{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
-   vkCmdClearColorImage(cb,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&probeColor,1,&rr);
-   if(probeFrame==0)gtavdiag::checkpoint("native-engine-visible-magenta-probe");
- } else if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
+ if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
    VkImageCopy cp{};cp.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.extent={sw,sh,1};
    vkCmdCopyImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);
- }else if(probeFrame>=180){
+ }else{
    VkImageBlit bl{};bl.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.srcOffsets[1]={(int32_t)sw,(int32_t)sh,1};bl.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};bl.dstOffsets[1]={(int32_t)gPresentProbe.extent.width,(int32_t)gPresentProbe.extent.height,1};
    vkCmdBlitImage(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,gPresentProbe.images[ix],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&bl,VK_FILTER_NEAREST);
  }
@@ -2435,7 +2430,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  post[0].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;post[0].newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;post[0].srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;post[0].image=gPresentProbe.images[ix];
  post[1].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;post[1].newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;post[1].srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;post[1].dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;post[1].image=src;
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,2,post);
- {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)&gCompatBackBuffer);if(it!=compatOwnedImages.end())it->second.layout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
+ {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end())it->second.layout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
  return true;
 }
 static bool transitionCompatOwnedImage(VkCommandBuffer cb,void* object,VkImageLayout target){
