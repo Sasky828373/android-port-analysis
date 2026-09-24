@@ -1505,8 +1505,8 @@ static void load13(VkDevice d){
    if(!p&&khr)p=reinterpret_cast<PFN_vkVoidFunction>(dlsym(RTLD_DEFAULT,khr));
    return p;
  };
- pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(resolve("vkCmdBeginRendering","vkCmdBeginRenderingKHR"));
- pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(resolve("vkCmdEndRendering","vkCmdEndRenderingKHR"));
+ pBeginRendering=reinterpret_cast<PFN_vkCmdBeginRendering>(resolve("vkCmdBeginRenderingKHR","vkCmdBeginRendering"));
+ pEndRendering=reinterpret_cast<PFN_vkCmdEndRendering>(resolve("vkCmdEndRenderingKHR","vkCmdEndRendering"));
  pBarrier2=reinterpret_cast<PFN_vkCmdPipelineBarrier2>(resolve("vkCmdPipelineBarrier2","vkCmdPipelineBarrier2KHR"));
  pSubmit2=reinterpret_cast<PFN_vkQueueSubmit2>(resolve("vkQueueSubmit2","vkQueueSubmit2KHR"));
  if(pBeginRendering&&pEndRendering)gtavdiag::checkpoint("native-dynamic-rendering-ready");
@@ -1514,22 +1514,22 @@ static void load13(VkDevice d){
 }
 static PFN_vkCmdBeginRendering resolveBeginRenderingNow(){
  PFN_vkCmdBeginRendering p=nullptr;
- if(g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRendering"));
- if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRenderingKHR"));
- if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdBeginRendering"));
+ if(g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRenderingKHR"));
+ if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,"vkCmdBeginRendering"));
  if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdBeginRenderingKHR"));
- if(!p)p=reinterpret_cast<PFN_vkCmdBeginRendering>(dlsym(RTLD_DEFAULT,"vkCmdBeginRendering"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdBeginRendering"));
  if(!p)p=reinterpret_cast<PFN_vkCmdBeginRendering>(dlsym(RTLD_DEFAULT,"vkCmdBeginRenderingKHR"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdBeginRendering>(dlsym(RTLD_DEFAULT,"vkCmdBeginRendering"));
  return p;
 }
 static PFN_vkCmdEndRendering resolveEndRenderingNow(){
  PFN_vkCmdEndRendering p=nullptr;
- if(g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRendering"));
- if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRenderingKHR"));
- if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdEndRendering"));
+ if(g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRenderingKHR"));
+ if(!p&&g.device)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,"vkCmdEndRendering"));
  if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdEndRenderingKHR"));
- if(!p)p=reinterpret_cast<PFN_vkCmdEndRendering>(dlsym(RTLD_DEFAULT,"vkCmdEndRendering"));
+ if(!p&&g.instance)p=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetInstanceProcAddr(g.instance,"vkCmdEndRendering"));
  if(!p)p=reinterpret_cast<PFN_vkCmdEndRendering>(dlsym(RTLD_DEFAULT,"vkCmdEndRenderingKHR"));
+ if(!p)p=reinterpret_cast<PFN_vkCmdEndRendering>(dlsym(RTLD_DEFAULT,"vkCmdEndRendering"));
  return p;
 }
 static void endCompatRenderingNow(VkCommandBuffer cb){
