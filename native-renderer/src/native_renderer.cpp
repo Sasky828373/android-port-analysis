@@ -1436,6 +1436,8 @@ extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(c
  if(win){gGameSDLWindow.store(win,std::memory_order_release);gtavdiag::checkpoint("native-sdl-window-captured");}
  return win;
 }
+struct PresentProbeRuntime { VkInstance instance{}; VkSurfaceKHR surface{}; VkPhysicalDevice physical{}; uint32_t family{UINT32_MAX}; };
+static PresentProbeRuntime gPresentProbe;
 static bool probeGameAndroidSurface(){
  static std::atomic<bool> done{false},failed{false}; if(done.load(std::memory_order_acquire))return true;
  SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
@@ -1446,31 +1448,37 @@ static bool probeGameAndroidSurface(){
  if(!create){gtavdiag::checkpoint("native-sdl-vulkan-surface-unresolved");return false;}
  VkSurfaceKHR surface=VK_NULL_HANDLE;
  if(create(win,g.instance,&surface)&&surface){
-   int w=0,h=0;if(size)size(win,&w,&h);
-   char detail[128];snprintf(detail,sizeof(detail),"engine surface=%p extent=%dx%d",(void*)surface,w,h);
-   gtavdiag::checkpoint("native-android-surface-ready",detail);
-   auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(g.instance,"vkDestroySurfaceKHR");
-   if(destroy)destroy(g.instance,surface,nullptr);
+   int w=0,h=0;if(size)size(win,&w,&h);char detail[128];snprintf(detail,sizeof(detail),"engine surface=%p extent=%dx%d",(void*)surface,w,h);
+   gtavdiag::checkpoint("native-android-surface-ready",detail);auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(g.instance,"vkDestroySurfaceKHR");if(destroy)destroy(g.instance,surface,nullptr);
    done.store(true,std::memory_order_release);return true;
  }
- // Diagnostic fallback: prove that this SDL_Window can create a real Android Vulkan
- // surface when the instance explicitly enables SDL's required platform extensions.
  auto getExt=(int(*)(SDL_Window*,unsigned*,const char**))(sdl?dlsym(sdl,"SDL_Vulkan_GetInstanceExtensions"):nullptr);
  if(!getExt){gtavdiag::checkpoint("native-present-instance-ext-unresolved");return false;}
  unsigned n=0;if(!getExt(win,&n,nullptr)||!n||n>32){gtavdiag::checkpoint("native-present-instance-ext-query-failed");return false;}
  std::vector<const char*> exts(n);if(!getExt(win,&n,exts.data())){gtavdiag::checkpoint("native-present-instance-ext-list-failed");return false;}
  VkApplicationInfo ai{VK_STRUCTURE_TYPE_APPLICATION_INFO};ai.pApplicationName="GTAV Native Present";ai.apiVersion=VK_API_VERSION_1_1;
  VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};ci.pApplicationInfo=&ai;ci.enabledExtensionCount=n;ci.ppEnabledExtensionNames=exts.data();
- VkInstance pi=VK_NULL_HANDLE;VkResult ir=vkCreateInstance(&ci,nullptr,&pi);
- if(ir!=VK_SUCCESS||!pi){char d[64];snprintf(d,sizeof(d),"vkCreateInstance=%d",(int)ir);gtavdiag::checkpoint("native-present-instance-create-failed",d);return false;}
- VkSurfaceKHR ps=VK_NULL_HANDLE;int ok=create(win,pi,&ps);
- if(ok&&ps){
-   int w=0,h=0;if(size)size(win,&w,&h);char d[160];snprintf(d,sizeof(d),"probe surface=%p extent=%dx%d extCount=%u",(void*)ps,w,h,n);
-   gtavdiag::checkpoint("native-present-surface-probe-ready",d);
-   auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(pi,"vkDestroySurfaceKHR");if(destroy)destroy(pi,ps,nullptr);
- }else gtavdiag::checkpoint("native-present-surface-probe-failed");
- vkDestroyInstance(pi,nullptr);
- return false;
+ VkResult ir=vkCreateInstance(&ci,nullptr,&gPresentProbe.instance);
+ if(ir!=VK_SUCCESS||!gPresentProbe.instance){char d[64];snprintf(d,sizeof(d),"vkCreateInstance=%d",(int)ir);gtavdiag::checkpoint("native-present-instance-create-failed",d);return false;}
+ if(!create(win,gPresentProbe.instance,&gPresentProbe.surface)||!gPresentProbe.surface){gtavdiag::checkpoint("native-present-surface-probe-failed");return false;}
+ int w=0,h=0;if(size)size(win,&w,&h);char d[192];snprintf(d,sizeof(d),"surface=%p extent=%dx%d extCount=%u",(void*)gPresentProbe.surface,w,h,n);gtavdiag::checkpoint("native-present-surface-probe-ready",d);
+ uint32_t pc=0;VkResult pr=vkEnumeratePhysicalDevices(gPresentProbe.instance,&pc,nullptr);
+ if(pr!=VK_SUCCESS||!pc){gtavdiag::checkpoint("native-present-no-physical-device");return false;}
+ std::vector<VkPhysicalDevice> pd(pc);vkEnumeratePhysicalDevices(gPresentProbe.instance,&pc,pd.data());
+ auto support=(PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceSupportKHR");
+ auto caps=(PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+ auto formats=(PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfaceFormatsKHR");
+ auto modes=(PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vkGetInstanceProcAddr(gPresentProbe.instance,"vkGetPhysicalDeviceSurfacePresentModesKHR");
+ if(!support||!caps||!formats||!modes){gtavdiag::checkpoint("native-present-surface-query-unresolved");return false;}
+ for(auto p:pd){uint32_t qc=0;vkGetPhysicalDeviceQueueFamilyProperties(p,&qc,nullptr);std::vector<VkQueueFamilyProperties> qp(qc);vkGetPhysicalDeviceQueueFamilyProperties(p,&qc,qp.data());
+   for(uint32_t q=0;q<qc;q++){VkBool32 yes=VK_FALSE;if(support(p,q,gPresentProbe.surface,&yes)!=VK_SUCCESS||!yes)continue;
+     VkSurfaceCapabilitiesKHR cp{};uint32_t fc=0,mc=0;if(caps(p,gPresentProbe.surface,&cp)!=VK_SUCCESS)continue;formats(p,gPresentProbe.surface,&fc,nullptr);modes(p,gPresentProbe.surface,&mc,nullptr);
+     gPresentProbe.physical=p;gPresentProbe.family=q;VkPhysicalDeviceProperties prop{};vkGetPhysicalDeviceProperties(p,&prop);
+     char x[320];snprintf(x,sizeof(x),"gpu=%s family=%u qflags=0x%x formats=%u modes=%u images=%u..%u extent=%ux%u usage=0x%x",prop.deviceName,q,qp[q].queueFlags,fc,mc,cp.minImageCount,cp.maxImageCount,cp.currentExtent.width,cp.currentExtent.height,cp.supportedUsageFlags);
+     gtavdiag::checkpoint("native-present-queue-ready",x);done.store(true,std::memory_order_release);return true;
+   }
+ }
+ gtavdiag::checkpoint("native-present-no-compatible-queue");return false;
 }
 static std::mutex descriptorPoolMutex;
 static std::vector<VkDescriptorPool> descriptorPools;
