@@ -1413,10 +1413,24 @@ static Runtime g;
 // Capture the SDL window that libgtav itself creates. This gives the native renderer
 // the exact Android Surface used by the game instead of inventing a second window.
 static std::atomic<SDL_Window*> gGameSDLWindow{nullptr};
+static void* gameSDLHandle(){
+ static void* h=nullptr;
+ if(!h){
+#ifdef RTLD_NOLOAD
+   h=dlopen("libSDL2.so",RTLD_NOW|RTLD_NOLOAD);
+#endif
+   if(!h)h=dlopen("libSDL2.so",RTLD_NOW|RTLD_LOCAL);
+ }
+ return h;
+}
 using SDLCreateWindowFn=SDL_Window*(*)(const char*,int,int,int,int,uint32_t);
 extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(const char* title,int x,int y,int w,int h,uint32_t flags){
  static SDLCreateWindowFn real=nullptr;
- if(!real) real=(SDLCreateWindowFn)dlsym(RTLD_NEXT,"SDL_CreateWindow");
+ if(!real){
+   void* h=gameSDLHandle();
+   if(h)real=(SDLCreateWindowFn)dlsym(h,"SDL_CreateWindow");
+   if(!real)real=(SDLCreateWindowFn)dlsym(RTLD_NEXT,"SDL_CreateWindow");
+ }
  if(!real){gtavdiag::checkpoint("native-sdl-create-window-unresolved");return nullptr;}
  SDL_Window* win=real(title,x,y,w,h,flags);
  if(win){gGameSDLWindow.store(win,std::memory_order_release);gtavdiag::checkpoint("native-sdl-window-captured");}
@@ -1425,8 +1439,9 @@ extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(c
 static bool probeGameAndroidSurface(){
  static std::atomic<bool> done{false}; if(done.load(std::memory_order_acquire))return true;
  SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
- auto create=(SDLVulkanCreateSurfaceFn)dlsym(RTLD_DEFAULT,"SDL_Vulkan_CreateSurface");
- auto size=(SDLVulkanGetDrawableSizeFn)dlsym(RTLD_DEFAULT,"SDL_Vulkan_GetDrawableSize");
+ void* sdl=gameSDLHandle();
+ auto create=(SDLVulkanCreateSurfaceFn)(sdl?dlsym(sdl,"SDL_Vulkan_CreateSurface"):nullptr);
+ auto size=(SDLVulkanGetDrawableSizeFn)(sdl?dlsym(sdl,"SDL_Vulkan_GetDrawableSize"):nullptr);
  if(!create){gtavdiag::checkpoint("native-sdl-vulkan-surface-unresolved");return false;}
  VkSurfaceKHR surface=VK_NULL_HANDLE;
  if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-sdl-vulkan-surface-failed");return false;}
