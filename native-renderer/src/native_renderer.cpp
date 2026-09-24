@@ -82,6 +82,9 @@ static void crashHandler(int sig,siginfo_t* si,void* ctx){
  signal(sig,SIG_DFL);syscall(SYS_tgkill,getpid(),syscall(SYS_gettid),sig);
 }
 __attribute__((constructor)) static void install(){
+ // Install the GTA Vulkan loader hook from the ELF constructor, before D3D/renderer bootstrap.
+ extern "C" bool gtav_native_renderer_install_early_vulkan_hook();
+ gtav_native_renderer_install_early_vulkan_hook();
  ensureDir();
  setenv("GTAV_VULKAN_BACKEND","native",1);
  int fd=open(kPath,O_CREAT|O_WRONLY|O_TRUNC|O_CLOEXEC,0664);if(fd>=0){const char* h="GTAV native Vulkan self-diagnostic v2\n";write(fd,h,strlen(h));close(fd);}
@@ -2056,6 +2059,10 @@ static bool installVulkanLoaderInitHook(){
  bool ok=patchJump(gtavBase+0x622f0b8,(void*)hookGtavNativeAdapterInit,saved,&tramp);
  if(ok){origGtavNativeAdapterInit=(GtavNativeAdapterInitFn)tramp;gtavdiag::checkpoint("native-vulkan-loader-init-hook-installed");}
  return ok;
+}
+
+extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_install_early_vulkan_hook(){
+ return installVulkanLoaderInitHook();
 }
 
 
