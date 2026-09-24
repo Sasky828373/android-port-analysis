@@ -46,10 +46,37 @@ jobs:
       - name: Clone current AndroidGTAV upstream
         shell: pwsh
         run: |
-          git clone --depth 1 https://gitcode.com/linyushu520/AndroidGTAV.git "$env:GITHUB_WORKSPACE\AndroidGTAV"
-          if ($LASTEXITCODE -ne 0) { throw "GitCode clone failed" }
-          Set-Location "$env:GITHUB_WORKSPACE\AndroidGTAV"
-          git rev-parse HEAD | Tee-Object "$env:GITHUB_WORKSPACE\androidgtav-upstream-sha.txt"
+          # GitCode contains Windows-incompatible paths/names in the full tree.
+          # Fetch the commit without checking it out, enable sparse checkout,
+          # then materialize only the Android build plus source trees it needs.
+          $repo = "$env:GITHUB_WORKSPACE\\AndroidGTAV"
+          New-Item -ItemType Directory -Force -Path $repo | Out-Null
+          Set-Location $repo
+
+          git init
+          if ($LASTEXITCODE -ne 0) { throw "git init failed" }
+          git remote add origin https://gitcode.com/linyushu520/AndroidGTAV.git
+          git config core.longpaths true
+          git config core.protectNTFS false
+          git config core.sparseCheckout true
+
+          git fetch --depth 1 origin HEAD
+          if ($LASTEXITCODE -ne 0) { throw "GitCode fetch failed" }
+
+          @"
+gta5/src/dev_ng/android_build/
+gta5/src/dev_ng/rage/
+gta5/src/dev_ng/game/
+"@ | Set-Content -Encoding ascii .git/info/sparse-checkout
+
+          git checkout --force FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Sparse checkout failed. Status:"
+            git status --short
+            throw "GitCode sparse checkout failed"
+          }
+
+          git rev-parse HEAD | Tee-Object "$env:GITHUB_WORKSPACE\\androidgtav-upstream-sha.txt"
 
       - name: Verify upstream baseline and build files
         shell: pwsh
