@@ -1,0 +1,57 @@
+name: Build DXVK Android ARM64
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'android-dxvk/**'
+      - '.github/workflows/dxvk-android-arm64.yml'
+  push:
+    branches: [ 'dxvk-android-v3.1.1' ]
+    paths:
+      - 'android-dxvk/**'
+      - '.github/workflows/dxvk-android-arm64.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build meson cmake pkg-config glslang-tools python3 git zip
+
+      - name: Install NDK r29
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - name: Build DXVK 3.1.1 native for Android ARM64
+        env:
+          DXVK_TAG: v3.1.1
+          SDL_TAG: release-3.4.16
+          ANDROID_API: 26
+          ANDROID_ABI: arm64-v8a
+        run: |
+          chmod +x android-dxvk/build-android.sh
+          android-dxvk/build-android.sh
+
+      - name: Package
+        run: |
+          cd .dxvk-android-build/out
+          zip -9 -r "$GITHUB_WORKSPACE/dxvk-3.1.1-android-arm64.zip" .
+
+      - name: Upload Android DXVK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxvk-3.1.1-android-arm64
+          path: dxvk-3.1.1-android-arm64.zip
+          if-no-files-found: error
