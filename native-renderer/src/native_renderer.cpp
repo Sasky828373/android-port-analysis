@@ -2624,6 +2624,13 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
 }
 static bool refreshCompatDescriptors(const RageMirrorState& m,VkDescriptorSet desc){
  if(!g.device||!desc)return false;
+ // If shader reflection produced descriptor declarations, the descriptor set
+ // layout was created from those exact declarations. Updating every mirrored
+ // D3D slot would write bindings that do not exist in that layout and is
+ // invalid Vulkan (Turnip can fault inside vkUpdateDescriptorSets). Reuse the
+ // declaration-driven updater so every write matches the active layout.
+ if(!getCompatShaderDecls(m.vs).empty() || !getCompatShaderDecls(m.ps).empty())
+   return updateCompatGraphicsDescriptors(m,desc);
  std::vector<VkWriteDescriptorSet> writes;std::vector<VkDescriptorBufferInfo> bis;std::vector<VkDescriptorImageInfo> iis;
  bis.reserve(32);iis.reserve(96);writes.reserve(128);
  auto wb=[&](uint32_t binding,void* p){
