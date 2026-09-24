@@ -47,3 +47,5 @@ patch-gipa-after-adapter-init cbb3f01
 dlsym-got-vulkan-loader 5af6fef
 
 fix-dlsym-hook-forward-decl c89b70f
+
+fix-dlsym-hook-namespace 6c9c69b
