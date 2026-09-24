@@ -21,6 +21,13 @@
 #include "native_dispatch.h"
 #include <dlfcn.h>
 #include <android/log.h>
+#include <android/native_window.h>
+
+// SDL is already shipped by the APK and libgtav uses its Vulkan window path.
+// Resolve these dynamically so the renderer does not acquire a hard SDL link dependency.
+struct SDL_Window;
+using SDLVulkanCreateSurfaceFn=int(*)(SDL_Window*,VkInstance,VkSurfaceKHR*);
+using SDLVulkanGetDrawableSizeFn=void(*)(SDL_Window*,int*,int*);
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -1401,6 +1408,36 @@ extern "C" __attribute__((visibility("default"))) int32_t D3D11CreateDeviceAndSw
 
 namespace gtavnative {
 struct Runtime { VkInstance instance{}; VkPhysicalDevice physical{}; VkDevice device{}; VkQueue queue{}; uint32_t family{}; VkCommandPool commands{}; VkDescriptorPool descriptors{}; std::atomic<uint64_t> frame{0}; };
+
+// Capture the SDL window that libgtav itself creates. This gives the native renderer
+// the exact Android Surface used by the game instead of inventing a second window.
+static std::atomic<SDL_Window*> gGameSDLWindow{nullptr};
+using SDLCreateWindowFn=SDL_Window*(*)(const char*,int,int,int,int,uint32_t);
+extern "C" __attribute__((visibility("default"))) SDL_Window* SDL_CreateWindow(const char* title,int x,int y,int w,int h,uint32_t flags){
+ static SDLCreateWindowFn real=nullptr;
+ if(!real) real=(SDLCreateWindowFn)dlsym(RTLD_NEXT,"SDL_CreateWindow");
+ if(!real){gtavdiag::checkpoint("native-sdl-create-window-unresolved");return nullptr;}
+ SDL_Window* win=real(title,x,y,w,h,flags);
+ if(win){gGameSDLWindow.store(win,std::memory_order_release);gtavdiag::checkpoint("native-sdl-window-captured");}
+ return win;
+}
+static bool probeGameAndroidSurface(){
+ static std::atomic<bool> done{false}; if(done.load(std::memory_order_acquire))return true;
+ SDL_Window* win=gGameSDLWindow.load(std::memory_order_acquire); if(!win||!g.instance)return false;
+ auto create=(SDLVulkanCreateSurfaceFn)dlsym(RTLD_DEFAULT,"SDL_Vulkan_CreateSurface");
+ auto size=(SDLVulkanGetDrawableSizeFn)dlsym(RTLD_DEFAULT,"SDL_Vulkan_GetDrawableSize");
+ if(!create){gtavdiag::checkpoint("native-sdl-vulkan-surface-unresolved");return false;}
+ VkSurfaceKHR surface=VK_NULL_HANDLE;
+ if(!create(win,g.instance,&surface)||!surface){gtavdiag::checkpoint("native-sdl-vulkan-surface-failed");return false;}
+ int w=0,h=0;if(size)size(win,&w,&h);
+ char detail[128];snprintf(detail,sizeof(detail),"surface=%p extent=%dx%d",(void*)surface,w,h);
+ gtavdiag::checkpoint("native-android-surface-ready",detail);
+ // Probe only for now: the game window is confirmed and the next stage can build the
+ // swapchain against this exact surface. Destroy our temporary probe surface safely.
+ auto destroy=(PFN_vkDestroySurfaceKHR)vkGetInstanceProcAddr(g.instance,"vkDestroySurfaceKHR");
+ if(destroy)destroy(g.instance,surface,nullptr);
+ done.store(true,std::memory_order_release);return true;
+}
 static Runtime g;
 static std::mutex descriptorPoolMutex;
 static std::vector<VkDescriptorPool> descriptorPools;
@@ -2980,6 +3017,7 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_begi
  bool hadDevice=!!g.device; bool attached=hadDevice||attachFromGtavRuntime();
  uint64_t frame=g.frame.fetch_add(1,std::memory_order_relaxed)+1;
  if(attached){
+   probeGameAndroidSurface();
    // This function already closes/submits the previously recorded frame before
    // opening the next ring command buffer. Calling a second submit helper here
    // was both undefined and redundant.
