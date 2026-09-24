@@ -1999,6 +1999,12 @@ static CompatFrameCmd gCompatFrameCmd[3]{};
 static uint32_t gCompatFrameIndex=0;
 static VkCommandBuffer gCompatRecordingCB=VK_NULL_HANDLE;
 static bool gCompatFrameCmdReady=false;
+struct BlackProbeReadback { VkBuffer buffer{VK_NULL_HANDLE}; VkDeviceMemory memory{VK_NULL_HANDLE}; void* mapped{nullptr}; VkDeviceSize size{4096}; bool recorded{false}; VkFormat format{VK_FORMAT_UNDEFINED}; uint32_t width{0},height{0}; };
+static BlackProbeReadback gBlackProbeReadback[3]{};
+static bool ensureBlackProbeReadback();
+static void recordBlackProbeReadback(VkCommandBuffer,VkImage,VkFormat,uint32_t,uint32_t,uint32_t);
+static void logBlackProbeReadback(uint32_t);
+
 
 #include "gpu_profiler.inl"
 
@@ -2016,6 +2022,7 @@ static bool ensureCompatFrameCommandRing(){
    if(vkCreateFence(g.device,&fi,nullptr,&gCompatFrameCmd[i].fence)!=VK_SUCCESS)return false;
  }
  if(!profileInit())gtavdiag::checkpoint("gpu-profiler-unavailable");
+ if(!ensureBlackProbeReadback())gtavdiag::checkpoint("black-probe-readback-init-failed");
  gCompatFrameCmdReady=true;
  gtavdiag::checkpoint("compat-command-ring-ready");
  return true;
@@ -2068,7 +2075,7 @@ static void submitAndBeginCompatFrameCommand(){
    gCompatRecordingCB=VK_NULL_HANDLE;gCompatFrameIndex=(gCompatFrameIndex+1)%3;
  }
  CompatFrameCmd& next=gCompatFrameCmd[gCompatFrameIndex];
- if(next.inFlight){VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}profileReadAndLog(gCompatFrameIndex);vkResetFences(g.device,1,&next.fence);next.inFlight=false;}
+ if(next.inFlight){VkResult wr=vkWaitForFences(g.device,1,&next.fence,VK_TRUE,1000000000ull);if(wr!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-fence-wait-failed");return;}profileReadAndLog(gCompatFrameIndex);logBlackProbeReadback(gCompatFrameIndex);vkResetFences(g.device,1,&next.fence);next.inFlight=false;}
  resetCompatPresentSourcesForNewFrame();
  if(vkResetCommandBuffer(next.cb,0)!=VK_SUCCESS){gtavdiag::checkpoint("compat-command-buffer-reset-failed");return;}
  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -2515,6 +2522,37 @@ static uint32_t compatMemoryType(uint32_t bits,VkMemoryPropertyFlags wanted){
  for(uint32_t i=0;i<mp.memoryTypeCount;i++)if(bits&(1u<<i))return i;
  return UINT32_MAX;
 }
+static bool ensureBlackProbeReadback(){
+ if(!g.device||!g.physical)return false;
+ for(uint32_t i=0;i<3;i++){
+  auto& r=gBlackProbeReadback[i];if(r.buffer&&r.memory&&r.mapped)continue;
+  VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=r.size;bi.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+  if(vkCreateBuffer(g.device,&bi,nullptr,&r.buffer)!=VK_SUCCESS)return false;
+  VkMemoryRequirements mr{};vkGetBufferMemoryRequirements(g.device,r.buffer,&mr);
+  uint32_t mt=compatMemoryType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return false;
+  VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;
+  if(vkAllocateMemory(g.device,&ai,nullptr,&r.memory)!=VK_SUCCESS)return false;
+  if(vkBindBufferMemory(g.device,r.buffer,r.memory,0)!=VK_SUCCESS)return false;
+  if(vkMapMemory(g.device,r.memory,0,r.size,0,&r.mapped)!=VK_SUCCESS)return false;
+  std::memset(r.mapped,0,(size_t)r.size);
+ }
+ gtavdiag::checkpoint("black-probe-readback-ready");return true;
+}
+static void recordBlackProbeReadback(VkCommandBuffer cb,VkImage src,VkFormat fmt,uint32_t w,uint32_t h,uint32_t slot){
+ if(!cb||!src||slot>=3||!w||!h||!ensureBlackProbeReadback())return;
+ auto& r=gBlackProbeReadback[slot];r.recorded=false;r.format=fmt;r.width=std::min(4u,w);r.height=std::min(4u,h);
+ VkBufferImageCopy cp{};cp.bufferOffset=0;cp.bufferRowLength=0;cp.bufferImageHeight=0;cp.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};cp.imageOffset={0,0,0};cp.imageExtent={r.width,r.height,1};
+ vkCmdCopyImageToBuffer(cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,r.buffer,1,&cp);
+ r.recorded=true;
+}
+static void logBlackProbeReadback(uint32_t slot){
+ if(slot>=3)return;auto& r=gBlackProbeReadback[slot];if(!r.recorded||!r.mapped)return;
+ const uint8_t* p=(const uint8_t*)r.mapped;uint64_t hash=1469598103934665603ull;uint32_t nonzero=0,nonff=0,sum=0,minv=255,maxv=0;
+ for(size_t i=0;i<256&&i<(size_t)r.size;i++){uint8_t v=p[i];hash^=v;hash*=1099511628211ull;if(v)nonzero++;if(v!=0xff)nonff++;sum+=v;minv=std::min<uint32_t>(minv,v);maxv=std::max<uint32_t>(maxv,v);}
+ char d[320];snprintf(d,sizeof(d),"slot=%u fmt=%d extent=%ux%u hash=%016llx nz=%u nonff=%u sum=%u min=%u max=%u bytes=%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x",slot,(int)r.format,r.width,r.height,(unsigned long long)hash,nonzero,nonff,sum,minv,maxv,p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14],p[15]);
+ gtavdiag::checkpoint("BLACKSCREEN-PIXEL-PROBE",d);r.recorded=false;
+}
+
 static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
  if(!resource||!publish||!g.device||!g.physical)return false;
  const uint64_t key=(uint64_t)(uintptr_t)resource;
@@ -2590,6 +2628,7 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
  pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
+ recordBlackProbeReadback(cb,src,srcFormat,sw,sh,gCompatFrameIndex);
  const bool exactExtent=(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height);
  const bool exactFormat=(srcFormat!=VK_FORMAT_UNDEFINED&&srcFormat==gPresentProbe.format);
  if(exactExtent&&exactFormat){
