@@ -1461,8 +1461,15 @@ extern "C" __attribute__((visibility("default"))) VkResult vkCreateDevice(VkPhys
  VkDeviceCreateInfo ci=*in;ci.enabledExtensionCount=(uint32_t)e.size();ci.ppEnabledExtensionNames=e.data();VkResult r=real(p,&ci,a,out);if(r==VK_SUCCESS)gtavdiag::checkpoint("native-vk-device-swapchain-ext-injected");return r;
 }extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance,const char* name){
  auto real=realVkGIPA();if(!real||!name)return nullptr;
+ static std::atomic<uint32_t> lookups{0};
+ uint32_t n=lookups.fetch_add(1,std::memory_order_relaxed);
+ if(n<64){
+   char detail[256];snprintf(detail,sizeof(detail),"n=%u instance=%p name=%s",n,(void*)instance,name);
+   gtavdiag::checkpoint("native-vkgipa-proc-lookup",detail);
+ }
  if(strcmp(name,"vkCreateInstance")==0){gtavdiag::checkpoint("native-vkgipa-create-instance-intercept");return reinterpret_cast<PFN_vkVoidFunction>(&vkCreateInstance);}
  if(strcmp(name,"vkCreateDevice")==0){gtavdiag::checkpoint("native-vkgipa-create-device-intercept");return reinterpret_cast<PFN_vkVoidFunction>(&vkCreateDevice);}
+ if(strcmp(name,"vkGetDeviceProcAddr")==0){gtavdiag::checkpoint("native-vkgipa-get-device-proc-intercept");return reinterpret_cast<PFN_vkVoidFunction>(&vkGetDeviceProcAddr);}
  return real(instance,name);
 }
 extern "C" __attribute__((visibility("default"))) PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice device,const char* name){
