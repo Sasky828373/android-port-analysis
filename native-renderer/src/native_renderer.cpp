@@ -1880,7 +1880,7 @@ static void submitAndBeginCompatFrameCommand(){
    if(!gPresentProbe.swapchain)gtavdiag::checkpoint("native-engine-present-no-swapchain");
    else if(!ac||!qp)gtavdiag::checkpoint("native-engine-present-procs-missing");
    else if(!ensureEnginePresentSync())gtavdiag::checkpoint("native-engine-present-sync-failed");
-   else if(!createCompatOwnedImage(&gCompatBackBuffer,NR_RTV,&gCompatBackBuffer))gtavdiag::checkpoint("native-engine-present-backbuffer-create-failed");
+   else if(!createCompatOwnedImage(&gCompatBackBuffer,2u,&gCompatBackBuffer))gtavdiag::checkpoint("native-engine-present-backbuffer-create-failed");
    else{
      VkResult ar=ac(g.device,gPresentProbe.swapchain,1000000000ull,gPresentAcquire[gCompatFrameIndex],VK_NULL_HANDLE,&pix);
      if(ar==VK_SUCCESS||ar==VK_SUBOPTIMAL_KHR){
