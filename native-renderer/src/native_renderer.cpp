@@ -313,6 +313,10 @@ extern "C" void gtavnative_compat_mirror_render_targets(void*,uint32_t,void* con
 extern "C" bool gtavnative_compat_draw(void*,uint32_t,uint32_t);
 extern "C" bool gtavnative_compat_draw_indexed(void*,uint32_t,uint32_t,int32_t);
 extern "C" bool gtavnative_compat_dispatch(void*,uint32_t,uint32_t,uint32_t);
+static std::atomic<uint64_t> gMegaDrawSerial{0};
+static thread_local uint64_t tlsMegaDrawId=0;
+static std::atomic<uint32_t> gMegaDrawOk{0},gMegaDrawFail{0},gMegaDescriptorFail{0},gMegaImageFail{0};
+static std::atomic<uint32_t> gMegaNoopCalls{0},gMegaCopyOps{0},gMegaTextureUpdates{0};
 static void compatContextNoop(void*,...){gtavdiag::checkpoint("compat-context-noop");}
 // Render-path split diagnostics. Keep ABI-compatible signatures for the hot
 // ID3D11DeviceContext slots so the crash log identifies the command that GTA
@@ -1725,10 +1729,6 @@ static std::atomic<uint32_t> gBlackProbeExpectedCbv{0},gBlackProbeBoundCbv{0},gB
 static std::atomic<uint32_t> gBlackProbeExpectedSrv{0},gBlackProbeBoundSrv{0},gBlackProbeMissingSrv{0};
 static std::atomic<uint32_t> gBlackProbeExpectedSampler{0},gBlackProbeBoundSampler{0},gBlackProbeMissingSampler{0};
 static std::atomic<uint32_t> gBlackProbeDescriptorWrites{0};
-static std::atomic<uint64_t> gMegaDrawSerial{0};
-static thread_local uint64_t tlsMegaDrawId=0;
-static std::atomic<uint32_t> gMegaDrawOk{0},gMegaDrawFail{0},gMegaDescriptorFail{0},gMegaImageFail{0};
-static std::atomic<uint32_t> gMegaNoopCalls{0},gMegaCopyOps{0},gMegaTextureUpdates{0};
 
 
 static RageMirrorState mergeCompatAliasState(const RageMirrorState& base){
