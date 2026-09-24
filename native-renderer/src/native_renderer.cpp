@@ -662,6 +662,16 @@ static void compatD3DUnmap(void*, void* resource, uint32_t subresource) {
 // execution is intercepted by the native Vulkan renderer hooks.
 struct CompatShaderObject { void** vtbl; std::vector<uint8_t> bytecode; };
 struct CompatInputElement { std::string semantic; uint32_t semanticIndex{},format{},slot{},offset{},inputClass{},stepRate{}; };
+struct CompatD3D11InputElementDesc64 {
+ const char* semanticName;
+ uint32_t semanticIndex;
+ uint32_t format;
+ uint32_t inputSlot;
+ uint32_t alignedByteOffset;
+ uint32_t inputSlotClass;
+ uint32_t instanceDataStepRate;
+};
+static_assert(sizeof(CompatD3D11InputElementDesc64)==32,"D3D11_INPUT_ELEMENT_DESC ARM64 ABI mismatch");
 struct CompatInputLayoutObject { void** vtbl; std::vector<uint8_t> signature; std::vector<CompatInputElement> elements; };
 static void* gCompatShaderVtable[8]{};
 static void* gCompatInputLayoutVtable[8]{};
@@ -679,7 +689,19 @@ static void initCompatShaderVtables(){
 static int32_t compatCreateInputLayout(void*,const void* raw,uint32_t count,const void* shader,size_t shaderBytes,void** out){
  gtavdiag::checkpoint("compat-d3d11-create-input-layout");if(!out)return (int32_t)0x80004003u;initCompatShaderVtables();
  auto* o=new CompatInputLayoutObject{};o->vtbl=gCompatInputLayoutVtable;if(shader&&shaderBytes)o->signature.assign((const uint8_t*)shader,(const uint8_t*)shader+shaderBytes);
- if(raw&&count&&count<=32){const uint8_t* p=(const uint8_t*)raw;for(size_t i=0;i<count;i++){const uint8_t* e=p+i*32;CompatInputElement x{};const char* sem=nullptr;std::memcpy(&sem,e,8);std::memcpy(&x.semanticIndex,e+8,4);std::memcpy(&x.format,e+12,4);std::memcpy(&x.slot,e+16,4);std::memcpy(&x.offset,e+20,4);std::memcpy(&x.inputClass,e+24,4);std::memcpy(&x.stepRate,e+28,4);if(sem){size_t n=strnlen(sem,64);x.semantic.assign(sem,n);} {char d[192];snprintf(d,sizeof(d),"i=%zu sem=%s%u fmt=%u slot=%u off=%u class=%u step=%u",i,x.semantic.c_str(),x.semanticIndex,x.format,x.slot,x.offset,x.inputClass,x.stepRate);gtavdiag::checkpoint("native-input-layout-element",d);}o->elements.push_back(std::move(x));}}
+ if(raw&&count&&count<=32){
+  const auto* p=reinterpret_cast<const CompatD3D11InputElementDesc64*>(raw);
+  o->elements.reserve(count);
+  for(uint32_t i=0;i<count;i++){
+   CompatInputElement x{};
+   x.semanticIndex=p[i].semanticIndex;x.format=p[i].format;x.slot=p[i].inputSlot;
+   x.offset=p[i].alignedByteOffset;x.inputClass=p[i].inputSlotClass;x.stepRate=p[i].instanceDataStepRate;
+   if(p[i].semanticName){size_t n=strnlen(p[i].semanticName,64);x.semantic.assign(p[i].semanticName,n);}
+   char d[192];snprintf(d,sizeof(d),"i=%u sem=%s%u fmt=%u slot=%u off=%u class=%u step=%u",i,x.semantic.c_str(),x.semanticIndex,x.format,x.slot,x.offset,x.inputClass,x.stepRate);
+   gtavdiag::checkpoint("native-input-layout-element",d);
+   o->elements.push_back(std::move(x));
+  }
+ }
  {std::lock_guard<std::mutex> l(gCompatShaderMutex);gCompatInputLayouts.push_back(o);}
  {char d[160];snprintf(d,sizeof(d),"raw=%p count=%u elems=%zu shaderBytes=%zu out=%p",raw,count,o->elements.size(),shaderBytes,o);gtavdiag::checkpoint("native-input-layout-created",d);}
  *out=o;return 0;
@@ -2967,13 +2989,48 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
    for(size_t i=0;i<il->elements.size()&&vaCount<32;i++){
      const auto& e=il->elements[i];if(e.slot>=16){char d[128];snprintf(d,sizeof(d),"semantic=%s%u slot=%u fmt=%u",e.semantic.c_str(),e.semanticIndex,e.slot,e.format);gtavdiag::checkpoint("native-input-layout-slot-unsupported",d);continue;}VkFormat vf=VK_FORMAT_UNDEFINED;uint32_t sz=0;
      switch(e.format){
-      case 2:vf=VK_FORMAT_R32G32B32A32_SFLOAT;sz=16;break;case 6:vf=VK_FORMAT_R32G32B32_SFLOAT;sz=12;break;
-      case 10:vf=VK_FORMAT_R16G16B16A16_SFLOAT;sz=8;break;case 11:vf=VK_FORMAT_R16G16B16A16_UNORM;sz=8;break;
-      case 16:vf=VK_FORMAT_R32G32_SFLOAT;sz=8;break;case 24:vf=VK_FORMAT_A2B10G10R10_UNORM_PACK32;sz=4;break;
-      case 28:vf=VK_FORMAT_R8G8B8A8_UNORM;sz=4;break;case 29:vf=VK_FORMAT_R8G8B8A8_SRGB;sz=4;break;
-      case 34:vf=VK_FORMAT_R16G16_SFLOAT;sz=4;break;case 35:vf=VK_FORMAT_R16G16_UNORM;sz=4;break;
-      case 41:vf=VK_FORMAT_R32_SFLOAT;sz=4;break;case 49:vf=VK_FORMAT_R8G8_UNORM;sz=2;break;
-      case 54:vf=VK_FORMAT_R16_SFLOAT;sz=2;break;case 56:vf=VK_FORMAT_R16_UNORM;sz=2;break;case 61:vf=VK_FORMAT_R8_UNORM;sz=1;break;
+      case 2:vf=VK_FORMAT_R32G32B32A32_SFLOAT;sz=16;break;
+      case 3:vf=VK_FORMAT_R32G32B32A32_UINT;sz=16;break;
+      case 4:vf=VK_FORMAT_R32G32B32A32_SINT;sz=16;break;
+      case 6:vf=VK_FORMAT_R32G32B32_SFLOAT;sz=12;break;
+      case 7:vf=VK_FORMAT_R32G32B32_UINT;sz=12;break;
+      case 8:vf=VK_FORMAT_R32G32B32_SINT;sz=12;break;
+      case 10:vf=VK_FORMAT_R16G16B16A16_SFLOAT;sz=8;break;
+      case 11:vf=VK_FORMAT_R16G16B16A16_UNORM;sz=8;break;
+      case 12:vf=VK_FORMAT_R16G16B16A16_UINT;sz=8;break;
+      case 13:vf=VK_FORMAT_R16G16B16A16_SNORM;sz=8;break;
+      case 14:vf=VK_FORMAT_R16G16B16A16_SINT;sz=8;break;
+      case 16:vf=VK_FORMAT_R32G32_SFLOAT;sz=8;break;
+      case 17:vf=VK_FORMAT_R32G32_UINT;sz=8;break;
+      case 18:vf=VK_FORMAT_R32G32_SINT;sz=8;break;
+      case 24:vf=VK_FORMAT_A2B10G10R10_UNORM_PACK32;sz=4;break;
+      case 25:vf=VK_FORMAT_A2B10G10R10_UINT_PACK32;sz=4;break;
+      case 28:vf=VK_FORMAT_R8G8B8A8_UNORM;sz=4;break;
+      case 29:vf=VK_FORMAT_R8G8B8A8_SRGB;sz=4;break;
+      case 30:vf=VK_FORMAT_R8G8B8A8_UINT;sz=4;break;
+      case 31:vf=VK_FORMAT_R8G8B8A8_SNORM;sz=4;break;
+      case 32:vf=VK_FORMAT_R8G8B8A8_SINT;sz=4;break;
+      case 34:vf=VK_FORMAT_R16G16_SFLOAT;sz=4;break;
+      case 35:vf=VK_FORMAT_R16G16_UNORM;sz=4;break;
+      case 36:vf=VK_FORMAT_R16G16_UINT;sz=4;break;
+      case 37:vf=VK_FORMAT_R16G16_SNORM;sz=4;break;
+      case 38:vf=VK_FORMAT_R16G16_SINT;sz=4;break;
+      case 41:vf=VK_FORMAT_R32_SFLOAT;sz=4;break;
+      case 42:vf=VK_FORMAT_R32_UINT;sz=4;break;
+      case 43:vf=VK_FORMAT_R32_SINT;sz=4;break;
+      case 49:vf=VK_FORMAT_R8G8_UNORM;sz=2;break;
+      case 50:vf=VK_FORMAT_R8G8_UINT;sz=2;break;
+      case 51:vf=VK_FORMAT_R8G8_SNORM;sz=2;break;
+      case 52:vf=VK_FORMAT_R8G8_SINT;sz=2;break;
+      case 54:vf=VK_FORMAT_R16_SFLOAT;sz=2;break;
+      case 56:vf=VK_FORMAT_R16_UNORM;sz=2;break;
+      case 57:vf=VK_FORMAT_R16_UINT;sz=2;break;
+      case 58:vf=VK_FORMAT_R16_SNORM;sz=2;break;
+      case 59:vf=VK_FORMAT_R16_SINT;sz=2;break;
+      case 61:vf=VK_FORMAT_R8_UNORM;sz=1;break;
+      case 62:vf=VK_FORMAT_R8_UINT;sz=1;break;
+      case 63:vf=VK_FORMAT_R8_SNORM;sz=1;break;
+      case 64:vf=VK_FORMAT_R8_SINT;sz=1;break;
       default:break;
      }
      if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-input-layout-format-unsupported");continue;}
@@ -2982,6 +3039,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
    }
    for(uint32_t slot=0;slot<16;slot++)if(slotUsed[slot]){auto& b=vbDesc[vbCount++];b.binding=slot;b.stride=m.strides[slot]?m.strides[slot]:appendOffset[slot];bool inst=false;for(const auto& e:il->elements)if(e.slot==slot&&e.inputClass==1){inst=true;break;}b.inputRate=inst?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;}
  }
+ {char d[128];snprintf(d,sizeof(d),"layout=%p attrs=%u bindings=%u",m.inputLayout,vaCount,vbCount);gtavdiag::checkpoint("native-input-pipeline-ready",d);}
  VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};vi.vertexBindingDescriptionCount=vbCount;vi.pVertexBindingDescriptions=vbCount?vbDesc:nullptr;vi.vertexAttributeDescriptionCount=vaCount;vi.pVertexAttributeDescriptions=vaCount?vaDesc:nullptr;
  VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=compatVkTopology(m.topology);
  VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;
@@ -3013,8 +3071,13 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
    auto it=mirrorStates.find(ctx); if(it==mirrorStates.end()){gtavdiag::checkpoint("native-draw-fail-no-mirror");return false;} m=it->second; }
  // ID3D11InputLayout may legally be NULL. In that case the Vulkan pipeline uses
  // zero vertex attributes; shaders relying on SV_VertexID remain valid.
- if(!m.inputLayout){/* valid zero-input pipeline */}
- if(!m.vertexBuffers[0]){gtavdiag::checkpoint("native-draw-fail-vb0");return false;}
+ CompatInputLayoutObject* activeInputLayout=compatResolveInputLayout(m.inputLayout,m.vs);
+ const bool needsVertexInput=activeInputLayout&&!activeInputLayout->elements.empty();
+ if(needsVertexInput){
+   bool anyVB=false;
+   for(const auto& e:activeInputLayout->elements)if(e.slot<16&&m.vertexBuffers[e.slot]){anyVB=true;break;}
+   if(!anyVB){gtavdiag::checkpoint("native-draw-fail-required-vb");return false;}
+ }
  if(!m.vs){gtavdiag::checkpoint("native-draw-fail-vs");return false;}
  if(!m.ps){gtavdiag::checkpoint("native-draw-fail-ps");return false;}
  if(!m.rtvCount || !m.rtv[0]){gtavdiag::checkpoint("native-draw-fail-rtv");return false;}
@@ -3040,7 +3103,7 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  if(m.indexBuffer)mapCompatBuffer(m.indexBuffer,NR_INDEX_BUFFER);
  for(unsigned i=0;i<16;i++){if(m.vsCB[i])mapCompatBuffer(m.vsCB[i],NR_CBUFFER);if(m.psCB[i])mapCompatBuffer(m.psCB[i],NR_CBUFFER);if(m.csCB[i])mapCompatBuffer(m.csCB[i],NR_CBUFFER);}
  captureMappedState(ctx,m);
- uint64_t vb=resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER);
+ uint64_t vb=m.vertexBuffers[0]?resolveMapped(m.vertexBuffers[0],NR_VERTEX_BUFFER):0;
  uint64_t vs=resolveMapped(m.vs,NR_VS), ps=resolveMapped(m.ps,NR_PS);
  uint64_t rt=resolveMapped(m.rtv[0],NR_RTV);
  uint64_t stateKey=graphicsStateKey(m);
@@ -3049,7 +3112,13 @@ static bool buildMappedDrawState(void* ctx,GtavNativeDrawState* s){
  uint64_t desc=gtav_native_renderer_resolve_resource(stateKey,NR_DESCRIPTOR_SET);
  // Do not enter native draw until every GPU object required by that draw has a real Vulkan mapping.
  // This deliberately prevents raw RAGE/D3D pointers from ever reaching vkCmd*.
- if(!vb){gtavdiag::checkpoint("native-draw-fail-map-vb");return false;}
+ if(needsVertexInput){
+   for(const auto& e:activeInputLayout->elements){
+     if(e.slot>=16||!m.vertexBuffers[e.slot]||!resolveMapped(m.vertexBuffers[e.slot],NR_VERTEX_BUFFER)){
+       gtavdiag::checkpoint("native-draw-fail-map-required-vb");return false;
+     }
+   }
+ }
  if(!vs){gtavdiag::checkpoint("native-draw-fail-map-vs");return false;}
  if(!ps){gtavdiag::checkpoint("native-draw-fail-map-ps");return false;}
  if(!rt){gtavdiag::checkpoint("native-draw-fail-map-rt");return false;}
@@ -3200,7 +3269,7 @@ static bool refreshCompatDescriptors(const RageMirrorState& m,VkDescriptorSet de
  return true;
 }
 static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool indexed){
- if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set||!s.vertex_buffer)return false;
+ if(!s.command_buffer||!s.pipeline||!s.pipeline_layout||!s.descriptor_set)return false;
  if(indexed&&!s.index_buffer)return false;
  vkCmdBindPipeline(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline);
  // Bind every active mirrored vertex stream, not only slot 0. This keeps native
@@ -3216,7 +3285,14 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
    if(!mapped)return false;
    vbs[i]=(VkBuffer)(uintptr_t)mapped; offsets[i]=m.offsets[i]; last=i+1;
  }
- if(!last)return false;
+ auto* il=compatResolveInputLayout(m.inputLayout,m.vs);
+ bool needsVertexInput=il&&!il->elements.empty();
+ if(needsVertexInput){
+   for(const auto& e:il->elements){
+     if(e.slot>=16||!vbs[e.slot]){gtavdiag::checkpoint("native-bind-missing-layout-stream");return false;}
+   }
+ }
+ if(!last&&needsVertexInput)return false;
  // Vulkan requires valid handles for every element in a single bind call, so
  // preserve holes by binding contiguous active runs.
  for(uint32_t first=0;first<last;){
@@ -3228,6 +3304,7 @@ static bool bindMappedGraphicsState(void* ctx,const GtavNativeDrawState& s,bool 
  }
  if(indexed)vkCmdBindIndexBuffer(s.command_buffer,s.index_buffer,s.index_offset,s.index_type);
  vkCmdBindDescriptorSets(s.command_buffer,VK_PIPELINE_BIND_POINT_GRAPHICS,s.pipeline_layout,0,1,&s.descriptor_set,0,nullptr);
+ uint32_t compatPush[32]{}; vkCmdPushConstants(s.command_buffer,s.pipeline_layout,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(compatPush),compatPush);
  applyMirroredDynamicState(ctx,s.command_buffer);
  return true;
 }
