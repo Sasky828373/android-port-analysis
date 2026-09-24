@@ -2,311 +2,174 @@ name: Build AndroidGTAV Native APK
 
 on:
   push:
-    branches:
-      - androidgtav-native-build
+    branches: [androidgtav-native-build]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    runs-on: windows-2025
+    timeout-minutes: 180
 
     env:
-      ANDROID_API: "28"
-      ANDROID_ABI: arm64-v8a
-      NDK_VERSION: "27.2.12479018"
+      NDK_VERSION: 29.0.14206865
+      BUILD_TOOLS: 37.0.0
 
     steps:
       - name: Checkout control repo
         uses: actions/checkout@v4
 
-      - name: Probe AndroidGTAV upstream before toolchain setup
-        if: github.actor != 'github-actions[bot]'
+      - name: Locate Android SDK
+        shell: pwsh
+        run: |
+          $sdk = $env:ANDROID_SDK_ROOT
+          if (-not $sdk) { $sdk = $env:ANDROID_HOME }
+          if (-not $sdk) { $sdk = Join-Path $env:LOCALAPPDATA "Android\Sdk" }
+          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Android SDK: $sdk"
+
+      - name: Install exact upstream Android toolchain
+        shell: pwsh
+        run: |
+          $sdkmanager = Get-ChildItem "$env:ANDROID_SDK_ROOT\cmdline-tools" -Recurse -Filter sdkmanager.bat |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $sdkmanager) { throw "sdkmanager.bat not found" }
+          Write-Host "sdkmanager: $sdkmanager"
+          & $sdkmanager "platform-tools" "platforms;android-35" "build-tools;$env:BUILD_TOOLS" "ndk;$env:NDK_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed: $LASTEXITCODE" }
+
+      - name: Clone current AndroidGTAV upstream
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://gitcode.com/linyushu520/AndroidGTAV.git "$env:GITHUB_WORKSPACE\AndroidGTAV"
+          if ($LASTEXITCODE -ne 0) { throw "GitCode clone failed" }
+          Set-Location "$env:GITHUB_WORKSPACE\AndroidGTAV"
+          git rev-parse HEAD | Tee-Object "$env:GITHUB_WORKSPACE\androidgtav-upstream-sha.txt"
+
+      - name: Verify upstream baseline and build files
+        shell: pwsh
+        run: |
+          $b = "$env:GITHUB_WORKSPACE\AndroidGTAV\gta5\src\dev_ng\android_build"
+          if (-not (Test-Path "$b\scripts\build_sys.sh")) { throw "scripts/build_sys.sh missing" }
+          if (-not (Test-Path "$b\package_apk.py")) { throw "package_apk.py missing" }
+
+          $baseline = "$b\RB_zcode_audiosched_0919\integrated"
+          Write-Host "Baseline: $baseline"
+          if (-not (Test-Path $baseline)) {
+            Write-Host "Available integrated baselines:"
+            Get-ChildItem $b -Recurse -Directory -Filter integrated | Select-Object -ExpandProperty FullName
+            throw "Expected upstream baseline RB_zcode_audiosched_0919/integrated is not present"
+          }
+
+          $archive = Join-Path $baseline "libgtav_engine.a"
+          if (-not (Test-Path $archive)) { throw "Baseline libgtav_engine.a missing" }
+          $apks = @(Get-ChildItem $baseline -Filter *.apk | Where-Object Name -ne "unsigned.apk")
+          if ($apks.Count -ne 1) { throw "Expected exactly one signed baseline APK, found $($apks.Count)" }
+
+          Write-Host "Baseline archive: $((Get-Item $archive).Length) bytes"
+          Write-Host "Baseline APK: $($apks[0].FullName) ($($apks[0].Length) bytes)"
+
+      - name: Map X drive required by upstream
+        shell: cmd
+        run: |
+          subst X: "%GITHUB_WORKSPACE%\AndroidGTAV"
+          if errorlevel 1 exit /b 1
+          dir X:\gta5\src\dev_ng\android_build
+
+      - name: Build latest native Vulkan translation units
         shell: bash
         run: |
-          set +e
-          mkdir -p "${GITHUB_WORKSPACE}/.androidgtav-probe"
-          cd "${GITHUB_WORKSPACE}"
+          set -euxo pipefail
+          cd /x/gta5/src/dev_ng/android_build
 
-          git clone --depth 1 --recurse-submodules \
-            https://gitcode.com/linyushu520/AndroidGTAV.git \
-            "${GITHUB_WORKSPACE}/AndroidGTAV" \
-            >"${GITHUB_WORKSPACE}/.androidgtav-probe/clone.log" 2>&1
-          CLONE_RC=$?
+          mkdir -p ci_native
+          : > ci_native/sources.txt
 
-          echo "clone_rc=${CLONE_RC}" > "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
-          echo "runner=${RUNNER_OS} ${RUNNER_ARCH}" >> "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
-          echo "date=$(date -u +%FT%TZ)" >> "${GITHUB_WORKSPACE}/.androidgtav-probe/result.txt"
-
-          if [ "${CLONE_RC}" -eq 0 ]; then
-            cd "${GITHUB_WORKSPACE}/AndroidGTAV"
-            git rev-parse HEAD > "${GITHUB_WORKSPACE}/.androidgtav-probe/upstream-sha.txt"
-
-            {
-              echo "=== ANDROID BUILD TREE ==="
-              find . -maxdepth 10 -path '*android_build*' -print | sort | sed -n '1,1600p'
-              echo
-              echo "=== BUILD ENTRYPOINTS ==="
-              find . -maxdepth 11 -type f \( \
-                -iname '*.sh' -o -iname '*.py' -o -iname '*.bat' -o -iname '*.cmd' -o \
-                -iname 'CMakeLists.txt' -o -iname 'Makefile' -o \
-                -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o \
-                -iname 'gradlew' -o -iname 'package_apk.py' -o -iname 'PACKAGING.md' \
-              \) | sort | sed -n '1,2400p'
-            } > "${GITHUB_WORKSPACE}/.androidgtav-probe/layout.txt"
-
-            PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
-            [ -z "${PACKAGING}" ] || cp "${PACKAGING}" "${GITHUB_WORKSPACE}/.androidgtav-probe/PACKAGING.md"
-
-            PKG="$(find . -type f -iname 'package_apk.py' | head -1 || true)"
-            if [ -n "${PKG}" ]; then
-              cp "${PKG}" "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk.py"
-              python3 "${PKG}" --help > "${GITHUB_WORKSPACE}/.androidgtav-probe/package_apk-help.txt" 2>&1 || true
+          # Refresh the core native Vulkan renderer from current upstream source.
+          for list in             lists/list_device_vk.txt             lists/list_effectvk.txt             lists/list_pipeline_vk.txt             lists/list_pipe_vk.txt; do
+            if [ -f "$list" ]; then
+              cat "$list" >> ci_native/sources.txt
             fi
-          fi
-
-          if [ "${CLONE_RC}" -ne 0 ]; then
-            cat "${GITHUB_WORKSPACE}/.androidgtav-probe/clone.log"
-            exit "${CLONE_RC}"
-          fi
-          exit 0
-
-      - name: Upload upstream probe diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: AndroidGTAV-upstream-probe
-          path: .androidgtav-probe/**
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Install host dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git git-lfs python3 python3-pip ninja-build cmake \
-            openjdk-17-jdk unzip zip p7zip-full patchelf file rsync
-          git lfs install
-
-      - name: Use preinstalled Android SDK and install NDK
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
-          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
-          export PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/cmdline-tools/16.0/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
-
-          SDKMANAGER="$(command -v sdkmanager || true)"
-          if [ -z "${SDKMANAGER}" ]; then
-            SDKMANAGER="$(find "${ANDROID_SDK_ROOT}/cmdline-tools" -type f -name sdkmanager | head -1)"
-          fi
-
-          echo "Using sdkmanager: ${SDKMANAGER}"
-          yes | "${SDKMANAGER}" --licenses >/dev/null || true
-          "${SDKMANAGER}" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;${NDK_VERSION}"
-
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}" >> "${GITHUB_ENV}"
-          echo "ANDROID_HOME=${ANDROID_SDK_ROOT}" >> "${GITHUB_ENV}"
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "${GITHUB_ENV}"
-          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "${GITHUB_ENV}"
-          echo "${ANDROID_SDK_ROOT}/platform-tools" >> "${GITHUB_PATH}"
-          echo "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "${GITHUB_PATH}"
-
-      - name: Clone upstream AndroidGTAV
-        run: |
-          if [ ! -d "${GITHUB_WORKSPACE}/AndroidGTAV/.git" ]; then
-            git clone --depth 1 --recurse-submodules \
-              https://gitcode.com/linyushu520/AndroidGTAV.git \
-              "${GITHUB_WORKSPACE}/AndroidGTAV"
-          fi
-          cd "${GITHUB_WORKSPACE}/AndroidGTAV"
-          git submodule update --init --recursive || true
-          git rev-parse HEAD | tee "${GITHUB_WORKSPACE}/androidgtav-upstream-sha.txt"
-
-      - name: Inspect upstream build layout
-        run: |
-          cd "${GITHUB_WORKSPACE}/AndroidGTAV"
-          echo "==== PACKAGING DOCS ===="
-          find . -type f \( -iname 'PACKAGING.md' -o -iname '*BUILD*.md' -o -iname 'README.md' \) -print
-          echo "==== BUILD SCRIPTS ===="
-          find . -maxdepth 6 -type f \( \
-            -iname 'package_apk.py' -o \
-            -iname '*android*build*.py' -o \
-            -iname '*android*build*.sh' -o \
-            -iname 'build*.py' -o \
-            -iname 'build*.sh' -o \
-            -iname 'CMakeLists.txt' -o \
-            -iname 'build.gradle' -o \
-            -iname 'build.gradle.kts' \
-          \) -print | sort | sed -n '1,400p'
-
-          PACKAGING="$(find . -type f -iname 'PACKAGING.md' | head -1 || true)"
-          if [ -n "${PACKAGING}" ]; then
-            echo "==== ${PACKAGING} ===="
-            sed -n '1,260p' "${PACKAGING}"
-          fi
-
-          PKG="$(find . -type f -iname 'package_apk.py' | head -1 || true)"
-          if [ -n "${PKG}" ]; then
-            echo "==== package_apk.py --help ===="
-            python3 "${PKG}" --help || true
-          fi
-
-      - name: Build native ARM64 code
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cd "${GITHUB_WORKSPACE}/AndroidGTAV"
-
-          export PATH="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
-          export CC="aarch64-linux-android${ANDROID_API}-clang"
-          export CXX="aarch64-linux-android${ANDROID_API}-clang++"
-          export AR="llvm-ar"
-          export STRIP="llvm-strip"
-
-          BUILT=0
-
-          # Prefer upstream-provided Android build scripts.
-          mapfile -t CANDIDATES < <(find . -maxdepth 6 -type f \( \
-              -iname 'build_android.sh' -o \
-              -iname 'android_build.sh' -o \
-              -iname 'build_android.py' -o \
-              -iname 'android_build.py' \
-            \) | sort)
-
-          for script in "${CANDIDATES[@]}"; do
-            echo "Trying upstream build script: ${script}"
-            case "${script}" in
-              *.sh)
-                chmod +x "${script}"
-                if ANDROID_NDK_HOME="${ANDROID_NDK_HOME}" ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT}" \
-                   bash "${script}"; then
-                  BUILT=1
-                  break
-                fi
-                ;;
-              *.py)
-                if ANDROID_NDK_HOME="${ANDROID_NDK_HOME}" ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT}" \
-                   python3 "${script}"; then
-                  BUILT=1
-                  break
-                fi
-                ;;
-            esac
           done
 
-          # Fallback: Android-specific CMake project.
-          if [ "${BUILT}" -eq 0 ]; then
-            mapfile -t CMAKES < <(find . -maxdepth 5 -type f -name CMakeLists.txt -printf '%h\n' | \
-              grep -Ei 'android|gta5' | sort -u)
+          # Remove comments/blanks and duplicates without truncating producer pipes.
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("ci_native/sources.txt")
+          seen=set(); out=[]
+          for raw in p.read_text(errors="replace").splitlines():
+              s=raw.strip()
+              if not s or s.startswith("#") or s in seen:
+                  continue
+              seen.add(s); out.append(s)
+          p.write_text("\n".join(out)+"\n")
+          print("translation units:", len(out))
+          print("\n".join(out))
+          PY
 
-            for src in "${CMAKES[@]}"; do
-              echo "Trying CMake source: ${src}"
-              rm -rf "${GITHUB_WORKSPACE}/cmake-build"
-              if cmake -S "${src}" -B "${GITHUB_WORKSPACE}/cmake-build" -G Ninja \
-                   -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
-                   -DANDROID_ABI="${ANDROID_ABI}" \
-                   -DANDROID_PLATFORM="android-${ANDROID_API}" \
-                   -DCMAKE_BUILD_TYPE=Release && \
-                 cmake --build "${GITHUB_WORKSPACE}/cmake-build" --parallel "$(nproc)"; then
-                BUILT=1
-                break
-              fi
-            done
-          fi
-
-          mkdir -p "${GITHUB_WORKSPACE}/native-output"
-          find . "${GITHUB_WORKSPACE}/cmake-build" -type f \( -name '*.so' -o -name '*.a' \) \
-            -exec cp -av --parents {} "${GITHUB_WORKSPACE}/native-output/" \; 2>/dev/null || true
-
-          if [ "${BUILT}" -eq 0 ]; then
-            echo "::error::No upstream Android build entry point completed successfully."
+          if [ ! -s ci_native/sources.txt ]; then
+            echo "::error::No Vulkan source list entries found"
             exit 1
           fi
 
-      - name: Package APK when upstream inputs are available
+          CONFIG=release bash scripts/build_sys.sh ci_native/sources.txt ci_native/compiled
+
+          find ci_native/compiled -type f -name '*.o' -print > ci_native/objects.txt
+          cat ci_native/objects.txt
+          test -s ci_native/objects.txt
+
+      - name: Package and sign native APK using upstream packager
         shell: bash
         run: |
           set -euxo pipefail
-          cd "${GITHUB_WORKSPACE}/AndroidGTAV"
+          cd /x/gta5/src/dev_ng/android_build
 
-          PKG="$(find . -type f -iname 'package_apk.py' | head -1 || true)"
-          if [ -z "${PKG}" ]; then
-            echo "::error::package_apk.py not found."
-            exit 1
-          fi
+          mapfile -t OBJS < ci_native/objects.txt
+          python package_apk.py "${OBJS[@]}"
 
-          # Some revisions package from an upstream baseline APK.
-          BASE="$(find . -type f -iname '*.apk' | head -1 || true)"
-          DEX="$(find . -type f -name 'classes.dex' | head -1 || true)"
-          SO="$(find . "${GITHUB_WORKSPACE}/native-output" -type f -name '*.so' | \
-                grep -Ei '/arm64|arm64-v8a|aarch64|libgtav' | head -1 || true)"
+          test -s dist/gtav.apk
+          cp dist/gtav.apk "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
+          cp dist/verification.json "$GITHUB_WORKSPACE/verification.json"
+          cp dist/verification.txt "$GITHUB_WORKSPACE/verification.txt"
+          cp dist/build.log "$GITHUB_WORKSPACE/build.log"
 
-          mkdir -p "${GITHUB_WORKSPACE}/apk-output"
-
-          echo "package script: ${PKG}"
-          echo "baseline apk: ${BASE:-<none>}"
-          echo "dex: ${DEX:-<none>}"
-          echo "native so: ${SO:-<none>}"
-
-          # First try the common positional/base form only when a baseline is bundled.
-          if [ -n "${BASE}" ]; then
-            set +e
-            python3 "${PKG}" "${BASE}" \
-              --output "${GITHUB_WORKSPACE}/apk-output/AndroidGTAV-native-unsigned.apk" \
-              ${DEX:+--dex "${DEX}"}
-            RC=$?
-            set -e
-            if [ "${RC}" -ne 0 ]; then
-              echo "Upstream packager requires a different command line; packaging help was printed earlier."
-            fi
-          fi
-
-          # Collect any APK produced by upstream build/package steps.
-          find . -type f -iname '*.apk' -exec cp -av {} "${GITHUB_WORKSPACE}/apk-output/" \; || true
-
-          COUNT="$(find "${GITHUB_WORKSPACE}/apk-output" -type f -iname '*.apk' | wc -l)"
-          if [ "${COUNT}" -eq 0 ]; then
-            echo "::error::Native compilation completed, but upstream did not provide enough packaging inputs to emit an APK."
-            exit 1
-          fi
-
-      - name: APK diagnostics
-        if: always()
+      - name: Verify APK structure
+        shell: pwsh
         run: |
-          echo "==== APK outputs ===="
-          find "${GITHUB_WORKSPACE}" -type f -iname '*.apk' -print -exec file {} \; || true
-          echo "==== Native outputs ===="
-          find "${GITHUB_WORKSPACE}/native-output" -type f -name '*.so' -print 2>/dev/null || true
-
-      - name: Upload native build
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: AndroidGTAV-native-build
-          path: |
-            native-output/**
-            androidgtav-upstream-sha.txt
-          if-no-files-found: warn
-          retention-days: 7
+          $apk = "$env:GITHUB_WORKSPACE\AndroidGTAV-native-vulkan.apk"
+          if (-not (Test-Path $apk)) { throw "APK output missing" }
+          $apksigner = "$env:ANDROID_SDK_ROOT\build-tools\$env:BUILD_TOOLS\apksigner.bat"
+          & $apksigner verify --verbose $apk
+          if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
+          Get-FileHash $apk -Algorithm SHA256
+          Get-Item $apk | Format-List FullName,Length,LastWriteTime
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: AndroidGTAV-native-apk
-          path: apk-output/*.apk
+          name: AndroidGTAV-native-vulkan-apk
+          path: |
+            AndroidGTAV-native-vulkan.apk
+            verification.json
+            verification.txt
+            build.log
+            androidgtav-upstream-sha.txt
           if-no-files-found: error
           retention-days: 7
 
-# diagnostic rerun marker
+      - name: Upload compiler diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidGTAV-build-failure
+          path: |
+            AndroidGTAV/gta5/src/dev_ng/android_build/ci_native/**
+            AndroidGTAV/gta5/src/dev_ng/android_build/dist/build.log
+            androidgtav-upstream-sha.txt
+          if-no-files-found: warn
+          retention-days: 7
