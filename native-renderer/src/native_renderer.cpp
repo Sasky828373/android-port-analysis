@@ -842,10 +842,35 @@ static void compatUpdateBacking(void* dst,uint32_t sub,const void* src,uint32_t 
 }
 static void compatCopyBacking(void* dst,void* src){auto* d=compatResourceObject(dst);auto* s=compatResourceObject(src);if(!d||!s)return;if(d->backing.size()<s->backing.size())d->backing.resize(s->backing.size());if(!s->backing.empty())std::memcpy(d->backing.data(),s->backing.data(),s->backing.size());d->version++;}
 static void compatResolveBacking(void* dst,uint32_t ds,void* src,uint32_t ss){auto* dr=compatResourceObject(dst);auto* sr=compatResourceObject(src);if(!dr||!sr)return;CompatMappedSubresource d{},s{};if(!compatMapResourceBackingSubresource(dst,ds,&d)||!compatMapResourceBackingSubresource(src,ss,&s))return;size_t n=std::min<size_t>(d.depthPitch?d.depthPitch:d.rowPitch,s.depthPitch?s.depthPitch:s.rowPitch);if(n){std::memcpy(d.pData,s.pData,n);dr->version++;}}
+struct CompatPendingNativeColorClear { float color[4]{}; };
+static std::mutex gCompatPendingClearMutex;
+static std::unordered_map<void*,CompatPendingNativeColorClear> gCompatPendingNativeColorClears;
 static void compatClearRTVBacking(void* view,const float* color){
- if(!view||!color)return;auto* v=compatViewObject(view);if(!v)return;auto* r=compatResourceObject(v->resource);if(!r)return;
- for(int i=0;i<4;i++)r->pendingClearColor[i]=color[i];r->pendingClearFlags|=0x100u;
- if(!r->backing.empty()){uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;if(fmt==28||fmt==29||fmt==87||fmt==88){uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}if(fmt==87||fmt==88)std::swap(q[0],q[2]);for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);}else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());}
+ if(!view||!color)return;
+ auto* v=compatViewObject(view);if(!v)return;
+ void* resource=v->resource;
+ if(auto* r=compatResourceObject(resource)){
+   for(int i=0;i<4;i++)r->pendingClearColor[i]=color[i];
+   r->pendingClearFlags|=0x100u;
+   if(!r->backing.empty()){
+     uint32_t fmt=r->descSize>=20?((uint32_t*)r->desc)[4]:28;
+     if(fmt==28||fmt==29||fmt==87||fmt==88){
+       uint8_t q[4];for(int i=0;i<4;i++){float x=std::max(0.0f,std::min(1.0f,color[i]));q[i]=(uint8_t)(x*255.0f+0.5f);}
+       if(fmt==87||fmt==88)std::swap(q[0],q[2]);
+       for(size_t i=0;i+4<=r->backing.size();i+=4)std::memcpy(r->backing.data()+i,q,4);
+     }else if(color[0]==0&&color[1]==0&&color[2]==0&&color[3]==0)std::memset(r->backing.data(),0,r->backing.size());
+   }
+   return;
+ }
+ // Swapchain/backbuffer and other foreign D3D resources are not CompatResourceObject.
+ // Preserve D3D11 ClearRenderTargetView semantics instead of silently dropping the clear.
+ {
+   std::lock_guard<std::mutex> l(gCompatPendingClearMutex);
+   auto& pc=gCompatPendingNativeColorClears[resource];
+   for(int i=0;i<4;i++)pc.color[i]=color[i];
+ }
+ char d[128];snprintf(d,sizeof(d),"view=%p resource=%p rgba=%.3f,%.3f,%.3f,%.3f",view,resource,color[0],color[1],color[2],color[3]);
+ gtavdiag::checkpoint("native-pending-foreign-rtv-clear",d);
 }
 static void compatClearDSVBacking(void* view,uint32_t flags,float depth,uint8_t stencil){
  if(!view)return;auto* v=compatViewObject(view);if(!v)return;auto* r=compatResourceObject(v->resource);if(!r)return;r->pendingClearFlags|=(flags&3u);r->pendingClearDepth=depth;r->pendingClearStencil=stencil;
@@ -3025,7 +3050,14 @@ static void applyMirroredDynamicState(void* ctx,VkCommandBuffer cb){
  }
  if(m.scissorCount){
    uint32_t n=m.scissorCount>16?16:m.scissorCount;
-   vkCmdSetScissor(cb,0,n,reinterpret_cast<const VkRect2D*>(m.scissors));
+   VkRect2D rects[16]{};
+   const int32_t* d3d=reinterpret_cast<const int32_t*>(m.scissors);
+   for(uint32_t i=0;i<n;i++){
+     int32_t left=d3d[i*4+0],top=d3d[i*4+1],right=d3d[i*4+2],bottom=d3d[i*4+3];
+     rects[i].offset={left,top};
+     rects[i].extent={(uint32_t)std::max(0,right-left),(uint32_t)std::max(0,bottom-top)};
+   }
+   vkCmdSetScissor(cb,0,n,rects);
  }
 }
 static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
@@ -3052,7 +3084,20 @@ static bool beginCompatRendering(void* ctx,VkCommandBuffer cb){
    VkImageView v=gtav_native_renderer_create_image_view((uint64_t)(uintptr_t)m.rtv[i]);
    if(!v){char d[48];snprintf(d,sizeof(d),"rtv=%u",i);gtavdiag::checkpoint("native-render-scope-rtv-view-failed",d);return false;}
    colors[i].sType=VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;colors[i].imageView=v;colors[i].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;colors[i].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
-   if(void* u=compatUnderlyingResource(m.rtv[i])){auto* rr=compatResourceObject(u);if(rr&&(rr->pendingClearFlags&0x100u)){colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=rr->pendingClearColor[k];rr->pendingClearFlags&=~0x100u;}}
+   if(void* u=compatUnderlyingResource(m.rtv[i])){
+     if(auto* rr=compatResourceObject(u);rr&&(rr->pendingClearFlags&0x100u)){
+       colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=rr->pendingClearColor[k];rr->pendingClearFlags&=~0x100u;
+     }else{
+       std::lock_guard<std::mutex> cl(gCompatPendingClearMutex);
+       auto pc=gCompatPendingNativeColorClears.find(u);
+       if(pc!=gCompatPendingNativeColorClears.end()){
+         colors[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+         for(int k=0;k<4;k++)colors[i].clearValue.color.float32[k]=pc->second.color[k];
+         gCompatPendingNativeColorClears.erase(pc);
+         gtavdiag::checkpoint("native-foreign-rtv-clear-applied");
+       }
+     }
+   }
  }
  VkRenderingAttachmentInfo depth{},stencilAtt{};VkRenderingAttachmentInfo* dp=nullptr;VkRenderingAttachmentInfo* sp=nullptr;bool hasStencil=false;
  if(m.dsv){
@@ -3144,7 +3189,8 @@ static void rememberDrawnPrimaryRTV(void* ctx){
  lastCompatDrawnRTV.store(v,std::memory_order_release);
  lastCompatDrawnSerial.store(serial,std::memory_order_release);
  uint32_t w=0,h=0;void* r=compatUnderlyingResource(v);if(!r)r=v;auto* rr=compatResourceObject(r);
- if(rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){w=((uint32_t*)rr->desc)[0];h=((uint32_t*)rr->desc)[1];}
+ if(r==&gCompatBackBuffer){w=gCompatSwapWidth.load(std::memory_order_relaxed);h=gCompatSwapHeight.load(std::memory_order_relaxed);}
+ else if(rr&&rr->vtbl==gCompatTexture2DVtable&&rr->descSize>=8){w=((uint32_t*)rr->desc)[0];h=((uint32_t*)rr->desc)[1];}
  else {
    if(mapWrappedImage(r,2u,true)){std::lock_guard<std::mutex> ml(imageMetaMutex);auto mi=imageMeta.find((uint64_t)(uintptr_t)v);if(mi==imageMeta.end())mi=imageMeta.find((uint64_t)(uintptr_t)r);if(mi!=imageMeta.end()){w=mi->second.width;h=mi->second.height;}}
  }
