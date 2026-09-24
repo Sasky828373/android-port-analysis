@@ -695,6 +695,24 @@ static CompatInputLayoutObject* compatInputLayoutObject(void* p){
  if(!p)return nullptr;std::lock_guard<std::mutex> l(gCompatShaderMutex);
  auto* x=(CompatInputLayoutObject*)p;return std::find(gCompatInputLayouts.begin(),gCompatInputLayouts.end(),x)!=gCompatInputLayouts.end()?x:nullptr;
 }
+
+static CompatInputLayoutObject* compatResolveInputLayout(void* layout,void* vs){
+ if(auto* direct=compatInputLayoutObject(layout))return direct;
+ if(!layout||!vs||!compatShaderObject(vs))return nullptr;
+ auto* shader=(CompatShaderObject*)vs;
+ std::lock_guard<std::mutex> l(gCompatShaderMutex);
+ for(auto* il:gCompatInputLayouts){
+   if(!il||il->signature.size()!=shader->bytecode.size())continue;
+   if(!il->signature.empty()&&std::memcmp(il->signature.data(),shader->bytecode.data(),il->signature.size())==0){
+     char d[128];snprintf(d,sizeof(d),"layout=%p recovered=%p elems=%zu",layout,il,il->elements.size());
+     gtavdiag::checkpoint("native-input-layout-recovered-by-vs",d);
+     return il;
+   }
+ }
+ char d[128];snprintf(d,sizeof(d),"layout=%p vs=%p",layout,vs);
+ gtavdiag::checkpoint("native-input-layout-unresolved",d);
+ return nullptr;
+}
 static bool compatShaderIsSpirv(const CompatShaderObject* s){
  if(!s||s->bytecode.size()<20||(s->bytecode.size()&3))return false;
  uint32_t magic=0;std::memcpy(&magic,s->bytecode.data(),sizeof(magic));return magic==0x07230203u;
@@ -1633,7 +1651,7 @@ static void capture(const char* kind,void* rage,uint64_t vk=0){
 }
 
 static RageMirrorState& mirror(void* ctx){return mirrorStates[ctx];}
-extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}
+extern "C" void gtavnative_compat_mirror_input_layout(void* c,void* v){bool known=compatInputLayoutObject(v)!=nullptr;{std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).inputLayout=v;}static std::atomic<uint32_t> budget{64};uint32_t n=budget.fetch_sub(1,std::memory_order_relaxed);if(n>0){char d[96];snprintf(d,sizeof(d),"layout=%p known=%d",v,known?1:0);gtavdiag::checkpoint("native-input-layout-mirrored",d);}}
 extern "C" void gtavnative_compat_mirror_vertex_buffers(void* c,uint32_t f,uint32_t n,void* const* v,const uint32_t* s,const uint32_t* o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);for(uint32_t i=0;i<n&&f+i<16;i++){m.vertexBuffers[f+i]=v?v[i]:nullptr;m.strides[f+i]=s?s[i]:0;m.offsets[f+i]=o?o[i]:0;}}
 extern "C" void gtavnative_compat_mirror_index_buffer(void* c,void* b,uint32_t f,uint32_t o){std::lock_guard<std::mutex> l(mirrorMutex);auto& m=mirror(c);m.indexBuffer=b;m.indexFormat=f;m.indexOffset=o;}
 extern "C" void gtavnative_compat_mirror_topology(void* c,uint32_t t){std::lock_guard<std::mutex> l(mirrorMutex);mirror(c).topology=t;}
@@ -2942,7 +2960,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  stages[0].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vs;stages[0].pName="main";
  stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=ps;stages[1].pName="main";
  VkVertexInputBindingDescription vbDesc[16]{};VkVertexInputAttributeDescription vaDesc[32]{};uint32_t vbCount=0,vaCount=0;bool slotUsed[16]{};
- if(auto* il=compatInputLayoutObject(m.inputLayout)){
+ if(auto* il=compatResolveInputLayout(m.inputLayout,m.vs)){
    uint32_t appendOffset[16]{};
    for(size_t i=0;i<il->elements.size()&&vaCount<32;i++){
      const auto& e=il->elements[i];if(e.slot>=16)continue;VkFormat vf=VK_FORMAT_UNDEFINED;uint32_t sz=0;
