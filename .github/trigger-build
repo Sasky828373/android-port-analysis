@@ -61,3 +61,5 @@ wire-engine-frame-present 3f822c5
 materialize-present-backbuffer 906aba4
 
 fix-backbuffer-kind b70991c
+
+visible-swapchain-probe eae6046
