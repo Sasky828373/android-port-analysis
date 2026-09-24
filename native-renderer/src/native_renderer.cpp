@@ -107,17 +107,18 @@ static void* gAdapterVtable[10]{};
 static int32_t compatQueryInterface(void* self, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-query-interface");
   if (!out) return (int32_t)0x80004003u;
-  // Do not claim arbitrary DXGI interfaces on the adapter. SuppressAltEnter
-  // probes adapter -> QI -> GetParent(+0x30); our minimal adapter does not
-  // implement that queried interface. Returning E_NOINTERFACE makes the
-  // engine take its safe non-Windows fullscreen fallback.
-  if (self == &gCompatAdapter) {
-    *out=nullptr;
-    gtavdiag::checkpoint("compat-dxgi-adapter-qi-unsupported");
-    return (int32_t)0x80004002u;
-  }
   *out=self;
   return 0;
+}
+static int32_t compatDXGISetPrivateData(void*,const void*,uint32_t,const void*){return 0;}
+static int32_t compatDXGISetPrivateDataInterface(void*,const void*,void*){return 0;}
+static int32_t compatDXGIGetPrivateData(void*,const void*,uint32_t* n,void*){if(n)*n=0;return (int32_t)0x80004005u;}
+static int32_t compatDXGIObjectGetParent(void* self,const void*,void** out){
+  gtavdiag::checkpoint("compat-dxgi-object-get-parent");
+  if(!out)return (int32_t)0x80004003u;
+  if(self==&gCompatAdapter){*out=&gCompatFactory;return 0;}
+  if(self==&gCompatOutput){*out=&gCompatAdapter;return 0;}
+  *out=&gCompatFactory;return 0;
 }
 static uint32_t compatAddRef(void*) { return 2; }
 static uint32_t compatRelease(void*) { return 1; }
@@ -169,6 +170,7 @@ static int32_t compatEnumOutputs(void*, uint32_t index, void** out) {
   static bool once=false;
   if(!once){ once=true; for(void*& p:gOutputVtable)p=(void*)compatOutputUnsupported;
     gOutputVtable[0]=(void*)compatOutputQueryInterface; gOutputVtable[1]=(void*)compatOutputAddRef; gOutputVtable[2]=(void*)compatOutputRelease;
+    gOutputVtable[3]=(void*)compatDXGISetPrivateData; gOutputVtable[4]=(void*)compatDXGISetPrivateDataInterface; gOutputVtable[5]=(void*)compatDXGIGetPrivateData; gOutputVtable[6]=(void*)compatDXGIObjectGetParent;
     gOutputVtable[7]=(void*)compatOutputGetDesc; gOutputVtable[8]=(void*)compatOutputGetDisplayModeList; gCompatOutput.vtbl=gOutputVtable; gCompatOutput.modeCount=1;
   }
   *out=&gCompatOutput; return 0;
@@ -193,6 +195,10 @@ static void initCompatDXGI() {
   gFactoryVtable[0]=(void*)compatQueryInterface;
   gFactoryVtable[1]=(void*)compatAddRef;
   gFactoryVtable[2]=(void*)compatRelease;
+  gFactoryVtable[3]=(void*)compatDXGISetPrivateData;
+  gFactoryVtable[4]=(void*)compatDXGISetPrivateDataInterface;
+  gFactoryVtable[5]=(void*)compatDXGIGetPrivateData;
+  gFactoryVtable[6]=(void*)compatDXGIObjectGetParent;
   gFactoryVtable[7]=(void*)compatEnumAdapters;
   gCompatFactory.vtbl=gFactoryVtable;
   // Adapter slots observed by grcAdapterD3D11:
@@ -200,6 +206,10 @@ static void initCompatDXGI() {
   gAdapterVtable[0]=(void*)compatQueryInterface;
   gAdapterVtable[1]=(void*)compatAddRef;
   gAdapterVtable[2]=(void*)compatRelease;
+  gAdapterVtable[3]=(void*)compatDXGISetPrivateData;
+  gAdapterVtable[4]=(void*)compatDXGISetPrivateDataInterface;
+  gAdapterVtable[5]=(void*)compatDXGIGetPrivateData;
+  gAdapterVtable[6]=(void*)compatDXGIObjectGetParent;
   gAdapterVtable[7]=(void*)compatEnumOutputs;
   gAdapterVtable[8]=(void*)compatGetDesc;
   gAdapterVtable[9]=(void*)compatAdapterCheckInterfaceSupport;
@@ -913,19 +923,6 @@ static int32_t compatAdapterCheckInterfaceSupport(void*, const void*, int64_t* v
 static int32_t compatDXGIDeviceGetParent(void*, const void*, void** out) {
   gtavdiag::checkpoint("compat-dxgi-device-get-parent");
   if(!out) return (int32_t)0x80004003u;
-  // RetrieveVideoMemory is the only bootstrap consumer that genuinely needs
-  // the adapter parent. SuppressAltEnter later asks for a different DXGI
-  // parent/interface chain that is Windows-only. Distinguish the calls by
-  // sequence: the first parent query supplies the adapter; later parent
-  // probes fail cleanly so the engine takes its fallback instead of invoking
-  // an unimplemented adapter vtable slot.
-  static uint32_t parentCalls=0;
-  ++parentCalls;
-  if(parentCalls > 1) {
-    *out=nullptr;
-    gtavdiag::checkpoint("compat-dxgi-device-get-parent-fallback");
-    return (int32_t)0x80004002u;
-  }
   initCompatDXGI();
   *out=&gCompatAdapter;
   return 0;
