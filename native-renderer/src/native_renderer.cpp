@@ -2039,16 +2039,20 @@ static GtavNativeAdapterInitFn origGtavNativeAdapterInit=nullptr;
 static bool hookGtavNativeAdapterInit(){
  gtavdiag::checkpoint("native-vulkan-loader-init-hook-enter");
  if(!gtavBase)dl_iterate_phdr(findGtav,nullptr);
- // libgtav keeps vkGetInstanceProcAddr at grVulkan globals +0xb0 after dlsym.
- // Replace that dispatch slot before Initialize asks it for vkCreateInstance/CreateDevice.
+ // Initialize itself resolves vkGetInstanceProcAddr with dlsym and only then stores
+ // it at +0x8aac0b0. Patching that slot on hook entry is therefore too early.
+ // Run the original initialization first, then replace the live GTA dispatch slot
+ // so every later proc lookup is routed through our selective wrapper.
+ bool ok=origGtavNativeAdapterInit?origGtavNativeAdapterInit():false;
  if(gtavBase){
    auto slot=reinterpret_cast<PFN_vkGetInstanceProcAddr*>(gtavBase+0x8aac0b0);
    if(slot&&*slot){
      *slot=&vkGetInstanceProcAddr;
      gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-patched");
+   } else {
+     gtavdiag::checkpoint("native-vulkan-loader-gipa-slot-empty");
    }
  }
- bool ok=origGtavNativeAdapterInit?origGtavNativeAdapterInit():false;
  return ok;
 }
 static bool installVulkanLoaderInitHook(){
