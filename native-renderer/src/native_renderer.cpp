@@ -907,21 +907,94 @@ static int32_t compatContextGetData(void*,void* q,void* data,uint32_t bytes,uint
 }
 static VkFormat compatDxgiFormat(uint32_t f){
  switch(f){
-  case 1:case 2:return VK_FORMAT_R32G32B32A32_SFLOAT; case 5:case 6:return VK_FORMAT_R32G32B32_SFLOAT;
-  case 9:case 10:return VK_FORMAT_R16G16B16A16_SFLOAT; case 11:return VK_FORMAT_R16G16B16A16_UNORM;
-  case 15:case 16:return VK_FORMAT_R32G32_SFLOAT; case 24:return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
-  case 26:return VK_FORMAT_B10G11R11_UFLOAT_PACK32; case 27:case 28:return VK_FORMAT_R8G8B8A8_UNORM; case 29:return VK_FORMAT_R8G8B8A8_SRGB;
-  case 33:case 34:return VK_FORMAT_R16G16_SFLOAT; case 35:return VK_FORMAT_R16G16_UNORM; case 39:case 40:return VK_FORMAT_D32_SFLOAT;
-  case 41:return VK_FORMAT_R32_SFLOAT; case 44:case 45:return VK_FORMAT_D24_UNORM_S8_UINT; case 48:case 49:return VK_FORMAT_R8G8_UNORM;
-  case 53:case 54:return VK_FORMAT_R16_SFLOAT; case 56:return VK_FORMAT_R16_UNORM; case 60:case 61:return VK_FORMAT_R8_UNORM;
-  case 70:case 71:return VK_FORMAT_BC1_RGBA_UNORM_BLOCK; case 72:return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
-  case 73:case 74:return VK_FORMAT_BC2_UNORM_BLOCK; case 75:return VK_FORMAT_BC2_SRGB_BLOCK;
-  case 76:case 77:return VK_FORMAT_BC3_UNORM_BLOCK; case 78:return VK_FORMAT_BC3_SRGB_BLOCK;
-  case 79:case 80:return VK_FORMAT_BC4_UNORM_BLOCK; case 81:return VK_FORMAT_BC4_SNORM_BLOCK;
-  case 82:case 83:return VK_FORMAT_BC5_UNORM_BLOCK; case 84:return VK_FORMAT_BC5_SNORM_BLOCK;
-  case 87:case 88:return VK_FORMAT_B8G8R8A8_UNORM; case 91:return VK_FORMAT_B8G8R8A8_SRGB;
-  case 94:case 95:return VK_FORMAT_BC6H_UFLOAT_BLOCK; case 96:return VK_FORMAT_BC6H_SFLOAT_BLOCK;
-  case 97:case 98:return VK_FORMAT_BC7_UNORM_BLOCK; case 99:return VK_FORMAT_BC7_SRGB_BLOCK;
+  // R32G32B32A32
+  case 1:case 2:return VK_FORMAT_R32G32B32A32_SFLOAT;
+  case 3:return VK_FORMAT_R32G32B32A32_UINT;
+  case 4:return VK_FORMAT_R32G32B32A32_SINT;
+  // R32G32B32
+  case 5:case 6:return VK_FORMAT_R32G32B32_SFLOAT;
+  case 7:return VK_FORMAT_R32G32B32_UINT;
+  case 8:return VK_FORMAT_R32G32B32_SINT;
+  // R16G16B16A16
+  case 9:case 10:return VK_FORMAT_R16G16B16A16_SFLOAT;
+  case 11:return VK_FORMAT_R16G16B16A16_UNORM;
+  case 12:return VK_FORMAT_R16G16B16A16_UINT;
+  case 13:return VK_FORMAT_R16G16B16A16_SNORM;
+  case 14:return VK_FORMAT_R16G16B16A16_SINT;
+  // R32G32
+  case 15:case 16:return VK_FORMAT_R32G32_SFLOAT;
+  case 17:return VK_FORMAT_R32G32_UINT;
+  case 18:return VK_FORMAT_R32G32_SINT;
+  // R32G8X24 families. Vulkan has no exact typeless equivalent; choose the
+  // depth/stencil representation used by D3D views of these resources.
+  case 19:case 20:return VK_FORMAT_D32_SFLOAT_S8_UINT;
+  case 21:return VK_FORMAT_D32_SFLOAT;
+  case 22:return VK_FORMAT_S8_UINT;
+  // packed HDR/color
+  case 23:case 24:return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+  case 25:return VK_FORMAT_A2B10G10R10_UINT_PACK32;
+  case 26:return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+  // R8G8B8A8
+  case 27:case 28:return VK_FORMAT_R8G8B8A8_UNORM;
+  case 29:return VK_FORMAT_R8G8B8A8_SRGB;
+  case 30:return VK_FORMAT_R8G8B8A8_UINT;
+  case 31:return VK_FORMAT_R8G8B8A8_SNORM;
+  case 32:return VK_FORMAT_R8G8B8A8_SINT;
+  // R16G16
+  case 33:case 34:return VK_FORMAT_R16G16_SFLOAT;
+  case 35:return VK_FORMAT_R16G16_UNORM;
+  case 36:return VK_FORMAT_R16G16_UINT;
+  case 37:return VK_FORMAT_R16G16_SNORM;
+  case 38:return VK_FORMAT_R16G16_SINT;
+  // R32 / depth aliases
+  case 39:case 40:return VK_FORMAT_D32_SFLOAT;
+  case 41:return VK_FORMAT_R32_SFLOAT;
+  case 42:return VK_FORMAT_R32_UINT;
+  case 43:return VK_FORMAT_R32_SINT;
+  // D24S8 / view aliases
+  case 44:case 45:return VK_FORMAT_D24_UNORM_S8_UINT;
+  case 46:return VK_FORMAT_D24_UNORM_S8_UINT;
+  case 47:return VK_FORMAT_S8_UINT;
+  // R8G8
+  case 48:case 49:return VK_FORMAT_R8G8_UNORM;
+  case 50:return VK_FORMAT_R8G8_UINT;
+  case 51:return VK_FORMAT_R8G8_SNORM;
+  case 52:return VK_FORMAT_R8G8_SINT;
+  // R16 / D16
+  case 53:case 54:return VK_FORMAT_R16_SFLOAT;
+  case 55:return VK_FORMAT_D16_UNORM;
+  case 56:return VK_FORMAT_R16_UNORM;
+  case 57:return VK_FORMAT_R16_UINT;
+  case 58:return VK_FORMAT_R16_SNORM;
+  case 59:return VK_FORMAT_R16_SINT;
+  // R8 / A8
+  case 60:case 61:return VK_FORMAT_R8_UNORM;
+  case 62:return VK_FORMAT_R8_UINT;
+  case 63:return VK_FORMAT_R8_SNORM;
+  case 64:return VK_FORMAT_R8_SINT;
+  case 65:return VK_FORMAT_R8_UNORM;
+  case 67:return VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+  // BCn
+  case 70:case 71:return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+  case 72:return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+  case 73:case 74:return VK_FORMAT_BC2_UNORM_BLOCK;
+  case 75:return VK_FORMAT_BC2_SRGB_BLOCK;
+  case 76:case 77:return VK_FORMAT_BC3_UNORM_BLOCK;
+  case 78:return VK_FORMAT_BC3_SRGB_BLOCK;
+  case 79:case 80:return VK_FORMAT_BC4_UNORM_BLOCK;
+  case 81:return VK_FORMAT_BC4_SNORM_BLOCK;
+  case 82:case 83:return VK_FORMAT_BC5_UNORM_BLOCK;
+  case 84:return VK_FORMAT_BC5_SNORM_BLOCK;
+  // legacy BGRA/BGRX
+  case 85:return VK_FORMAT_R5G6B5_UNORM_PACK16;
+  case 86:return VK_FORMAT_A1R5G5B5_UNORM_PACK16;
+  case 87:case 88:case 89:case 90:return VK_FORMAT_B8G8R8A8_UNORM;
+  case 91:case 92:case 93:return VK_FORMAT_B8G8R8A8_SRGB;
+  // BC6/7
+  case 94:case 95:return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+  case 96:return VK_FORMAT_BC6H_SFLOAT_BLOCK;
+  case 97:case 98:return VK_FORMAT_BC7_UNORM_BLOCK;
+  case 99:return VK_FORMAT_BC7_SRGB_BLOCK;
   default:return VK_FORMAT_UNDEFINED;
  }
 }
@@ -2012,7 +2085,7 @@ static bool createCompatOwnedImage(void* resource,uint32_t kind,void* publish){
    else return false;
  }
  if(!w||!h||w>16384||h>16384||mips>16||layers>2048){gtavdiag::checkpoint("native-compat-image-invalid-desc");return false;}
- VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED){gtavdiag::checkpoint("native-compat-image-unsupported-format");return false;}
+ VkFormat vf=compatDxgiFormat(fmt);if(vf==VK_FORMAT_UNDEFINED){char d[64];snprintf(d,sizeof(d),"dxgi=%u",fmt);gtavdiag::checkpoint("native-compat-image-unsupported-format",d);return false;}
  bool depth=(bindFlags&0x40u)!=0||kind==NR_DSV;VkImageUsageFlags usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
  VkFormatFeatureFlags need=0;
  if(bindFlags&0x08u){usage|=VK_IMAGE_USAGE_SAMPLED_BIT;need|=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;}
