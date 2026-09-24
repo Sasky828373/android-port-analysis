@@ -2884,7 +2884,6 @@ static std::mutex compatBufferMutex;
 static std::unordered_map<uint64_t,CompatOwnedBuffer> compatOwnedBuffers;
 static bool mapCompatBuffer(void* p,uint32_t kind){
  if(!p||!g.device||!g.physical)return false;
- if(gtav_native_renderer_resolve_resource((uint64_t)(uintptr_t)p,kind))return true;
  auto* r=compatResourceObject(p);if(!r||r->vtbl!=gCompatBufferVtable)return false;
  VkDeviceSize size=r->backing.size();if(r->descSize>=4){uint32_t declared=*(uint32_t*)r->desc;if(declared>size)size=declared;}if(!size)size=256;
  std::lock_guard<std::mutex> l(compatBufferMutex);auto it=compatOwnedBuffers.find((uint64_t)(uintptr_t)p);
@@ -2896,7 +2895,12 @@ static bool mapCompatBuffer(void* p,uint32_t kind){
    if(vkAllocateMemory(g.device,&ai,nullptr,&ob.memory)!=VK_SUCCESS||vkBindBufferMemory(g.device,ob.buffer,ob.memory,0)!=VK_SUCCESS){if(ob.memory)vkFreeMemory(g.device,ob.memory,nullptr);vkDestroyBuffer(g.device,ob.buffer,nullptr);return false;}
    ob.size=size;if(vkMapMemory(g.device,ob.memory,0,size,0,&ob.mapped)!=VK_SUCCESS)ob.mapped=nullptr;it=compatOwnedBuffers.emplace((uint64_t)(uintptr_t)p,ob).first;gtavdiag::checkpoint("native-compat-buffer-created");
  }
- if(it->second.mapped&&!r->backing.empty())std::memcpy(it->second.mapped,r->backing.data(),std::min<size_t>(r->backing.size(),(size_t)it->second.size));
+ if(it->second.mapped&&!r->backing.empty()){
+   size_t n=std::min<size_t>(r->backing.size(),(size_t)it->second.size);
+   std::memcpy(it->second.mapped,r->backing.data(),n);
+   static std::atomic<uint32_t> upBudget{256};uint32_t ub=upBudget.fetch_sub(1,std::memory_order_relaxed);
+   if(ub>0){const uint8_t* b=r->backing.data();uint64_t h=1469598103934665603ull;uint32_t nz=0;for(size_t i=0;i<std::min<size_t>(n,256);i++){h^=b[i];h*=1099511628211ull;if(b[i])nz++;}char d[192];snprintf(d,sizeof(d),"res=%p kind=%u ver=%llu bytes=%zu nz256=%u hash=%016llx",p,kind,(unsigned long long)r->version,n,nz,(unsigned long long)h);gtavdiag::checkpoint("black-probe-buffer-upload",d);}
+ }
  return gtav_native_renderer_register_resource((uint64_t)(uintptr_t)p,(uint64_t)(uintptr_t)it->second.buffer,kind,1);
 }
 static std::mutex compatSamplerMutex;
