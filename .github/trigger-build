@@ -5,3 +5,5 @@ active-present-submit 436187f
 sdl-android-surface ab34e716
 
 fix-runtime-order dd062a9
+
+resolve-packaged-sdl 863fd50
