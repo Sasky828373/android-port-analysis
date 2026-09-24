@@ -2845,17 +2845,22 @@ static std::atomic<bool> gPresentBridgeReady{false};
 
 static bool ensurePresentBridgeResources(){
  if(gPresentBridgeReady.load(std::memory_order_acquire))return true;
- if(!g.device||!g.commands)return false;
+ gtavdiag::checkpoint("native-present-bridge-resource-init");
+ if(!g.device){gtavdiag::checkpoint("native-present-bridge-no-device");return false;}
+ if(!g.commands){gtavdiag::checkpoint("native-present-bridge-no-command-pool");return false;}
  VkCommandBuffer bufs[3]{};
  VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
  ai.commandPool=g.commands;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=3;
- if(vkAllocateCommandBuffers(g.device,&ai,bufs)!=VK_SUCCESS)return false;
+ VkResult ar=vkAllocateCommandBuffers(g.device,&ai,bufs);
+ if(ar!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-command-alloc-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge command alloc failed=%d",(int)ar);return false;}
  for(uint32_t i=0;i<3;i++){
    gPresentBridge[i].cb=bufs[i];
    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-   if(vkCreateFence(g.device,&fi,nullptr,&gPresentBridge[i].fence)!=VK_SUCCESS)return false;
+   VkResult fr=vkCreateFence(g.device,&fi,nullptr,&gPresentBridge[i].fence);
+   if(fr!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-fence-create-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge fence create slot=%u result=%d",i,(int)fr);return false;}
    VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-   if(vkCreateSemaphore(g.device,&si,nullptr,&gPresentBridge[i].done)!=VK_SUCCESS)return false;
+   VkResult sr=vkCreateSemaphore(g.device,&si,nullptr,&gPresentBridge[i].done);
+   if(sr!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-semaphore-create-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge semaphore create slot=%u result=%d",i,(int)sr);return false;}
  }
  gPresentBridgeReady.store(true,std::memory_order_release);
  gtavdiag::checkpoint("native-present-bridge-ready");
@@ -2863,9 +2868,17 @@ static bool ensurePresentBridgeResources(){
 }
 
 static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore waitSemaphore){
- if(!origGrvkSwapchainPresent)return false;
- if(!self||!g.device||!g.queue||!ensurePresentBridgeResources())
-   return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ static std::atomic<uint32_t> bridgeCalls{0};
+ uint32_t call=bridgeCalls.fetch_add(1,std::memory_order_relaxed)+1;
+ if(call<=8 || (call%120)==0){
+   gtavdiag::checkpoint("native-present-bridge-enter");
+   __android_log_print(ANDROID_LOG_INFO,"GTAV-NATIVE-PRESENT","bridge enter=%u self=%p image=%u wait=%p orig=%p device=%p queue=%p",call,self,imageIndex,(void*)waitSemaphore,(void*)origGrvkSwapchainPresent,(void*)g.device,(void*)g.queue);
+ }
+ if(!origGrvkSwapchainPresent){gtavdiag::checkpoint("native-present-bridge-no-original");return false;}
+ if(!self){gtavdiag::checkpoint("native-present-bridge-no-self");return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
+ if(!g.device){gtavdiag::checkpoint("native-present-bridge-no-device");return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
+ if(!g.queue){gtavdiag::checkpoint("native-present-bridge-no-queue");return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
+ if(!ensurePresentBridgeResources()){gtavdiag::checkpoint("native-present-bridge-resources-failed");return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
 
  VkImage src=VK_NULL_HANDLE;uint32_t sw=0,sh=0;
  {
@@ -2901,10 +2914,13 @@ static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore 
    }
    vkResetFences(g.device,1,&slot.fence);slot.inFlight=false;
  }
- if(vkResetCommandBuffer(slot.cb,0)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ VkResult rr=vkResetCommandBuffer(slot.cb,0);
+ if(rr!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-reset-command-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge reset command failed=%d",(int)rr);return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
  bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
- if(vkBeginCommandBuffer(slot.cb,&bi)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ VkResult br=vkBeginCommandBuffer(slot.cb,&bi);
+ if(br!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-begin-command-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge begin command failed=%d",(int)br);return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
+ gtavdiag::checkpoint("native-present-bridge-recording");
 
  transitionCompatOwnedImage(slot.cb,&gCompatBackBuffer,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
  VkImageMemoryBarrier db{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -2920,18 +2936,21 @@ static bool hookGrvkSwapchainPresent(void* self,uint32_t imageIndex,VkSemaphore 
  blit.srcOffsets[1]=VkOffset3D{(int32_t)sw,(int32_t)sh,1};
  blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;blit.dstSubresource.layerCount=1;
  blit.dstOffsets[1]=VkOffset3D{(int32_t)dw,(int32_t)dh,1};
+ gtavdiag::checkpoint("native-present-bridge-blit-record");
  vkCmdBlitImage(slot.cb,src,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,dst,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
 
  db.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;db.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
  db.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;db.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT;
  vkCmdPipelineBarrier(slot.cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&db);
  transitionCompatOwnedImage(slot.cb,&gCompatBackBuffer,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
- if(vkEndCommandBuffer(slot.cb)!=VK_SUCCESS)return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);
+ VkResult er=vkEndCommandBuffer(slot.cb);
+ if(er!=VK_SUCCESS){gtavdiag::checkpoint("native-present-bridge-end-command-failed");__android_log_print(ANDROID_LOG_ERROR,"GTAV-NATIVE-PRESENT","bridge end command failed=%d",(int)er);return origGrvkSwapchainPresent(self,imageIndex,waitSemaphore);}
 
  VkPipelineStageFlags waitStage=VK_PIPELINE_STAGE_TRANSFER_BIT;
  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
  if(waitSemaphore){si.waitSemaphoreCount=1;si.pWaitSemaphores=&waitSemaphore;si.pWaitDstStageMask=&waitStage;}
  si.commandBufferCount=1;si.pCommandBuffers=&slot.cb;si.signalSemaphoreCount=1;si.pSignalSemaphores=&slot.done;
+ gtavdiag::checkpoint("native-present-bridge-submit");
  VkResult sr=vkQueueSubmit(g.queue,1,&si,slot.fence);
  if(sr!=VK_SUCCESS){
    gtavdiag::checkpoint("native-present-bridge-submit-failed");
