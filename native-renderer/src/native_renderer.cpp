@@ -2417,7 +2417,8 @@ static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
  for(auto& x:pre){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
- if(old==VK_IMAGE_LAYOUT_UNDEFINED){gtavdiag::checkpoint("native-engine-present-rejected-undefined-layout");return false;}\n pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
+ if(old==VK_IMAGE_LAYOUT_UNDEFINED){gtavdiag::checkpoint("native-engine-present-rejected-undefined-layout");return false;}
+ pre[0].oldLayout=old;pre[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;pre[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;pre[0].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;pre[0].image=src;
  pre[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;pre[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;pre[1].dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;pre[1].image=gPresentProbe.images[ix];
  vkCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,pre);
  if(sw==gPresentProbe.extent.width&&sh==gPresentProbe.extent.height){
