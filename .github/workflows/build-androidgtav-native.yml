@@ -528,7 +528,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Package native ARM64 APK
+      - name: Package from historical baseline
+        if: env.ANDROIDGTAV_BASELINE_READY == 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -538,39 +539,14 @@ jobs:
           test -s "$SO"
           test -s "$CXX"
 
-          if [ "$ANDROIDGTAV_BASELINE_READY" = "true" ]; then
-            cd "$BUILD"
-            mapfile -t OBJS < ci_native/objects.txt
-            python package_apk.py "${OBJS[@]}"
-            test -s dist/gtav.apk
-            cp dist/gtav.apk "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
-            cp dist/verification.json "$GITHUB_WORKSPACE/verification.json" || true
-            cp dist/verification.txt "$GITHUB_WORKSPACE/verification.txt" || true
-            cp dist/build.log "$GITHUB_WORKSPACE/build.log" || true
-          else
-            # Upstream also carries the Android Gradle application. Build that
-            # shell directly and inject the just-linked ARM64 runtime.
-            # No Gradle wrapper is tracked upstream. First inventory the real
-            # Android shell inputs so the next packaging pass uses upstream
-            # manifest/dex/resources instead of inventing an incompatible app.
-            INV="$GITHUB_WORKSPACE/apk-shell-inventory.txt"
-            {
-              echo "=== Android manifests ==="
-              find /x/gta5 -type f -iname 'AndroidManifest.xml' -print
-              echo "=== DEX / resources / APK packaging inputs ==="
-              find /x/gta5 -type f \( -iname '*.dex' -o -iname 'resources.arsc' -o -iname '*.apk' -o -iname 'apktool.yml' -o -iname '*.keystore' -o -iname '*.jks' \) -print
-              echo "=== Java/Kotlin Android entrypoints ==="
-              find /x/gta5 -type f \( -iname '*.java' -o -iname '*.kt' \) -print | grep -Ei 'android|activity|asset' || true
-              echo "=== Android build files ==="
-              find /x/gta5 -type f \( -iname 'build.gradle' -o -iname 'build.gradle.kts' -o -iname 'settings.gradle' -o -iname 'settings.gradle.kts' -o -iname 'CMakeLists.txt' \) -print
-            } | tee "$INV"
-
-            MANIFEST="$(find /x/gta5 -type f -iname 'AndroidManifest.xml' -print -quit)"
-            DEX="$(find /x/gta5 -type f -iname '*.dex' -print -quit)"
-            if [ -z "$MANIFEST" ]; then
-              echo "::error::Upstream checkout has no AndroidManifest.xml and no baseline APK; cannot create a launchable shell without fabricating the Android entrypoint."
-              exit 1
-            fi
+          cd "$BUILD"
+          mapfile -t OBJS < ci_native/objects.txt
+          python package_apk.py "${OBJS[@]}"
+          test -s dist/gtav.apk
+          cp dist/gtav.apk "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
+          cp dist/verification.json "$GITHUB_WORKSPACE/verification.json" || true
+          cp dist/verification.txt "$GITHUB_WORKSPACE/verification.txt" || true
+          cp dist/build.log "$GITHUB_WORKSPACE/build.log" || true
             echo "Found manifest: $MANIFEST"
             echo "Found dex: $DEX"
             echo "::error::Manifest exists but no supported upstream APK shell builder has been wired yet; inventory artifact contains exact inputs."
@@ -578,7 +554,7 @@ jobs:
           fi
 
       - name: Build minimal NativeActivity APK shell
-        if: failure()
+        if: env.ANDROIDGTAV_BASELINE_READY != 'true'
         shell: bash
         run: |
           set -euxo pipefail
