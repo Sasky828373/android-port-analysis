@@ -395,7 +395,14 @@ jobs:
             "../../framework/src/ai/navmesh/navmesh.cpp"
             "../../framework/src/ai/navmesh/navmeshstore.cpp"
             "../../framework/src/fwscene/stores/imapgroup.cpp"
-            "rline/ros/rlros.cpp"
+            "../../framework/src/fwrenderer/renderlistbuilder.cpp"
+            "../../framework/src/fwrenderer/renderlistgroup.cpp"
+            "../../framework/src/fwrenderer/renderListSortJob.cpp"
+            "../../framework/src/fwscene/mapdata/mapdatacontents.cpp"
+            "../../framework/src/fwscene/world/ExteriorSceneGraphNode.cpp"
+            "../../framework/src/streaming/CacheLoader.cpp"
+            "../../framework/src/fwnet/netarraymgr.cpp"
+            "../../framework/src/fwnet/netsyncdatanode.cpp"
           )
           for src in "${NEXT_IMPL_TUS[@]}"; do
             disk="../rage/base/src/$src"
