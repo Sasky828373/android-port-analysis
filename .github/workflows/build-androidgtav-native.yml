@@ -270,6 +270,45 @@ jobs:
           Write-Host "Reused ARM64 objects: $count"
           if ($count -lt 1000) { throw "Unexpectedly small object baseline: $count" }
 
+      - name: Retry real non-WolfSSL engine failures only
+        shell: bash
+        working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
+        run: |
+          set -euxo pipefail
+          BASE="$(cygpath -u "$GITHUB_WORKSPACE")/full-engine-baseline"
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry"
+          mkdir -p "$OUT/compiled"
+          FAILS="$BASE/compiled/failures.txt"
+          test -s "$FAILS"
+          # Keep only failures that correspond to real source files in this checkout.
+          # This excludes the broken WolfSSL manifest paths and other nonexistent inputs.
+          python - "$FAILS" "$OUT/real-sources.txt" <<'PY'
+          import pathlib, sys
+          fails=pathlib.Path(sys.argv[1]).read_text(errors="ignore").splitlines()
+          root=pathlib.Path.cwd()
+          seen=set(); out=[]
+          for raw in fails:
+              s=raw.strip()
+              if not s or "wolfssl" in s.lower(): continue
+              p=(root/s).resolve()
+              if p.is_file() and p.suffix.lower() in {".c",".cc",".cpp",".cxx"}:
+                  q=str(p)
+                  if q not in seen: seen.add(q); out.append(q)
+          pathlib.Path(sys.argv[2]).write_text("\n".join(out)+("\n" if out else ""))
+          print("real engine retry sources:", len(out))
+          PY
+          if [ ! -s "$OUT/real-sources.txt" ]; then
+            echo "No real non-WolfSSL source failures require retry."
+            : > "$OUT/failures.txt"
+            exit 0
+          fi
+          # Reuse upstream compiler driver, but only for this small filtered list.
+          CONFIG=release scripts/build_sys.sh "$OUT/real-sources.txt" "$OUT/compiled" || true
+          find "$OUT/compiled" -type f -name '*.o' -print | sort > "$OUT/recovered-objects.txt"
+          cp "$OUT/compiled/failures.txt" "$OUT/failures.txt" 2>/dev/null || : > "$OUT/failures.txt"
+          echo "Recovered objects: $(wc -l < "$OUT/recovered-objects.txt")"
+          echo "Remaining targeted failures: $(wc -l < "$OUT/failures.txt")"
+
       - name: Build reusable partial ARM64 engine archive
         shell: bash
         run: |
@@ -278,7 +317,7 @@ jobs:
           OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
           mkdir -p "$OUT"
           find "$BASE" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
-          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          # Add objects recovered by the targeted retry without rebuilding the 3838-object baseline.\n          if [ -d "$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled" ]; then\n            find "$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled" -type f -name '*.o' -print >> "$OUT/objects.txt"\n            sort -u -o "$OUT/objects.txt" "$OUT/objects.txt"\n          fi\n          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
           test -f "$AR"
           # Windows has a much smaller command-line limit than Linux. Feed
           # object files to llvm-ar in small batches instead of one huge argv.
