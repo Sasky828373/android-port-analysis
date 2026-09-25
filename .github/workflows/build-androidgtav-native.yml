@@ -892,7 +892,46 @@ jobs:
 
           OWNER=""
           while IFS= read -r obj; do
-            if "$NM" -g --defined-only "$obj" 2>/dev/null | grep -Eq '[[:space:]]T[[:space:]]android_main        if: success()
+            if "$NM" -g --defined-only "$obj" 2>/dev/null | grep -Eq '[[:space:]]T[[:space:]]android_main$'; then
+              OWNER="$obj"
+              break
+            fi
+          done < <(find "$TMP" -type f -name '*.o' -print)
+
+          test -n "$OWNER"
+          echo "android_main owner: $OWNER"
+          "$OBJCOPY" --redefine-sym android_main=gtav_real_android_main "$OWNER"
+
+          cat > "$OUT/android_main_wrapper.c" <<'EOF'
+          #include <android/log.h>
+          #include <fcntl.h>
+          #include <string.h>
+          #include <unistd.h>
+
+          extern void gtav_real_android_main(void* app);
+
+          static void cp(const char* s) {
+              __android_log_print(ANDROID_LOG_ERROR, "GTAVNativeDiag", "%s", s);
+              int fd=open("/storage/emulated/0/Games/GTAV/gtav-native-crash.txt", O_CREAT|O_WRONLY|O_APPEND,0666);
+              if(fd>=0){ write(fd,s,strlen(s)); write(fd,"\n",1); close(fd); }
+          }
+
+          __attribute__((visibility("default")))
+          void android_main(void* app) {
+              cp("CHECKPOINT=android_main-enter");
+              gtav_real_android_main(app);
+              cp("CHECKPOINT=android_main-return");
+          }
+          EOF
+
+          "$CLANG" --target=aarch64-linux-android26 -fPIC -O2 -c "$OUT/android_main_wrapper.c" -o "$TMP/zz_android_main_wrapper.o"
+          rm -f "$ARCHIVE"
+          mapfile -t OBJS < <(find "$TMP" -type f -name '*.o' -print | sort)
+          "$AR" rcs "$ARCHIVE" "${OBJS[@]}"
+          "$NM" -g "$ARCHIVE" | grep -E 'android_main|gtav_real_android_main' | tail -n 20
+
+      - name: Upload completed startup-resolved engine archive
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-engine-startup-resolved
