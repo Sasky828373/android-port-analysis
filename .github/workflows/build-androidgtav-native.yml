@@ -984,17 +984,26 @@ jobs:
               typedef jobject (*PFN_SDL_AndroidGetActivity)(void);
               typedef const char* (*PFN_SDL_Path)(void);
 
+              void* sdl_handle = dlopen("libSDL2.so", RTLD_NOW | RTLD_NOLOAD);
+              if (!sdl_handle) sdl_handle = dlopen("libSDL2.so", RTLD_NOW);
+              if (!sdl_handle) {
+                  checkpoint("sdl-bridge-no-sdl2-handle");
+                  return -100;
+              }
+              checkpoint("sdl-bridge-sdl2-handle-ok");
+
               PFN_SDL_AndroidGetJNIEnv get_env =
-                  (PFN_SDL_AndroidGetJNIEnv)dlsym(RTLD_DEFAULT, "SDL_AndroidGetJNIEnv");
+                  (PFN_SDL_AndroidGetJNIEnv)dlsym(sdl_handle, "SDL_AndroidGetJNIEnv");
               PFN_SDL_AndroidGetActivity get_activity =
-                  (PFN_SDL_AndroidGetActivity)dlsym(RTLD_DEFAULT, "SDL_AndroidGetActivity");
+                  (PFN_SDL_AndroidGetActivity)dlsym(sdl_handle, "SDL_AndroidGetActivity");
               PFN_SDL_Path get_internal =
-                  (PFN_SDL_Path)dlsym(RTLD_DEFAULT, "SDL_AndroidGetInternalStoragePath");
+                  (PFN_SDL_Path)dlsym(sdl_handle, "SDL_AndroidGetInternalStoragePath");
               PFN_SDL_Path get_external =
-                  (PFN_SDL_Path)dlsym(RTLD_DEFAULT, "SDL_AndroidGetExternalStoragePath");
+                  (PFN_SDL_Path)dlsym(sdl_handle, "SDL_AndroidGetExternalStoragePath");
 
               if (!get_env || !get_activity) {
                   checkpoint("sdl-bridge-missing-sdl-api");
+                  dlclose(sdl_handle);
                   return -101;
               }
               checkpoint("sdl-bridge-sdl-api-ok");
@@ -1110,6 +1119,7 @@ jobs:
 
               if (app.config) AConfiguration_delete(app.config);
               ANativeWindow_release(window);
+              dlclose(sdl_handle);
               return 0;
           }
 
