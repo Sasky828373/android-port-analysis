@@ -668,7 +668,7 @@ jobs:
           root.attrib.pop(ns+"sharedUserId", None)
           app=root.find("application")
           if app is not None:
-              app.set(ns+"extractNativeLibs","false")
+              app.set(ns+"extractNativeLibs","true")
               app.set(ns+"debuggable","true")
           tree.write(dst, encoding="utf-8", xml_declaration=True)
           PY
@@ -733,7 +733,7 @@ jobs:
           Write-Host "=== APK badging ==="
           & $aapt dump badging $apk | Select-Object -First 8
           $zipalign = "$env:ANDROID_SDK_ROOT\\build-tools\\$env:BUILD_TOOLS\\zipalign.exe"
-          & $zipalign -c -P 16 -v 4 $apk
+          & $zipalign -c -v 4 $apk
           if ($LASTEXITCODE -ne 0) { throw "APK zip/native-library alignment verification failed" }
           Get-FileHash $apk -Algorithm SHA256
           Get-Item $apk | Format-List FullName,Length,LastWriteTime
