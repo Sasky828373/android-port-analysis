@@ -360,6 +360,49 @@ jobs:
             echo "Added targeted original TU: $src"
           done
 
+          # Resolve the next unresolved class clusters against the actual
+          # upstream checkout. Convert found implementation files to paths
+          # relative to rage/base/src because that is what build_sys.sh expects.
+          python - "$OUT/real-sources.txt" <<'PY'
+          from pathlib import Path
+          import os, re, sys
+          out=Path(sys.argv[1])
+          dev=Path("..").resolve()  # dev_ng
+          base=(dev/"rage/base/src").resolve()
+          targets=[
+              "fwAnimDirectorComponentSyncedScene","snSession","scrThread","netRelay",
+              "strPackfileManager","netSyncTree","fwAnimManager","bgGlassManager",
+              "VoiceChat","strStreamingVisualize","ropeManager","ptxEffectInst",
+              "netPlayerMgrBase","netArrayHandlerBase","rlRos","CSyncDataBase",
+              "decalBucket","fwAnimHelpers","fwEntity","CNavMesh","tcManager",
+              "fwArchetype","ropeInstance","netObjectIDMgr","strStreamingLoaderManager",
+          ]
+          roots=[dev/"rage", dev/"game"]
+          existing=set(x.strip() for x in out.read_text(errors="ignore").splitlines() if x.strip())
+          added=[]
+          for target in targets:
+              pat=re.compile(r"\b"+re.escape(target)+r"\s*::")
+              matches=[]
+              for root in roots:
+                  if not root.exists(): continue
+                  for p in root.rglob("*.cpp"):
+                      try:
+                          txt=p.read_text(errors="ignore")
+                      except Exception:
+                          continue
+                      if pat.search(txt):
+                          matches.append(p.resolve())
+              for p in sorted(set(matches)):
+                  rel=os.path.relpath(p, base).replace("\\","/")
+                  if rel not in existing:
+                      existing.add(rel); added.append((target,rel))
+          with out.open("a",encoding="utf-8") as h:
+              for _,rel in added: h.write(rel+"\n")
+          print("Auto-resolved original TUs:", len(added))
+          for target,rel in added:
+              print(f"AUTO_TU {target}: {rel}")
+          PY
+
           sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
           echo "Targeted original engine sources: $(wc -l < "$OUT/real-sources.txt")"
           cat "$OUT/real-sources.txt"
