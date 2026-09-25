@@ -391,21 +391,22 @@ jobs:
           ls -lh "$WRAP_DIR/clang++.exe" "$WRAP_DIR/clang++.cfg"
           cat "$WRAP_DIR/clang++.cfg"
 
-      - name: Reuse completed 4655-object engine archive
+      - name: Reuse completed startup-resolved engine archive
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $dest = "$env:GITHUB_WORKSPACE\incremental-engine"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          gh run download 36158289430 --repo "${{ github.repository }}" --name "AndroidGTAV-libgtav-engine-partial" --dir $dest
-          if ($LASTEXITCODE -ne 0) { throw "Could not download #157 reconstructed engine archive" }
+          gh run download 36196990768 --repo "${{ github.repository }}" --name "AndroidGTAV-engine-startup-resolved" --dir $dest
+          if ($LASTEXITCODE -ne 0) { throw "Could not download completed build #241 engine archive" }
           $archive = Join-Path $dest "libgtav_engine_partial.a"
-          if (-not (Test-Path $archive)) { throw "4655-object engine archive missing after download" }
-          Write-Host "Fast baseline archive:"
+          if (-not (Test-Path $archive)) { throw "Completed startup-resolved engine archive missing" }
+          Write-Host "Completed engine archive:"
           Get-Item $archive | Format-List FullName,Length,LastWriteTime
 
       - name: Fetch WolfSSL for final network units
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         run: |
           set -euxo pipefail
@@ -459,6 +460,7 @@ jobs:
           echo "WolfSSL headers + user_settings.h ready at $DEST"
 
       - name: Build only final unresolved network and ROS units
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
         run: |
@@ -572,6 +574,7 @@ jobs:
           cat "$OUT/compiled/build.log" || true
 
       - name: Merge fast retry objects into 4655-object engine archive
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         run: |
           set -euxo pipefail
@@ -628,6 +631,7 @@ jobs:
           "$AR" t "$ARCHIVE" | tail -n 10
 
       - name: Build Android WolfSSL and merge into engine archive
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         run: |
           set -euxo pipefail
@@ -674,6 +678,7 @@ jobs:
           "$AR" rcs "$ARCHIVE" "${WOLF_OBJS[@]}"
 
       - name: Build unresolved GTA startup modules
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
         run: |
@@ -751,6 +756,7 @@ jobs:
           tail -n 300 "$OUT/compiled/build.log" 2>/dev/null || true
 
       - name: Merge startup modules into engine archive
+        if: ${{ false }} # already contained in completed build #241 archive
         shell: bash
         run: |
           set -euxo pipefail
@@ -801,6 +807,7 @@ jobs:
           #include <android/api-level.h>
 
           static const char* kLog = "/storage/emulated/0/Games/GTAV/gtav-native-crash.txt";
+          static const char* kTrace = "/storage/emulated/0/Games/GTAV/gtav-startup-trace.txt";
           static const char* kRoot = "/storage/emulated/0/Games/GTAV";
 
           static void write_all(int fd, const char* s) {
@@ -819,7 +826,15 @@ jobs:
               if (fd >= 0) {
                   write_all(fd, s);
                   write_all(fd, "\n");
+                  fsync(fd);
                   close(fd);
+              }
+              int tfd = open(kTrace, O_CREAT|O_WRONLY|O_APPEND, 0666);
+              if (tfd >= 0) {
+                  write_all(tfd, s);
+                  write_all(tfd, "\n");
+                  fsync(tfd);
+                  close(tfd);
               }
           }
 
@@ -1162,6 +1177,7 @@ jobs:
           echo "Runtime diagnostics object merged."
 
       - name: Upload completed startup-resolved engine archive
+        if: ${{ false }} # already contained in completed build #241 archive
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -1530,7 +1546,7 @@ jobs:
           fi
 
       - name: Build minimal NativeActivity APK shell
-        if: env.FAST_FINAL_DIAG == 'true' || env.ANDROIDGTAV_BASELINE_READY != 'true'
+        if: ${{ false }} # XHYN shell is repacked locally
         shell: bash
         run: |
           set -euxo pipefail
