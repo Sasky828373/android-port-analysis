@@ -328,6 +328,13 @@ jobs:
           BASE="RB_zcode_audiosched_0919/integrated"
           mkdir -p "$BASE"
           cp -f "$ARCHIVE" "$BASE/libgtav_engine.a"
+          # app/jni/Android.mk links jni/../../libgtav_engine.a, which resolves
+          # to android_build/app/libgtav_engine.a (not the packaging baseline).
+          # Feed the reconstructed engine archive at the exact path expected by
+          # the real upstream linker.
+          cp -f "$ARCHIVE" app/libgtav_engine.a
+          test -s app/libgtav_engine.a
+          echo "Engine archive staged: $(wc -c < app/libgtav_engine.a) bytes"
 
           # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
           # NDK r29 requires an explicit output directory when NDK_PROJECT_PATH=null.
