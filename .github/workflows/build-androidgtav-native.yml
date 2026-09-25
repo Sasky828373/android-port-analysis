@@ -790,6 +790,15 @@ jobs:
           #include <sys/types.h>
           #include <ucontext.h>
           #include <unistd.h>
+          #include <pthread.h>
+          #include <dlfcn.h>
+          #include <jni.h>
+          #include <android/native_activity.h>
+          #include <android/native_window_jni.h>
+          #include <android/asset_manager_jni.h>
+          #include <android/configuration.h>
+          #include <android/looper.h>
+          #include <android/api-level.h>
 
           static const char* kLog = "/storage/emulated/0/Games/GTAV/gtav-native-crash.txt";
           static const char* kRoot = "/storage/emulated/0/Games/GTAV";
@@ -898,6 +907,210 @@ jobs:
           void __wrap_abort(void) {
               checkpoint("process-abort");
               __real_abort();
+          }
+
+
+          /*
+           * XHYN GTAVActivity extends SDLActivity and getMainFunction() returns
+           * "SDL_main".  The engine itself implements NativeActivity-style
+           * android_main(android_app*).  Build the missing compatibility bridge
+           * from the live SDLActivity/Surface instead of casting argc to a pointer.
+           */
+          struct gtav_android_poll_source {
+              int32_t id;
+              struct gtav_android_app* app;
+              void (*process)(struct gtav_android_app*, struct gtav_android_poll_source*);
+          };
+
+          struct gtav_android_app {
+              void* userData;
+              void (*onAppCmd)(struct gtav_android_app*, int32_t);
+              int32_t (*onInputEvent)(struct gtav_android_app*, AInputEvent*);
+              ANativeActivity* activity;
+              AConfiguration* config;
+              void* savedState;
+              size_t savedStateSize;
+              ALooper* looper;
+              AInputQueue* inputQueue;
+              ANativeWindow* window;
+              ARect contentRect;
+              int activityState;
+              int destroyRequested;
+              pthread_mutex_t mutex;
+              pthread_cond_t cond;
+              int msgread;
+              int msgwrite;
+              pthread_t thread;
+              struct gtav_android_poll_source cmdPollSource;
+              struct gtav_android_poll_source inputPollSource;
+              int running;
+              int stateSaved;
+              int destroyed;
+              int redrawNeeded;
+              AInputQueue* pendingInputQueue;
+              ANativeWindow* pendingWindow;
+              ARect pendingContentRect;
+          };
+
+          extern void android_main(struct gtav_android_app*);
+
+          static void* gtav_bridge_lifecycle(void* opaque) {
+              struct gtav_android_app* app = (struct gtav_android_app*)opaque;
+              checkpoint("sdl-bridge-lifecycle-thread");
+              for (int i=0; i<500 && !app->onAppCmd; ++i) usleep(1000);
+              if (!app->onAppCmd) {
+                  checkpoint("sdl-bridge-no-onAppCmd");
+                  return 0;
+              }
+              checkpoint("sdl-bridge-appcmd-start");
+              app->activityState = 10;
+              app->onAppCmd(app, 10); /* APP_CMD_START */
+              checkpoint("sdl-bridge-appcmd-resume");
+              app->activityState = 11;
+              app->onAppCmd(app, 11); /* APP_CMD_RESUME */
+              if (app->window) {
+                  checkpoint("sdl-bridge-appcmd-init-window");
+                  app->onAppCmd(app, 1); /* APP_CMD_INIT_WINDOW */
+              }
+              return 0;
+          }
+
+          __attribute__((visibility("default")))
+          int SDL_main(int argc, char** argv) {
+              (void)argc; (void)argv;
+              checkpoint("SDL_main-enter");
+
+              typedef JNIEnv* (*PFN_SDL_AndroidGetJNIEnv)(void);
+              typedef jobject (*PFN_SDL_AndroidGetActivity)(void);
+              typedef const char* (*PFN_SDL_Path)(void);
+
+              PFN_SDL_AndroidGetJNIEnv get_env =
+                  (PFN_SDL_AndroidGetJNIEnv)dlsym(RTLD_DEFAULT, "SDL_AndroidGetJNIEnv");
+              PFN_SDL_AndroidGetActivity get_activity =
+                  (PFN_SDL_AndroidGetActivity)dlsym(RTLD_DEFAULT, "SDL_AndroidGetActivity");
+              PFN_SDL_Path get_internal =
+                  (PFN_SDL_Path)dlsym(RTLD_DEFAULT, "SDL_AndroidGetInternalStoragePath");
+              PFN_SDL_Path get_external =
+                  (PFN_SDL_Path)dlsym(RTLD_DEFAULT, "SDL_AndroidGetExternalStoragePath");
+
+              if (!get_env || !get_activity) {
+                  checkpoint("sdl-bridge-missing-sdl-api");
+                  return -101;
+              }
+              checkpoint("sdl-bridge-sdl-api-ok");
+
+              JNIEnv* env = get_env();
+              jobject activity_obj = get_activity();
+              if (!env || !activity_obj) {
+                  checkpoint("sdl-bridge-no-jni-activity");
+                  return -102;
+              }
+              checkpoint("sdl-bridge-jni-activity-ok");
+
+              JavaVM* vm = 0;
+              if ((*env)->GetJavaVM(env, &vm) != JNI_OK || !vm) {
+                  checkpoint("sdl-bridge-no-javavm");
+                  return -103;
+              }
+
+              jclass sdl_cls = (*env)->FindClass(env, "org/libsdl/app/SDLActivity");
+              if (!sdl_cls) {
+                  (*env)->ExceptionClear(env);
+                  checkpoint("sdl-bridge-no-sdlactivity-class");
+                  return -104;
+              }
+              jfieldID surface_fid = (*env)->GetStaticFieldID(
+                  env, sdl_cls, "mSurface", "Lorg/libsdl/app/SDLSurface;");
+              if (!surface_fid) {
+                  (*env)->ExceptionClear(env);
+                  checkpoint("sdl-bridge-no-msurface-field");
+                  return -105;
+              }
+              jobject surface_view = (*env)->GetStaticObjectField(env, sdl_cls, surface_fid);
+              if (!surface_view) {
+                  checkpoint("sdl-bridge-no-surface-view");
+                  return -106;
+              }
+
+              jclass sv_cls = (*env)->GetObjectClass(env, surface_view);
+              jmethodID get_holder = (*env)->GetMethodID(
+                  env, sv_cls, "getHolder", "()Landroid/view/SurfaceHolder;");
+              jobject holder = get_holder
+                  ? (*env)->CallObjectMethod(env, surface_view, get_holder) : 0;
+              if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+              if (!holder) {
+                  checkpoint("sdl-bridge-no-surface-holder");
+                  return -107;
+              }
+
+              jclass holder_cls = (*env)->GetObjectClass(env, holder);
+              jmethodID get_surface = (*env)->GetMethodID(
+                  env, holder_cls, "getSurface", "()Landroid/view/Surface;");
+              jobject surface = get_surface
+                  ? (*env)->CallObjectMethod(env, holder, get_surface) : 0;
+              if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+              if (!surface) {
+                  checkpoint("sdl-bridge-no-java-surface");
+                  return -108;
+              }
+
+              ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+              if (!window) {
+                  checkpoint("sdl-bridge-no-native-window");
+                  return -109;
+              }
+              checkpoint("sdl-bridge-native-window-ok");
+
+              jclass act_cls = (*env)->GetObjectClass(env, activity_obj);
+              jmethodID get_assets = (*env)->GetMethodID(
+                  env, act_cls, "getAssets", "()Landroid/content/res/AssetManager;");
+              jobject java_assets = get_assets
+                  ? (*env)->CallObjectMethod(env, activity_obj, get_assets) : 0;
+              if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+              AAssetManager* assets = java_assets
+                  ? AAssetManager_fromJava(env, java_assets) : 0;
+
+              static ANativeActivityCallbacks callbacks;
+              static ANativeActivity native_activity;
+              static struct gtav_android_app app;
+              memset(&callbacks, 0, sizeof(callbacks));
+              memset(&native_activity, 0, sizeof(native_activity));
+              memset(&app, 0, sizeof(app));
+
+              native_activity.callbacks = &callbacks;
+              native_activity.vm = vm;
+              native_activity.env = env;
+              native_activity.clazz = (*env)->NewGlobalRef(env, activity_obj);
+              native_activity.assetManager = assets;
+              native_activity.internalDataPath = get_internal ? get_internal() : kRoot;
+              native_activity.externalDataPath = get_external ? get_external() : kRoot;
+              native_activity.sdkVersion = android_get_device_api_level();
+
+              app.activity = &native_activity;
+              app.config = AConfiguration_new();
+              if (app.config && assets) AConfiguration_fromAssetManager(app.config, assets);
+              app.looper = ALooper_forThread();
+              if (!app.looper) app.looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
+              app.window = window;
+              app.pendingWindow = window;
+              app.activityState = 11;
+              app.running = 1;
+
+              checkpoint("sdl-bridge-android-app-ready");
+
+              pthread_t lifecycle;
+              if (pthread_create(&lifecycle, 0, gtav_bridge_lifecycle, &app) == 0)
+                  pthread_detach(lifecycle);
+              else
+                  checkpoint("sdl-bridge-lifecycle-thread-failed");
+
+              checkpoint("android_main-enter");
+              android_main(&app);
+              checkpoint("android_main-return");
+
+              if (app.config) AConfiguration_delete(app.config);
+              ANativeWindow_release(window);
+              return 0;
           }
 
           __attribute__((constructor))
