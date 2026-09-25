@@ -388,7 +388,7 @@ jobs:
           test -f "$NDKBUILD"
 
           set +e
-          NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release" "APP_STL=c++_shared" "LOCAL_LDFLAGS+=-Wl,--error-limit=0" "${NDK_ARGS_EXTRA[@]}")
+          NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release" "APP_ABI=arm64-v8a" "APP_STL=c++_shared" "LOCAL_LDFLAGS+=-Wl,--error-limit=0" "${NDK_ARGS_EXTRA[@]}")
           if [ -n "$NDK_APPLICATION_MK_WIN" ]; then NDK_ARGS+=("NDK_APPLICATION_MK=$NDK_APPLICATION_MK_WIN"); fi
           cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build "${NDK_ARGS[@]}" > "$OUT/link.log" 2>&1
           LINK_RC=$?
