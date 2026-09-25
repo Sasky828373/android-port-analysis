@@ -433,8 +433,38 @@ jobs:
             fi
           done
 
+          # One-shot recovery: the completed full survey successfully compiled
+          # hundreds of external RAGE/framework/suite/script TUs, but their
+          # object filenames begin with ".._.." and were omitted by the old
+          # artifact upload's hidden-file filtering. Recompile ALL successful
+          # external survey sources in one pass instead of adding tiny batches.
+          python - "$BASE/sources.txt" "$FAILS" "$OUT/real-sources.txt" <<'PY'
+          import pathlib, sys
+          sources=pathlib.Path(sys.argv[1]).read_text(errors="ignore").splitlines()
+          fails={x.strip() for x in pathlib.Path(sys.argv[2]).read_text(errors="ignore").splitlines() if x.strip()}
+          out=pathlib.Path(sys.argv[3])
+          root=pathlib.Path.cwd()
+          existing={x.strip() for x in out.read_text(errors="ignore").splitlines() if x.strip()} if out.exists() else set()
+          added=[]
+          for raw in sources:
+              s=raw.strip()
+              if not s or not s.startswith("../") or s in fails or "wolfssl" in s.lower():
+                  continue
+              p=(root/s).resolve()
+              if not p.is_file() or p.suffix.lower() not in {".c",".cc",".cpp",".cxx"}:
+                  continue
+              if s not in existing:
+                  existing.add(s)
+                  added.append(s)
+          with out.open("a", encoding="utf-8") as h:
+              for s in added:
+                  h.write(s+"\n")
+          print(f"ONE_SHOT_EXTERNAL_ADDED={len(added)}")
+          print(f"ONE_SHOT_TOTAL_SELECTED={len(existing)}")
+          PY
+
           sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
-          echo "Targeted original engine sources: $(wc -l < "$OUT/real-sources.txt")"
+          echo "One-shot original engine sources: $(wc -l < "$OUT/real-sources.txt")"
           cat "$OUT/real-sources.txt"
 
           if [ ! -s "$OUT/real-sources.txt" ]; then
