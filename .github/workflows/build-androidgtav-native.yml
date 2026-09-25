@@ -165,11 +165,19 @@ jobs:
           # shim copied only bin/, which loses the NDK sysroot and causes even
           # <stddef.h> to disappear. Install NDK 27.3 and expose the COMPLETE
           # LLVM prebuilt tree at the exact path expected by upstream.
-          NDK27_REAL="$ANDROID_SDK_ROOT/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64"
+          # ANDROID_SDK_ROOT is a Windows path (for example C:\\Android\\android-sdk).
+          # Convert it to an MSYS/Git-Bash path before using cp/find/test.
+          SDK_MSYS="$(cygpath -u "$ANDROID_SDK_ROOT")"
+          NDK27_REAL="$SDK_MSYS/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64"
           NDK27_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
 
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "SDK_MSYS=$SDK_MSYS"
+          echo "NDK27_REAL=$NDK27_REAL"
+
           if [ ! -x "$NDK27_REAL/bin/clang++.exe" ]; then
-            echo "::error::NDK 27.3.13750724 is not installed at $NDK27_REAL"
+            echo "::error::NDK 27.3.13750724 clang++ is not installed at $NDK27_REAL/bin/clang++.exe"
+            find "$SDK_MSYS/ndk" -maxdepth 6 -name 'clang++.exe' -print 2>/dev/null | head -n 20 || true
             exit 1
           fi
 
