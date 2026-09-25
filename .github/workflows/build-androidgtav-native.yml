@@ -373,12 +373,26 @@ jobs:
           # Android.mk hardcodes a cwd-relative archive in LOCAL_LDLIBS. Replace
           # only that path in the ephemeral checkout with an absolute X: path,
           # avoiding ambiguity about ndk-build/clang's working directory.
-          # Upstream already wraps this archive in --whole-archive. Replace
-          # only the archive path; duplicating the linker-state flags obscures
-          # the real command and is unnecessary.
-          sed -i 's#jni/../../libgtav_engine\.a#X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a#g' "$MAKEFILE_REL"
+          # Register the reconstructed engine archive as an ndk-build prebuilt
+          # module and consume it through LOCAL_WHOLE_STATIC_LIBRARIES. Raw
+          # archive paths in LOCAL_LDFLAGS are discarded by ndk-build here.
+          python - "$MAKEFILE_REL" <<'PY'
+          import pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text()
+          old = """LOCAL_LDFLAGS += -Wl,--whole-archive jni/../../libgtav_engine.a -Wl,--no-whole-archive"""
+          if old not in s:
+              raise SystemExit("engine LOCAL_LDFLAGS stanza not found")
+          s = s.replace(old, "LOCAL_WHOLE_STATIC_LIBRARIES += gtav_engine_reconstructed")
+          prebuilt = """\ninclude $(CLEAR_VARS)\nLOCAL_MODULE := gtav_engine_reconstructed\nLOCAL_SRC_FILES := X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a\ninclude $(PREBUILT_STATIC_LIBRARY)\n\n"""
+          marker = "include $(BUILD_SHARED_LIBRARY)"
+          if marker not in s:
+              raise SystemExit("BUILD_SHARED_LIBRARY marker not found")
+          s = s.replace(marker, marker + prebuilt, 1)
+          p.write_text(s)
+          PY
           echo "=== Effective engine linker stanza ==="
-          sed -n '38,50p' "$MAKEFILE_REL"
+          grep -n -E 'gtav_engine_reconstructed|libgtav_engine.a|WHOLE_STATIC' "$MAKEFILE_REL" || true
           # Keep make syntax untouched; pass diagnostic linker/runtime flags as
           # ndk-build variables instead of inserting lines into continued blocks.
           grep -n "libgtav_engine.a" "$MAKEFILE_REL" || true
