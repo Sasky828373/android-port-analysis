@@ -566,6 +566,15 @@ jobs:
           test -s "$CXX"
           test -s "$MANIFEST"
 
+          echo "=== Native runtime sizes before APK packaging ==="
+          ls -lh "$SO" "$CXX"
+          wc -c "$SO" "$CXX"
+          sha256sum "$SO" "$CXX"
+          FILE_TOOL="$(find "$(cygpath -u "$ANDROID_NDK_ROOT")/toolchains/llvm/prebuilt" -type f -iname 'llvm-readelf.exe' -print -quit || true)"
+          if [ -n "$FILE_TOOL" ]; then
+            "$FILE_TOOL" -h "$SO" | grep -E 'Class:|Machine:|Type:' || true
+          fi
+
           SHELL="$GITHUB_WORKSPACE/apk-shell"
           rm -rf "$SHELL"
           mkdir -p "$SHELL/lib/arm64-v8a"
@@ -610,6 +619,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
           Get-FileHash $apk -Algorithm SHA256
           Get-Item $apk | Format-List FullName,Length,LastWriteTime
+          Write-Host "=== APK native entries ==="
+          & 7z l -slt $apk | Select-String -Pattern 'Path = lib/arm64-v8a/|Size = |Packed Size = '
+          $tmp = Join-Path $env:RUNNER_TEMP "apk-native-audit"
+          Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          & 7z x -y "-o$tmp" $apk "lib/arm64-v8a/libgtav.so" "lib/arm64-v8a/libc++_shared.so" | Out-Null
+          Get-ChildItem "$tmp\lib\arm64-v8a" | Select-Object Name,Length
+          Get-FileHash "$tmp\lib\arm64-v8a\libgtav.so" -Algorithm SHA256
 
       - name: Upload APK
         if: always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
