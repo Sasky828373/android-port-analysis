@@ -395,6 +395,8 @@ jobs:
           echo "LINK_RC=$LINK_RC" | tee "$OUT/link-summary.txt"
           tail -n 500 "$OUT/link.log" || true
           find . -type f -name 'libgtav.so' -print | tee "$OUT/libgtav-so.txt" || true
+          grep -oE 'undefined symbol: .*' "$OUT/link.log" | sed 's/^undefined symbol: //' | sort -u > "$OUT/undefined-symbols.txt" || true
+          echo "Captured unresolved symbols: $(wc -l < "$OUT/undefined-symbols.txt")"
 
           # This is a diagnostic pass: preserve linker output even when symbols
           # are still missing so the next patch can target the exact failures.
@@ -408,6 +410,7 @@ jobs:
             incremental-engine/link.log
             incremental-engine/link-summary.txt
             incremental-engine/libgtav-so.txt
+            incremental-engine/undefined-symbols.txt
             AndroidGTAV/gta5/src/dev_ng/android_build/libs/**/libgtav.so
             AndroidGTAV/gta5/src/dev_ng/android_build/obj/**/libgtav.so
           if-no-files-found: warn
