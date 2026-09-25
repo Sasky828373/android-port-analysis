@@ -326,8 +326,24 @@ jobs:
           test -f "$DEST/wolfssl/ssl.h"
           test -f "$DEST/wolfssl/wolfcrypt/asn.h"
           test -f "$DEST/wolfssl/wolfcrypt/sha256.h"
+
+          # AndroidGTAV compiles with WOLFSSL_USER_SETTINGS enabled.  Upstream
+          # wolfSSL therefore requires a user_settings.h on the include path.
+          # Keep this shim intentionally minimal: it satisfies the expected
+          # integration contract without disabling algorithms that RAGE may use.
+          cat > "$DEST/user_settings.h" <<'EOF'
+          #ifndef ANDROIDGTAV_WOLFSSL_USER_SETTINGS_H
+          #define ANDROIDGTAV_WOLFSSL_USER_SETTINGS_H
+
+          /* RAGE/AndroidGTAV supplies platform/compiler settings itself.
+             Leave wolfSSL feature defaults intact for the first clean compile. */
+
+          #endif
+          EOF
+          test -s "$DEST/user_settings.h"
+
           echo "WOLFSSL_ROOT=$(cygpath -m "$DEST")" >> "$GITHUB_ENV"
-          echo "WolfSSL headers ready at $DEST"
+          echo "WolfSSL headers + user_settings.h ready at $DEST"
 
       - name: Build only final unresolved network and ROS units
         shell: bash
