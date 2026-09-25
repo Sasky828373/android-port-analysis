@@ -923,12 +923,44 @@ jobs:
           ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
           ns="{http://schemas.android.com/apk/res/android}"
           tree=ET.parse(src); root=tree.getroot()
-          root.set("package","com.androidgtav.native")
+          # Use a fresh package identity for the install-test shell. CI uses
+          # an ephemeral signing key, so reusing the same package name across
+          # builds can trigger INSTALL_FAILED_UPDATE_INCOMPATIBLE on Android.
+          root.set("package","com.androidgtav.native.test")
+          root.set(ns+"versionCode","186")
+          root.set(ns+"versionName","0.186-test")
           root.attrib.pop(ns+"sharedUserId", None)
+          root.attrib.pop(ns+"sharedUserLabel", None)
+
+          # Keep the shell installable on modern Android while loading native
+          # code directly through NativeActivity.
           app=root.find("application")
           if app is not None:
               app.set(ns+"extractNativeLibs","true")
               app.set(ns+"debuggable","true")
+              app.set(ns+"hasCode","false")
+
+              # Android 12+ requires explicit exported state for components
+              # carrying intent filters. Make the launcher NativeActivity
+              # explicitly exported and point it at libgtav.
+              for act in app.findall("activity"):
+                  if act.find("intent-filter") is not None:
+                      act.set(ns+"exported","true")
+                  meta = act.find("meta-data[@android:name='android.app.lib_name']",
+                                  {"android":"http://schemas.android.com/apk/res/android"})
+                  if meta is None:
+                      meta = ET.SubElement(act, "meta-data")
+                      meta.set(ns+"name","android.app.lib_name")
+                  meta.set(ns+"value","gtav")
+
+          # Avoid carrying a stale target/minSdk pair from the upstream shell.
+          uses = root.find("uses-sdk")
+          if uses is None:
+              uses = ET.Element("uses-sdk")
+              root.insert(0, uses)
+          uses.set(ns+"minSdkVersion","26")
+          uses.set(ns+"targetSdkVersion","28")
+
           tree.write(dst, encoding="utf-8", xml_declaration=True)
           PY
           MANIFEST="$GITHUB_WORKSPACE/apk-shell-manifest.xml"
