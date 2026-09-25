@@ -1404,6 +1404,7 @@ jobs:
             final-network-retry/compiled/build.log
             AndroidGTAV/gta5/src/dev_ng/android_build/libs/**/libgtav.so
             AndroidGTAV/gta5/src/dev_ng/android_build/obj/**/libgtav.so
+            ndk-libs/arm64-v8a/libgtav.so
           if-no-files-found: warn
           retention-days: 7
       - name: Restore full ARM64 object cache
