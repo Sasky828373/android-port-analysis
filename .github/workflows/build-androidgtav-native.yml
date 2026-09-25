@@ -377,11 +377,61 @@ jobs:
           OUT="$(cygpath -u "$GITHUB_WORKSPACE")/final-network-retry"
           mkdir -p "$OUT/compiled"
 
+          # Rockstar's PCP/UPnP sources depend on proprietary custom headers
+          # (pcp_rockstar_custom.h / upnprockstarcustom.h) that are not present
+          # in the public AndroidGTAV tree.  For Android/offline startup provide
+          # ABI-compatible no-op symbols so the engine can load without NAT
+          # traversal. Online port mapping remains intentionally disabled.
+          NAT_STUB="../rage/base/src/net/nat_android_fallback.cpp"
+          cat > "$NAT_STUB" <<'EOF'
+          #include <cstddef>
+          #include <cstdint>
+
+          extern "C" {
+          alignas(16) unsigned char nat_upnp_info_storage[4096]
+              __asm__("_ZN4rage10netNatUpNp11sm_UpNpInfoE") = {};
+          alignas(16) unsigned char nat_pcp_info_storage[4096]
+              __asm__("_ZN4rage9netNatPcp10sm_PcpInfoE") = {};
+
+          std::uintptr_t nat_upnp_tunables() __asm__("_ZN4rage10netNatUpNp19SetTunablesReceivedEv");
+          std::uintptr_t nat_upnp_tunables() { return 0; }
+          std::uintptr_t nat_upnp_refresh(unsigned) __asm__("_ZN4rage10netNatUpNp24SetUpNpPortRefreshTimeMsEj");
+          std::uintptr_t nat_upnp_refresh(unsigned) { return 0; }
+          std::uintptr_t nat_upnp_cleanup(bool) __asm__("_ZN4rage10netNatUpNp25SetAllowCleanUpOldEntriesEb");
+          std::uintptr_t nat_upnp_cleanup(bool) { return 0; }
+          std::uintptr_t nat_upnp_reserve(bool) __asm__("_ZN4rage10netNatUpNp25SetReserveRelayMappedPortEb");
+          std::uintptr_t nat_upnp_reserve(bool) { return 0; }
+          std::uintptr_t nat_upnp_allow(bool) __asm__("_ZN4rage10netNatUpNp26SetAllowUpNpPortForwardingEb");
+          std::uintptr_t nat_upnp_allow(bool) { return 0; }
+          std::uintptr_t nat_upnp_shutdown() __asm__("_ZN4rage10netNatUpNp8ShutdownEv");
+          std::uintptr_t nat_upnp_shutdown() { return 0; }
+
+          std::uintptr_t nat_pcp_import(const void*, unsigned, unsigned*)
+              __asm__("_ZN4rage13netNatPcpInfo6ImportEPKvjPj");
+          std::uintptr_t nat_pcp_import(const void*, unsigned, unsigned*) { return 0; }
+          std::uintptr_t nat_upnp_import(const void*, unsigned, unsigned*)
+              __asm__("_ZN4rage14netNatUpNpInfo6ImportEPKvjPj");
+          std::uintptr_t nat_upnp_import(const void*, unsigned, unsigned*) { return 0; }
+
+          std::uintptr_t nat_pcp_refresh(unsigned) __asm__("_ZN4rage9netNatPcp19SetPcpRefreshTimeMsEj");
+          std::uintptr_t nat_pcp_refresh(unsigned) { return 0; }
+          std::uintptr_t nat_pcp_tunables() __asm__("_ZN4rage9netNatPcp19SetTunablesReceivedEv");
+          std::uintptr_t nat_pcp_tunables() { return 0; }
+          std::uintptr_t nat_pcp_reserve(bool) __asm__("_ZN4rage9netNatPcp28SetReserveRelayMappedAddressEb");
+          std::uintptr_t nat_pcp_reserve(bool) { return 0; }
+          std::uintptr_t nat_pcp_allow(bool) __asm__("_ZN4rage9netNatPcp29SetAllowPcpAddressReservationEb");
+          std::uintptr_t nat_pcp_allow(bool) { return 0; }
+          std::uintptr_t nat_pcp_init() __asm__("_ZN4rage9netNatPcp4InitEv");
+          std::uintptr_t nat_pcp_init() { return 0; }
+          std::uintptr_t nat_pcp_shutdown() __asm__("_ZN4rage9netNatPcp8ShutdownEv");
+          std::uintptr_t nat_pcp_shutdown() { return 0; }
+          }
+          EOF
+
           cat > "$OUT/sources.txt" <<'EOF'
           net/crypto.cpp
           net/keyexchange.cpp
-          net/natpcp.cpp
-          net/natupnp.cpp
+          net/nat_android_fallback.cpp
           net/relay.cpp
           net/tcp.cpp
           rline/ros/rlros.cpp
