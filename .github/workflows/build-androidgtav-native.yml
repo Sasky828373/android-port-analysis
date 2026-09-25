@@ -370,6 +370,11 @@ jobs:
           fi
           APP_BUILD_SCRIPT_WIN="X:\\gta5\\src\\dev_ng\\android_build\\${MAKEFILE_REL//\//\\}"
           echo "Android.mk present: $MAKEFILE_REL -> $APP_BUILD_SCRIPT_WIN"
+          # Android.mk hardcodes a cwd-relative archive in LOCAL_LDLIBS. Replace
+          # only that path in the ephemeral checkout with an absolute X: path,
+          # avoiding ambiguity about ndk-build/clang's working directory.
+          sed -i 's#jni/../../libgtav_engine\.a#X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a#g' "$MAKEFILE_REL"
+          grep -n "libgtav_engine.a" "$MAKEFILE_REL" || true
           export NDK_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-out"
           export NDK_LIBS_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-libs"
           mkdir -p "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-out" "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs"
