@@ -317,7 +317,13 @@ jobs:
           OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
           mkdir -p "$OUT"
           find "$BASE" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
-          # Add objects recovered by the targeted retry without rebuilding the 3838-object baseline.\n          if [ -d "$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled" ]; then\n            find "$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled" -type f -name '*.o' -print >> "$OUT/objects.txt"\n            sort -u -o "$OUT/objects.txt" "$OUT/objects.txt"\n          fi\n          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          # Add objects recovered by the targeted retry without rebuilding the 3838-object baseline.
+          RETRY="$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled"
+          if [ -d "$RETRY" ]; then
+            find "$RETRY" -type f -name '*.o' -print >> "$OUT/objects.txt"
+            sort -u -o "$OUT/objects.txt" "$OUT/objects.txt"
+          fi
+          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
           test -f "$AR"
           # Windows has a much smaller command-line limit than Linux. Feed
           # object files to llvm-ar in small batches instead of one huge argv.
