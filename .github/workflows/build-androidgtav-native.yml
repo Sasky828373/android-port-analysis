@@ -188,19 +188,20 @@ jobs:
 
           REAL_PREBUILT="$(dirname "$(dirname "$REAL_CLANG")")"
           REAL_SYSROOT="$REAL_PREBUILT/sysroot"
-          RESOURCE_DIR="$("$REAL_CLANG" --print-resource-dir | tr -d '\r')"
+          # Do not trust --print-resource-dir after copying clang++.exe:
+          # clang computes that path relative to its new location and can fall
+          # back to a different SDK under "Program Files (x86)". Derive the
+          # resource directory from the REAL NDK prebuilt tree instead.
+          RESOURCE_DIR="$(find "$REAL_PREBUILT/lib/clang" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null || true)"
           if [ ! -d "$REAL_SYSROOT" ]; then
             echo "::error::Real NDK sysroot missing: $REAL_SYSROOT"
             exit 1
           fi
-          if [ ! -d "$RESOURCE_DIR" ]; then
-            echo "::error::Clang resource dir missing: $RESOURCE_DIR"
+          if [ -z "$RESOURCE_DIR" ] || [ ! -d "$RESOURCE_DIR" ]; then
+            echo "::error::Clang resource dir missing under $REAL_PREBUILT/lib/clang"
             exit 1
           fi
 
-          # Use forward-slash Windows paths in clang.cfg. Native clang parses
-          # the config itself; backslashes/spaces from "Program Files (x86)"
-          # were being tokenized into bogus input files ("Files", "(x86)...").
           SYSROOT_CFG="$(cygpath -m "$REAL_SYSROOT")"
           RESOURCE_CFG="$(cygpath -m "$RESOURCE_DIR")"
           export CLANG_CONFIG_FILE_SYSTEM_DIR=
