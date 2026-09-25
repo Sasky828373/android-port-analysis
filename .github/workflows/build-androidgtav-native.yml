@@ -443,7 +443,9 @@ jobs:
           sources=pathlib.Path(sys.argv[1]).read_text(errors="ignore").splitlines()
           fails={x.strip() for x in pathlib.Path(sys.argv[2]).read_text(errors="ignore").splitlines() if x.strip()}
           out=pathlib.Path(sys.argv[3])
-          root=pathlib.Path.cwd()
+          # build_sys.sh interprets manifest entries relative to rage/base/src,
+          # not android_build. Resolve them exactly the same way here.
+          root=(pathlib.Path.cwd()/"../rage/base/src").resolve()
           existing={x.strip() for x in out.read_text(errors="ignore").splitlines() if x.strip()} if out.exists() else set()
           added=[]
           for raw in sources:
