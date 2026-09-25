@@ -333,8 +333,14 @@ jobs:
           # Feed the reconstructed engine archive at the exact path expected by
           # the real upstream linker.
           cp -f "$ARCHIVE" app/libgtav_engine.a
+          # LOCAL_LDLIBS is evaluated from the NDK project root here, so the
+          # literal jni/../../libgtav_engine.a resolves two levels above
+          # android_build, not relative to app/jni/Android.mk.
+          mkdir -p ../../
+          cp -f "$ARCHIVE" ../../libgtav_engine.a
           test -s app/libgtav_engine.a
-          echo "Engine archive staged: $(wc -c < app/libgtav_engine.a) bytes"
+          test -s ../../libgtav_engine.a
+          echo "Engine archive staged: $(wc -c < app/libgtav_engine.a) bytes (app + NDK root-relative target)"
 
           # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
           # NDK r29 requires an explicit output directory when NDK_PROJECT_PATH=null.
