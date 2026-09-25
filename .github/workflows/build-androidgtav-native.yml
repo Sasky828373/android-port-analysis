@@ -335,8 +335,17 @@ jobs:
           #ifndef ANDROIDGTAV_WOLFSSL_USER_SETTINGS_H
           #define ANDROIDGTAV_WOLFSSL_USER_SETTINGS_H
 
-          /* RAGE/AndroidGTAV supplies platform/compiler settings itself.
-             Leave wolfSSL feature defaults intact for the first clean compile. */
+          /*
+           * Match the feature surface expected by the RAGE network sources.
+           * crypto.cpp uses ECC internals + sign/verify APIs, relay.cpp creates
+           * a DTLS v1 client context, and tcp.cpp supplies its own allocation
+           * hooks named XMALLOC/XFREE/XREALLOC.
+           */
+          #define HAVE_ECC
+          #define HAVE_ECC_SIGN
+          #define HAVE_ECC_VERIFY
+          #define WOLFSSL_DTLS
+          #define WOLFSSL_USER_MALLOC
 
           #endif
           EOF
