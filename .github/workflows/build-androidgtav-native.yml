@@ -605,7 +605,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Add NativeActivity glue entry point
-        if: ${{ false }} # XHYN base uses SDLActivity -> android_main, not NativeActivity
         shell: bash
         run: |
           set -euxo pipefail
@@ -878,14 +877,6 @@ jobs:
               return __real_android_dlopen_ext(name, flags, ext);
           }
 
-          extern void gtav_real_android_main(void*);
-          __attribute__((visibility("default")))
-          void android_main(void* app) {
-              checkpoint("android_main-enter");
-              gtav_real_android_main(app);
-              checkpoint("android_main-return");
-          }
-
           __attribute__((constructor))
           static void gtav_diag_init(void) {
               mkdir("/storage/emulated/0/Games", 0777);
@@ -940,13 +931,6 @@ jobs:
           OUT="$GITHUB_WORKSPACE/incremental-engine"
           ARCHIVE="$OUT/libgtav_engine_partial.a"
           test -f "$ARCHIVE"
-
-          # Rename the original SDL entry point inside the archive before link.
-          # llvm-objcopy supports archive inputs and rewrites the defining member.
-          NDK29="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
-          OBJCOPY="$(find "$NDK29/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-objcopy.exe' -print -quit)"
-          test -s "$OBJCOPY"
-          "$OBJCOPY" --redefine-sym android_main=gtav_real_android_main "$ARCHIVE"
 
           # Put our reconstructed archive where the upstream Android.mk expects
           # the cumulative engine archive. No APK baseline is required for this
@@ -1075,16 +1059,6 @@ jobs:
             echo "::error::libgtav.so link failed or output is missing (LINK_RC=$LINK_RC)"
             exit 1
           fi
-
-          # SDL resolves android_main dynamically by exported symbol name,
-          # so linker --wrap alone is not enough. Rename the final ELF exports:
-          # original android_main -> gtav_real_android_main
-          # diagnostic __wrap_android_main -> android_main
-          OBJCOPY="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-objcopy.exe' -print -quit)"
-          test -s "$OBJCOPY"
-          "$OBJCOPY" --redefine-sym android_main=gtav_real_android_main --redefine-sym __wrap_android_main=android_main "$SO"
-          echo "=== SDL entrypoint after final ELF rename ==="
-          "$NM" -D "$SO" | grep -E 'android_main|gtav_real_android_main' || true
 
           # XHYN launches through SDLActivity. SDL's nativeRunMain resolves
           # android_main from libgtav.so; ANativeActivity_onCreate is not used.
