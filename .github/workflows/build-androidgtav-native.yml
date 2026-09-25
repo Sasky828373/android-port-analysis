@@ -795,6 +795,115 @@ jobs:
           fi
           echo "Merged startup objects: ${#OBJS[@]}"
 
+      - name: Add native runtime crash diagnostics
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
+          NDK="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
+          CLANG="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'clang.exe' -print -quit)"
+          AR="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          test -s "$ARCHIVE"
+          test -s "$CLANG"
+          test -s "$AR"
+
+          cat > "$OUT/gtav_runtime_diag.c" <<'EOF'
+          #define _GNU_SOURCE
+          #include <android/log.h>
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <signal.h>
+          #include <stdint.h>
+          #include <stdio.h>
+          #include <string.h>
+          #include <sys/stat.h>
+          #include <sys/types.h>
+          #include <ucontext.h>
+          #include <unistd.h>
+
+          static const char* kLog = "/storage/emulated/0/Games/GTAV/gtav-native-crash.txt";
+          static const char* kRoot = "/storage/emulated/0/Games/GTAV";
+
+          static void write_all(int fd, const char* s) {
+              if (fd < 0 || !s) return;
+              size_t n = strlen(s);
+              while (n) {
+                  ssize_t r = write(fd, s, n);
+                  if (r <= 0) break;
+                  s += r; n -= (size_t)r;
+              }
+          }
+
+          static void log_line(const char* s) {
+              __android_log_print(ANDROID_LOG_ERROR, "GTAVNativeDiag", "%s", s ? s : "");
+              int fd = open(kLog, O_CREAT|O_WRONLY|O_APPEND, 0666);
+              if (fd >= 0) {
+                  write_all(fd, s);
+                  write_all(fd, "\n");
+                  close(fd);
+              }
+          }
+
+          static void crash_handler(int sig, siginfo_t* info, void* ctxp) {
+              char b[512];
+              uintptr_t pc=0, sp=0, lr=0;
+          #if defined(__aarch64__)
+              ucontext_t* uc=(ucontext_t*)ctxp;
+              if (uc) {
+                  pc=(uintptr_t)uc->uc_mcontext.pc;
+                  sp=(uintptr_t)uc->uc_mcontext.sp;
+                  lr=(uintptr_t)uc->uc_mcontext.regs[30];
+              }
+          #endif
+              int fd = open(kLog, O_CREAT|O_WRONLY|O_APPEND, 0666);
+              if (fd >= 0) {
+                  int n = snprintf(b, sizeof(b),
+                      "\n=== GTAV NATIVE CRASH ===\n"
+                      "signal=%d fault=%p pc=0x%lx lr=0x%lx sp=0x%lx errno=%d\n",
+                      sig, info ? info->si_addr : 0,
+                      (unsigned long)pc, (unsigned long)lr, (unsigned long)sp, errno);
+                  if (n > 0) write(fd, b, (size_t)n);
+                  close(fd);
+              }
+              signal(sig, SIG_DFL);
+              raise(sig);
+          }
+
+          __attribute__((constructor))
+          static void gtav_diag_init(void) {
+              mkdir("/storage/emulated/0/Games", 0777);
+              mkdir(kRoot, 0777);
+
+              int fd = open(kLog, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+              if (fd >= 0) {
+                  write_all(fd, "GTAV native runtime diagnostics v1\n");
+                  close(fd);
+              }
+
+              struct stat st;
+              char line[256];
+              int ok = stat(kRoot, &st) == 0;
+              snprintf(line, sizeof(line),
+                       "CHECKPOINT=libgtav-loaded asset_root=%s exists=%d readable=%d writable=%d",
+                       kRoot, ok, access(kRoot,R_OK)==0, access(kRoot,W_OK)==0);
+              log_line(line);
+
+              const int sigs[] = {SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGTRAP,SIGFPE};
+              struct sigaction sa;
+              memset(&sa,0,sizeof(sa));
+              sa.sa_sigaction=crash_handler;
+              sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
+              sigemptyset(&sa.sa_mask);
+              for (unsigned i=0;i<sizeof(sigs)/sizeof(sigs[0]);++i)
+                  sigaction(sigs[i], &sa, 0);
+          }
+          EOF
+
+          "$CLANG" --target=aarch64-linux-android26 -fPIC -O2             -c "$OUT/gtav_runtime_diag.c" -o "$OUT/gtav_runtime_diag.o"
+          "$AR" rcs "$ARCHIVE" "$OUT/gtav_runtime_diag.o"
+          echo "Runtime diagnostics object merged."
+
       - name: Probe libgtav.so link with reconstructed engine archive
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
