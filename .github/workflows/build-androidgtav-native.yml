@@ -514,6 +514,19 @@ jobs:
           std::uintptr_t nat_pcp_init() { return 0; }
           std::uintptr_t nat_pcp_shutdown() __asm__("_ZN4rage9netNatPcp8ShutdownEv");
           std::uintptr_t nat_pcp_shutdown() { return 0; }
+
+          std::uintptr_t nat_pcp_export(const void*, void*, unsigned, unsigned*)
+              __asm__("_ZNK4rage13netNatPcpInfo6ExportEPvjPj");
+          std::uintptr_t nat_pcp_export(const void*, void*, unsigned, unsigned*) { return 0; }
+          std::uintptr_t nat_pcp_dump(const void*)
+              __asm__("_ZNK4rage13netNatPcpInfo8DumpInfoEv");
+          std::uintptr_t nat_pcp_dump(const void*) { return 0; }
+          std::uintptr_t nat_upnp_export(const void*, void*, unsigned, unsigned*)
+              __asm__("_ZNK4rage14netNatUpNpInfo6ExportEPvjPj");
+          std::uintptr_t nat_upnp_export(const void*, void*, unsigned, unsigned*) { return 0; }
+          std::uintptr_t nat_upnp_dump(const void*)
+              __asm__("_ZNK4rage14netNatUpNpInfo8DumpInfoEv");
+          std::uintptr_t nat_upnp_dump(const void*) { return 0; }
           }
           EOF
 
@@ -626,7 +639,7 @@ jobs:
           rm -rf "$BUILD"
           mkdir -p "$BUILD"
 
-          CFLAGS_USER="-I$SRC -DWOLFSSL_USER_SETTINGS"
+          CFLAGS_USER="-I$SRC -DWOLFSSL_USER_SETTINGS -Wno-error=cpp"
           set +e
           cmake -S "$SRC" -B "$BUILD" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-26             -DBUILD_SHARED_LIBS=OFF             -DCMAKE_C_FLAGS="$CFLAGS_USER"             -DWOLFSSL_USER_SETTINGS=yes             -DWOLFSSL_EXAMPLES=no             -DWOLFSSL_CRYPT_TESTS=no > "$OUT/wolfssl-cmake-config.log" 2>&1
           CFG_RC=$?
@@ -668,22 +681,56 @@ jobs:
           OUT="$(cygpath -u "$GITHUB_WORKSPACE")/startup-retry"
           mkdir -p "$OUT/compiled"
 
+          COMPAT="$OUT/compat-includes"
+          rm -rf "$COMPAT"; mkdir -p "$COMPAT"
+
+          PORT_H="$(find .. -type f -iname 'portcullis.h' -print -quit 2>/dev/null || true)"
+          if [ -n "$PORT_H" ]; then
+            PORT_DIR="$(dirname "$PORT_H")"
+            mkdir -p "$COMPAT/portcullis"
+            cp -a "$PORT_DIR"/. "$COMPAT/portcullis/"
+            echo "Portcullis compatibility include: $PORT_H"
+          fi
+
+          GFX_H="$(find .. -type f -iname 'GFxPlayer.h' -print -quit 2>/dev/null || true)"
+          if [ -n "$GFX_H" ]; then
+            GFX_INC="$(dirname "$GFX_H")"
+            mkdir -p "$COMPAT/Scaleform/Include" "$COMPAT/scaleform/Include"
+            cp -a "$GFX_INC"/. "$COMPAT/Scaleform/Include/"
+            cp -a "$GFX_INC"/. "$COMPAT/scaleform/Include/"
+            echo "Scaleform compatibility include: $GFX_H"
+          fi
+
+          export CPATH="$COMPAT${CPATH:+:$CPATH}"
+          export CPLUS_INCLUDE_PATH="$COMPAT${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+
           python - "$OUT/sources.txt" <<'PY'
           from pathlib import Path
           import re, sys
           out = Path(sys.argv[1])
-          rx = re.compile(
-              r'(viewport.*manager|hud.*marker|video.*editor.*playback|android.*key.*binding)',
-              re.I
-          )
+          symbols = [
+              "CViewportManager::","CViewportManagerWrapper::","CHudMarkerManager::",
+              "AndroidKeyBindings::","CVideoEditorPlayback::","gVpMan","g_CascadeShadowsNew",
+              "g_ReflectionMapPhase","g_SceneToGBufferPhaseNew","g_SeeThroughPhase","g_render_lock","EmbedSend",
+          ]
           rows=[]; seen=set()
+          rx = re.compile(r'(viewport.*manager|hud.*marker|video.*editor.*playback|android.*key.*binding)', re.I)
           for p in sorted(Path("lists").glob("*.txt")):
               for raw in p.read_text(errors="ignore").splitlines():
                   line=raw.strip()
-                  if not line or line.startswith("#"):
-                      continue
-                  if rx.search(line) and line not in seen:
+                  if line and not line.startswith("#") and rx.search(line) and line not in seen:
                       seen.add(line); rows.append(line)
+          for root in [Path("../game"), Path("../rage")]:
+              if not root.exists(): continue
+              for p in root.rglob("*.cpp"):
+                  txt=p.read_text(errors="ignore")
+                  if not any(sym in txt for sym in symbols): continue
+                  q=str(p).replace("\\","/")
+                  if q.startswith("../game/"): rel=q[8:]
+                  elif q.startswith("../rage/"): rel=q[8:]
+                  else: continue
+                  if rel not in seen:
+                      seen.add(rel); rows.append(rel)
           out.write_text("\n".join(rows)+("\n" if rows else ""))
           print("STARTUP_SOURCE_MATCHES=", len(rows))
           print("\n".join(rows))
