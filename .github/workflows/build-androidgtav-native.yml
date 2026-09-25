@@ -375,6 +375,10 @@ jobs:
           # avoiding ambiguity about ndk-build/clang's working directory.
           sed -i 's#jni/../../libgtav_engine\.a#X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a#g' "$MAKEFILE_REL"
           grep -n "libgtav_engine.a" "$MAKEFILE_REL" || true
+          # The Android platform libraries are selected by API level. Vulkan is
+          # available from API 24 and AAudio from API 26; the NDK defaulted this
+          # diagnostic link to android-21, where neither stub is available.
+          NDK_ARGS_EXTRA=("APP_PLATFORM=android-26")
           export NDK_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-out"
           export NDK_LIBS_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-libs"
           mkdir -p "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-out" "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs"
@@ -382,7 +386,7 @@ jobs:
           test -f "$NDKBUILD"
 
           set +e
-          NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release")
+          NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release" "${NDK_ARGS_EXTRA[@]}")
           if [ -n "$NDK_APPLICATION_MK_WIN" ]; then NDK_ARGS+=("NDK_APPLICATION_MK=$NDK_APPLICATION_MK_WIN"); fi
           cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build "${NDK_ARGS[@]}" > "$OUT/link.log" 2>&1
           LINK_RC=$?
