@@ -249,6 +249,60 @@ jobs:
             exit 1
           fi
 
+      - name: Compile all upstream Android source manifests
+        shell: bash
+        working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
+        run: |
+          set -euxo pipefail
+          mkdir -p ci_full/compiled
+          python - <<'PY'
+          from pathlib import Path
+          root = Path("lists")
+          out = Path("ci_full/sources.txt")
+          seen = set()
+          rows = []
+          for p in sorted(root.glob("*.txt")):
+              for raw in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+                  s = raw.strip()
+                  if not s or s.startswith("#"):
+                      continue
+                  if s not in seen:
+                      seen.add(s)
+                      rows.append(s)
+          out.write_text("\n".join(rows) + "\n", encoding="utf-8")
+          print(f"manifests={len(list(root.glob('*.txt')))} unique_sources={len(rows)}")
+          PY
+
+          set +e
+          CONFIG=release bash scripts/build_sys.sh ci_full/sources.txt ci_full/compiled
+          FULL_RC=$?
+          set -e
+
+          echo "===== FULL BUILD FAILURES ====="
+          cat ci_full/compiled/failures.txt 2>/dev/null || true
+          echo "===== FULL BUILD LOG TAIL ====="
+          tail -n 500 ci_full/compiled/build.log 2>/dev/null || true
+
+          find ci_full/compiled -type f -name '*.o' -print | sort > ci_full/objects.txt
+          echo "Compiled object count: $(wc -l < ci_full/objects.txt)"
+          echo "Source count: $(wc -l < ci_full/sources.txt)"
+          echo "FULL_RC=$FULL_RC" > ci_full/summary.txt
+          echo "OBJECTS=$(wc -l < ci_full/objects.txt)" >> ci_full/summary.txt
+          echo "SOURCES=$(wc -l < ci_full/sources.txt)" >> ci_full/summary.txt
+
+          # Preserve partial success: this stage is exploratory until every
+          # upstream manifest is known to be Android-buildable.
+          exit 0
+
+      - name: Upload full-engine compile survey
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidGTAV-full-engine-survey
+          path: |
+            AndroidGTAV/gta5/src/dev_ng/android_build/ci_full/**
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload compiled native objects
         uses: actions/upload-artifact@v4
         with:
