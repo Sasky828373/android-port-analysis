@@ -726,7 +726,8 @@ jobs:
             rel="${p#../game/}"
             grep -qxF "$rel" "$OUT/sources.txt" || echo "$rel" >> "$OUT/sources.txt"
           done
-          find ../game -type f \( -iname '*VideoEditor*Playback*.cpp' -o -iname '*VideoEditorPlayback*.cpp' \) -print | while read -r p; do
+          # Locate the implementation by symbol text, not filename.
+          grep -RIl --include='*.cpp' 'CVideoEditorPlayback::' ../game/frontend/VideoEditor 2>/dev/null | while read -r p; do
             rel="${p#../game/}"
             grep -qxF "$rel" "$OUT/sources.txt" || echo "$rel" >> "$OUT/sources.txt"
           done
