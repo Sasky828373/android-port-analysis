@@ -381,10 +381,16 @@ jobs:
           p = pathlib.Path(sys.argv[1])
           s = p.read_text()
           import re
-          pattern = r"LOCAL_LDFLAGS\s*\+=\s*-Wl,--whole-archive\s+jni/\.\./\.\./libgtav_engine\.a\s+-Wl,--no-whole-archive"
-          s, n = re.subn(pattern, "LOCAL_WHOLE_STATIC_LIBRARIES += gtav_engine_reconstructed", s, count=1)
+          # The archive is a continuation item inside the multiline
+          # LOCAL_LDFLAGS assignment, so replace only that linker fragment.
+          pattern = r"-Wl,--whole-archive\s+jni/\.\./\.\./libgtav_engine\.a\s+-Wl,--no-whole-archive"
+          s, n = re.subn(pattern, "$(LOCAL_WHOLE_STATIC_LIBRARIES_PLACEHOLDER)", s, count=1)
           if n != 1:
-              raise SystemExit("engine whole-archive stanza not found")
+              raise SystemExit("engine whole-archive fragment not found")
+          # Put the module dependency in the gtav module before BUILD_SHARED_LIBRARY.
+          s = s.replace("include $(BUILD_SHARED_LIBRARY)", "LOCAL_WHOLE_STATIC_LIBRARIES += gtav_engine_reconstructed\ninclude $(BUILD_SHARED_LIBRARY)", 1)
+          # Remove the placeholder from the old LOCAL_LDFLAGS continuation.
+          s = s.replace("$(LOCAL_WHOLE_STATIC_LIBRARIES_PLACEHOLDER)", "")
           prebuilt = """\ninclude $(CLEAR_VARS)\nLOCAL_MODULE := gtav_engine_reconstructed\nLOCAL_SRC_FILES := X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a\ninclude $(PREBUILT_STATIC_LIBRARY)\n\n"""
           marker = "include $(BUILD_SHARED_LIBRARY)"
           if marker not in s:
