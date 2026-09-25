@@ -373,29 +373,45 @@ jobs:
           # Android.mk hardcodes a cwd-relative archive in LOCAL_LDLIBS. Replace
           # only that path in the ephemeral checkout with an absolute X: path,
           # avoiding ambiguity about ndk-build/clang's working directory.
-          # Register the reconstructed engine archive as an ndk-build prebuilt
-          # module and consume it through LOCAL_WHOLE_STATIC_LIBRARIES. Raw
-          # archive paths in LOCAL_LDFLAGS are discarded by ndk-build here.
+          # Patch the real gtav module structurally: remove the raw archive
+          # linker fragment, attach a whole-static module before BUILD_SHARED_LIBRARY,
+          # then define the prebuilt archive as a separate module.
           python - "$MAKEFILE_REL" <<'PY'
-          import pathlib, sys
+          import pathlib, re, sys
           p = pathlib.Path(sys.argv[1])
           s = p.read_text()
-          import re
-          # The archive is a continuation item inside the multiline
-          # LOCAL_LDFLAGS assignment, so replace only that linker fragment.
-          pattern = r"-Wl,--whole-archive\s+jni/\.\./\.\./libgtav_engine\.a\s+-Wl,--no-whole-archive"
-          s, n = re.subn(pattern, "$(LOCAL_WHOLE_STATIC_LIBRARIES_PLACEHOLDER)", s, count=1)
+
+          # Remove only the archive fragment while preserving the surrounding
+          # LOCAL_LDFLAGS continuation and any other flags.
+          s, n = re.subn(
+              r'-Wl,--whole-archive\s+jni/\.\./\.\./libgtav_engine\.a\s+-Wl,--no-whole-archive',
+              '',
+              s,
+              count=1,
+          )
           if n != 1:
-              raise SystemExit("engine whole-archive fragment not found")
-          # Put the module dependency in the gtav module before BUILD_SHARED_LIBRARY.
-          s = s.replace("include $(BUILD_SHARED_LIBRARY)", "LOCAL_WHOLE_STATIC_LIBRARIES += gtav_engine_reconstructed\ninclude $(BUILD_SHARED_LIBRARY)", 1)
-          # Remove the placeholder from the old LOCAL_LDFLAGS continuation.
-          s = s.replace("$(LOCAL_WHOLE_STATIC_LIBRARIES_PLACEHOLDER)", "")
-          prebuilt = """\ninclude $(CLEAR_VARS)\nLOCAL_MODULE := gtav_engine_reconstructed\nLOCAL_SRC_FILES := X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a\ninclude $(PREBUILT_STATIC_LIBRARY)\n\n"""
-          marker = "include $(BUILD_SHARED_LIBRARY)"
-          if marker not in s:
-              raise SystemExit("BUILD_SHARED_LIBRARY marker not found")
-          s = s.replace(marker, marker + prebuilt, 1)
+              raise SystemExit("raw engine archive fragment not found")
+
+          marker = 'include $(BUILD_SHARED_LIBRARY)'
+          pos = s.find(marker)
+          if pos < 0:
+              raise SystemExit("gtav BUILD_SHARED_LIBRARY marker not found")
+
+          # This assignment is inserted immediately before the first shared
+          # library build, while LOCAL_MODULE is still gtav.
+          attach = 'LOCAL_WHOLE_STATIC_LIBRARIES += gtav_engine_reconstructed\n'
+          s = s[:pos] + attach + s[pos:]
+
+          # Define the prebuilt only after gtav has been fully declared.
+          pos = s.find(marker, pos + len(attach))
+          end = pos + len(marker)
+          prebuilt = (
+              '\n\ninclude $(CLEAR_VARS)\n'
+              'LOCAL_MODULE := gtav_engine_reconstructed\n'
+              'LOCAL_SRC_FILES := X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a\n'
+              'include $(PREBUILT_STATIC_LIBRARY)\n'
+          )
+          s = s[:end] + prebuilt + s[end:]
           p.write_text(s)
           PY
           echo "=== Effective engine linker stanza ==="
