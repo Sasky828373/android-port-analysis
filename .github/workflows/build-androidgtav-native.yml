@@ -316,6 +316,19 @@ jobs:
           Write-Host "Fast baseline archive:"
           Get-Item $archive | Format-List FullName,Length,LastWriteTime
 
+      - name: Fetch WolfSSL for final network units
+        shell: bash
+        run: |
+          set -euxo pipefail
+          DEST="$(cygpath -u "$GITHUB_WORKSPACE")/wolfssl-src"
+          rm -rf "$DEST"
+          git clone --depth 1 https://github.com/wolfSSL/wolfssl.git "$DEST"
+          test -f "$DEST/wolfssl/ssl.h"
+          test -f "$DEST/wolfssl/wolfcrypt/asn.h"
+          test -f "$DEST/wolfssl/wolfcrypt/sha256.h"
+          echo "WOLFSSL_ROOT=$(cygpath -m "$DEST")" >> "$GITHUB_ENV"
+          echo "WolfSSL headers ready at $DEST"
+
       - name: Build only final unresolved network and ROS units
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
@@ -327,14 +340,16 @@ jobs:
           cat > "$OUT/sources.txt" <<'EOF'
           net/crypto.cpp
           net/keyexchange.cpp
-          net/natpcp.cpp
-          net/natupnp.cpp
           net/relay.cpp
           net/tcp.cpp
           rline/ros/rlroshttptask.cpp
           rline/ros/rlrostitleid.cpp
           EOF
 
+          WOLFSSL_POSIX="$(cygpath -u "$WOLFSSL_ROOT")"
+          export CPATH="$WOLFSSL_POSIX${CPATH:+:$CPATH}"
+          export CPLUS_INCLUDE_PATH="$WOLFSSL_POSIX${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+          echo "WolfSSL include root: $WOLFSSL_POSIX"
           CONFIG=release scripts/build_sys.sh "$OUT/sources.txt" "$OUT/compiled" || true
           find "$OUT/compiled" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
           cp "$OUT/compiled/failures.txt" "$OUT/failures.txt" 2>/dev/null || : > "$OUT/failures.txt"
