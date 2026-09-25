@@ -814,6 +814,20 @@ jobs:
               }
           }
 
+
+          static volatile unsigned long g_seq = 0;
+          static void checkpoint(const char* tag) {
+              char b[320];
+              unsigned long n = __sync_add_and_fetch(&g_seq, 1);
+              snprintf(b, sizeof(b), "SEQ=%lu CHECKPOINT=%s pid=%d", n, tag ? tag : "?", getpid());
+              log_line(b);
+          }
+
+          __attribute__((destructor))
+          static void gtav_diag_fini(void) {
+              checkpoint("libgtav-unloading");
+          }
+
           extern void __real_android_main(void* app);
 
           __attribute__((visibility("default")))
@@ -838,14 +852,46 @@ jobs:
               if (fd >= 0) {
                   int n = snprintf(b, sizeof(b),
                       "\n=== GTAV NATIVE CRASH ===\n"
-                      "signal=%d fault=%p pc=0x%lx lr=0x%lx sp=0x%lx errno=%d\n",
-                      sig, info ? info->si_addr : 0,
+                      "seq=%lu signal=%d fault=%p pc=0x%lx lr=0x%lx sp=0x%lx errno=%d\n",
+                      (unsigned long)__sync_add_and_fetch(&g_seq, 1), sig, info ? info->si_addr : 0,
                       (unsigned long)pc, (unsigned long)lr, (unsigned long)sp, errno);
                   if (n > 0) write(fd, b, (size_t)n);
                   close(fd);
               }
               signal(sig, SIG_DFL);
               raise(sig);
+          }
+
+
+          typedef unsigned long pthread_t_diag;
+          extern int __real_pthread_create(pthread_t_diag*, const void*, void*(*)(void*), void*);
+          int __wrap_pthread_create(pthread_t_diag* t, const void* a, void*(*fn)(void*), void* arg) {
+              checkpoint("pthread-create");
+              return __real_pthread_create(t, a, fn, arg);
+          }
+
+          extern void* __real_dlopen(const char*, int);
+          void* __wrap_dlopen(const char* name, int flags) {
+              char b[320];
+              snprintf(b, sizeof(b), "dlopen:%s", name ? name : "(null)");
+              checkpoint(b);
+              return __real_dlopen(name, flags);
+          }
+
+          struct android_dlextinfo;
+          extern void* __real_android_dlopen_ext(const char*, int, const struct android_dlextinfo*);
+          void* __wrap_android_dlopen_ext(const char* name, int flags, const struct android_dlextinfo* ext) {
+              char b[320];
+              snprintf(b, sizeof(b), "android_dlopen_ext:%s", name ? name : "(null)");
+              checkpoint(b);
+              return __real_android_dlopen_ext(name, flags, ext);
+          }
+
+          extern void __real_android_main(void*);
+          void __wrap_android_main(void* app) {
+              checkpoint("android_main-enter");
+              __real_android_main(app);
+              checkpoint("android_main-return");
           }
 
           __attribute__((constructor))
@@ -866,6 +912,8 @@ jobs:
                        "CHECKPOINT=libgtav-loaded asset_root=%s exists=%d readable=%d writable=%d",
                        kRoot, ok, access(kRoot,R_OK)==0, access(kRoot,W_OK)==0);
               log_line(line);
+              checkpoint("diagnostic-installed");
+              checkpoint("signal-hooks-install-begin");
 
               const int sigs[] = {SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGTRAP,SIGFPE};
               struct sigaction sa;
@@ -875,6 +923,8 @@ jobs:
               sigemptyset(&sa.sa_mask);
               for (unsigned i=0;i<sizeof(sigs)/sizeof(sigs[0]);++i)
                   sigaction(sigs[i], &sa, 0);
+              checkpoint("signal-hooks-installed");
+              checkpoint("constructor-complete");
           }
           EOF
 
@@ -947,6 +997,8 @@ jobs:
           fi
           APP_BUILD_SCRIPT_WIN="X:\\gta5\\src\\dev_ng\\android_build\\${MAKEFILE_REL//\//\\}"
           echo "Android.mk present: $MAKEFILE_REL -> $APP_BUILD_SCRIPT_WIN"
+          printf '\nLOCAL_LDFLAGS += -Wl,--wrap=android_main -Wl,--wrap=pthread_create -Wl,--wrap=dlopen -Wl,--wrap=android_dlopen_ext\n' >> "$MAKEFILE_REL"
+          echo "Enabled temporary diagnostic linker wrappers"
           printf '\nLOCAL_LDFLAGS += -Wl,--wrap=android_main\n' >> "$MAKEFILE_REL"
           echo "Enabled linker wrapper for android_main"
           # Android.mk hardcodes a cwd-relative archive in LOCAL_LDLIBS. Replace
