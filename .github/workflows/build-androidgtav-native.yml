@@ -342,8 +342,21 @@ jobs:
           APP_BUILD_SCRIPT_WIN="X:\\gta5\\src\\dev_ng\\android_build\\Android.mk"
           NDK_APPLICATION_MK_WIN=""
           if [ -f Application.mk ]; then NDK_APPLICATION_MK_WIN="X:\\gta5\\src\\dev_ng\\android_build\\Application.mk"; fi
-          test -f Android.mk
-          echo "Android.mk present: $(pwd)/Android.mk"
+          # Upstream keeps the NDK makefile under jni/ on this snapshot.
+          if [ -f Android.mk ]; then
+            MAKEFILE_REL="Android.mk"
+          elif [ -f jni/Android.mk ]; then
+            MAKEFILE_REL="jni/Android.mk"
+          else
+            MAKEFILE_REL="$(find . -maxdepth 3 -type f -name Android.mk -print -quit)"
+          fi
+          if [ -z "$MAKEFILE_REL" ]; then
+            echo "::error::Android.mk not found under $(pwd)"
+            find . -maxdepth 3 -type f | sort | sed -n '1,200p'
+            exit 1
+          fi
+          APP_BUILD_SCRIPT_WIN="X:\\gta5\\src\\dev_ng\\android_build\\${MAKEFILE_REL//\//\\}"
+          echo "Android.mk present: $MAKEFILE_REL -> $APP_BUILD_SCRIPT_WIN"
           export NDK_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-out"
           export NDK_LIBS_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-libs"
           mkdir -p "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-out" "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs"
