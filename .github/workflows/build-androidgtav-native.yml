@@ -273,10 +273,10 @@ jobs:
       - name: Restore incremental external engine object cache
         uses: actions/cache@v4
         with:
-          path: targeted-retry/compiled
-          key: androidgtav-external-arm64-${{ runner.os }}-${{ github.sha }}
+          path: ${{ github.workspace }}\targeted-retry\compiled
+          key: androidgtav-external-arm64-${{ runner.os }}-v2-${{ github.sha }}
           restore-keys: |
-            androidgtav-external-arm64-${{ runner.os }}-
+            androidgtav-external-arm64-${{ runner.os }}-v2-
 
       - name: Retry real non-WolfSSL engine failures only
         shell: bash
@@ -502,6 +502,14 @@ jobs:
           echo "Remaining targeted failures: $(wc -l < "$OUT/failures.txt")"
           echo "===== TARGETED RETRY FAILURES ====="
           cat "$OUT/failures.txt" || true
+          echo "===== TARGETED FAILURE COMPILER CONTEXT ====="
+          if [ -s "$OUT/failures.txt" ] && [ -s "$OUT/compiled/build.log" ]; then
+            while IFS= read -r fail_src; do
+              [ -n "$fail_src" ] || continue
+              echo "----- $fail_src -----"
+              grep -n -F -A18 -B8 "$fail_src" "$OUT/compiled/build.log" | tail -n 120 || true
+            done < "$OUT/failures.txt"
+          fi
 
       - name: Build reusable partial ARM64 engine archive
         shell: bash
