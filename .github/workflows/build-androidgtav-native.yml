@@ -201,7 +201,17 @@ jobs:
           SYSROOT_WIN="$(cygpath -w "$REAL_SYSROOT")"
           RESOURCE_WIN="$(cygpath -w "$RESOURCE_DIR")"
           export CLANG_CONFIG_FILE_SYSTEM_DIR=
-          export CCC_OVERRIDE_OPTIONS="+--sysroot=$SYSROOT_WIN +-resource-dir=$RESOURCE_WIN"
+          # Do not use CCC_OVERRIDE_OPTIONS here: it appends driver options in a
+          # way that can leave build_sys.sh's host-target assumptions intact.
+          # Instead place a clang config next to the copied executable so every
+          # invocation gets an explicit Android ARM64 target and the matching
+          # NDK sysroot/resource directory.
+          cat > "$WRAP_DIR/clang++.cfg" <<EOF
+--target=aarch64-linux-android26
+--sysroot=$SYSROOT_WIN
+-resource-dir=$RESOURCE_WIN
+EOF
+          unset CCC_OVERRIDE_OPTIONS
 
           echo "Real clang: $REAL_CLANG_WIN"
           echo "Real sysroot: $SYSROOT_WIN"
