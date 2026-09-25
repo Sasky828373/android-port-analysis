@@ -198,24 +198,24 @@ jobs:
             exit 1
           fi
 
-          SYSROOT_WIN="$(cygpath -w "$REAL_SYSROOT")"
-          RESOURCE_WIN="$(cygpath -w "$RESOURCE_DIR")"
+          # Use forward-slash Windows paths in clang.cfg. Native clang parses
+          # the config itself; backslashes/spaces from "Program Files (x86)"
+          # were being tokenized into bogus input files ("Files", "(x86)...").
+          SYSROOT_CFG="$(cygpath -m "$REAL_SYSROOT")"
+          RESOURCE_CFG="$(cygpath -m "$RESOURCE_DIR")"
           export CLANG_CONFIG_FILE_SYSTEM_DIR=
-          # Do not use CCC_OVERRIDE_OPTIONS here: it appends driver options in a
-          # way that can leave build_sys.sh's host-target assumptions intact.
-          # Instead place a clang config next to the copied executable so every
-          # invocation gets an explicit Android ARM64 target and the matching
-          # NDK sysroot/resource directory.
           printf '%s\n' \
             '--target=aarch64-linux-android26' \
-            "--sysroot=$SYSROOT_WIN" \
-            "-resource-dir=$RESOURCE_WIN" \
+            "--sysroot=$SYSROOT_CFG" \
+            "-resource-dir=$RESOURCE_CFG" \
             > "$WRAP_DIR/clang++.cfg"
           unset CCC_OVERRIDE_OPTIONS
 
           echo "Real clang: $REAL_CLANG_WIN"
-          echo "Real sysroot: $SYSROOT_WIN"
-          echo "Resource dir: $RESOURCE_WIN"
+          echo "Real sysroot: $SYSROOT_CFG"
+          echo "Resource dir: $RESOURCE_CFG"
+          echo "clang++.cfg:"
+          cat "$WRAP_DIR/clang++.cfg"
           ls -l "$WRAP_DIR/clang++.exe"
 
           # build_sys.sh intentionally summarizes failures into files. Always
