@@ -649,7 +649,8 @@ jobs:
           # Keep ELF files uncompressed so the platform can mmap them; zipalign below
           # provides the required APK alignment.
           7z a -tzip -mx=0 unsigned.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libc++_shared.so >/dev/null
-          "$ZIPALIGN" -f 4 unsigned.apk aligned.apk
+          "$ZIPALIGN" -f -P 16 4 unsigned.apk aligned.apk
+          "$ZIPALIGN" -c -P 16 -v 4 aligned.apk
 
           # Create an ephemeral CI signing key; it is only for install testing.
           KEYSTORE="$SHELL/debug.jks"
@@ -665,6 +666,9 @@ jobs:
           $apksigner = "$env:ANDROID_SDK_ROOT\build-tools\$env:BUILD_TOOLS\apksigner.bat"
           & $apksigner verify --verbose $apk
           if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
+          $zipalign = "$env:ANDROID_SDK_ROOT\\build-tools\\$env:BUILD_TOOLS\\zipalign.exe"
+          & $zipalign -c -P 16 -v 4 $apk
+          if ($LASTEXITCODE -ne 0) { throw "APK zip/native-library alignment verification failed" }
           Get-FileHash $apk -Algorithm SHA256
           Get-Item $apk | Format-List FullName,Length,LastWriteTime
           Write-Host "=== APK native entries ==="
