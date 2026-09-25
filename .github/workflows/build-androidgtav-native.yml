@@ -322,7 +322,11 @@ jobs:
           cp -f "$ARCHIVE" "$BASE/libgtav_engine.a"
 
           # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
+          # NDK r29 requires an explicit output directory when NDK_PROJECT_PATH=null.
           export NDK_PROJECT_PATH=null
+          export NDK_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-out"
+          export NDK_LIBS_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-libs"
+          mkdir -p "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-out" "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs"
           NDKBUILD="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/ndk-build.cmd"
           test -f "$NDKBUILD"
 
