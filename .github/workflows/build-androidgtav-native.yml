@@ -249,6 +249,45 @@ jobs:
             exit 1
           fi
 
+      - name: Reuse completed full-engine survey
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dest = "$env:GITHUB_WORKSPACE\full-engine-baseline"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          gh run download 36105093384 --repo "${{ github.repository }}" --name "AndroidGTAV-full-engine-survey" --dir $dest
+          if ($LASTEXITCODE -ne 0) { throw "Could not download completed full-engine survey artifact" }
+          $count = @(Get-ChildItem $dest -Recurse -Filter *.o).Count
+          Write-Host "Reused ARM64 objects: $count"
+          if ($count -lt 1000) { throw "Unexpectedly small object baseline: $count" }
+
+      - name: Build reusable partial ARM64 engine archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="$(cygpath -u "$GITHUB_WORKSPACE")/full-engine-baseline"
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
+          mkdir -p "$OUT"
+          find "$BASE" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
+          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          test -f "$AR"
+          mapfile -t OBJS < "$OUT/objects.txt"
+          "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
+          "$AR" t "$OUT/libgtav_engine_partial.a" > "$OUT/archive_members.txt"
+          echo "OBJECTS=${#OBJS[@]}" | tee "$OUT/summary.txt"
+          echo "ARCHIVE_MEMBERS=$(wc -l < "$OUT/archive_members.txt")" | tee -a "$OUT/summary.txt"
+
+      - name: Upload reusable partial engine archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidGTAV-libgtav-engine-partial
+          path: |
+            incremental-engine/libgtav_engine_partial.a
+            incremental-engine/summary.txt
+            incremental-engine/archive_members.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Restore full ARM64 object cache
         id: full-cache
         uses: actions/cache@v4
