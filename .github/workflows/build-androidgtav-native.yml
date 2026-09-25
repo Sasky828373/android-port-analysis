@@ -878,10 +878,11 @@ jobs:
               return __real_android_dlopen_ext(name, flags, ext);
           }
 
-          extern void __real_android_main(void*);
-          void __wrap_android_main(void* app) {
+          extern void gtav_real_android_main(void*);
+          __attribute__((visibility("default")))
+          void android_main(void* app) {
               checkpoint("android_main-enter");
-              __real_android_main(app);
+              gtav_real_android_main(app);
               checkpoint("android_main-return");
           }
 
@@ -939,6 +940,13 @@ jobs:
           OUT="$GITHUB_WORKSPACE/incremental-engine"
           ARCHIVE="$OUT/libgtav_engine_partial.a"
           test -f "$ARCHIVE"
+
+          # Rename the original SDL entry point inside the archive before link.
+          # llvm-objcopy supports archive inputs and rewrites the defining member.
+          NDK29="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
+          OBJCOPY="$(find "$NDK29/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-objcopy.exe' -print -quit)"
+          test -s "$OBJCOPY"
+          "$OBJCOPY" --redefine-sym android_main=gtav_real_android_main "$ARCHIVE"
 
           # Put our reconstructed archive where the upstream Android.mk expects
           # the cumulative engine archive. No APK baseline is required for this
@@ -1048,7 +1056,7 @@ jobs:
           test -f "$NDKBUILD"
 
           set +e
-          WRAP_FLAGS="-Wl,--error-limit=0 -Wl,--wrap=android_main -Wl,--wrap=pthread_create -Wl,--wrap=dlopen -Wl,--wrap=android_dlopen_ext"
+          WRAP_FLAGS="-Wl,--error-limit=0 -Wl,--wrap=pthread_create -Wl,--wrap=dlopen -Wl,--wrap=android_dlopen_ext"
           NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release" "APP_ABI=arm64-v8a" "APP_STL=c++_shared" "V=1" "LOCAL_LDFLAGS+=$WRAP_FLAGS" "${NDK_ARGS_EXTRA[@]}")
           if [ -n "$NDK_APPLICATION_MK_WIN" ]; then NDK_ARGS+=("NDK_APPLICATION_MK=$NDK_APPLICATION_MK_WIN"); fi
           cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build "${NDK_ARGS[@]}" > "$OUT/link.log" 2>&1
