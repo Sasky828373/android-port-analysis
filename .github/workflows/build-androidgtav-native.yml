@@ -828,15 +828,6 @@ jobs:
               checkpoint("libgtav-unloading");
           }
 
-          extern void __real_android_main(void* app);
-
-          __attribute__((visibility("default")))
-          void __wrap_android_main(void* app) {
-              log_line("CHECKPOINT=android_main-enter");
-              __real_android_main(app);
-              log_line("CHECKPOINT=android_main-return");
-          }
-
           static void crash_handler(int sig, siginfo_t* info, void* ctxp) {
               char b[512];
               uintptr_t pc=0, sp=0, lr=0;
