@@ -697,6 +697,9 @@ jobs:
             # the exact missing identifiers so we can bridge only those.
             cat > "$COMPAT/portcullis/portcullis.h" <<'EOF'
           #pragma once
+          #ifndef PORTCULLIS_ENABLE
+          #define PORTCULLIS_ENABLE 0
+          #endif
           EOF
             echo "Portcullis SDK header absent; installed minimal compatibility header."
           fi
@@ -746,6 +749,18 @@ jobs:
                           seen.add(rel); rows.append(rel)
                   else:
                       print("NON_GAME_SYMBOL_SOURCE:", q)
+          # AndroidKeyBindings implementation exists under game/system but
+          # does not contain the class-qualified strings used by the heuristic.
+          explicit = ["system/AndroidKeyBindings.cpp"]
+          for rel in explicit:
+              if (Path("../game")/rel).exists() and rel not in seen:
+                  seen.add(rel); rows.append(rel)
+
+          # commands_html.cpp is not needed for the remaining unresolved startup
+          # symbols and pulls an unavailable FrontendNY header. Keep the retry
+          # set focused on the actual unresolved providers.
+          rows = [x for x in rows if x.lower() != "frontend/html/commands_html.cpp"]
+
           out.write_text("\n".join(rows)+("\n" if rows else ""))
           print("STARTUP_SOURCE_MATCHES=", len(rows))
           print("\n".join(rows))
