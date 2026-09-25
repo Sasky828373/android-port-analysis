@@ -89,6 +89,95 @@ jobs:
 
           git rev-parse HEAD | Tee-Object "$env:GITHUB_WORKSPACE\\androidgtav-upstream-sha.txt"
 
+      - name: Patch GTA V asset path to Games GTAV
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$(cygpath -u "$GITHUB_WORKSPACE")/AndroidGTAV/gta5"
+          OLD='/storage/emulated/0/Android/obb/com.rage.gtav'
+          OLD2='/sdcard/Android/obb/com.rage.gtav'
+          NEW='/storage/emulated/0/Games/GTAV'
+
+          python - "$ROOT" "$OLD" "$OLD2" "$NEW" <<'PY'
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          old1, old2, new = sys.argv[2:5]
+          exts = {
+              '.c','.cc','.cpp','.cxx','.h','.hh','.hpp','.inl',
+              '.java','.kt','.xml','.mk','.gradle','.properties','.txt','.py','.sh'
+          }
+          changed = []
+          for p in root.rglob('*'):
+              if not p.is_file() or p.suffix.lower() not in exts:
+                  continue
+              try:
+                  data = p.read_text(encoding='utf-8')
+              except Exception:
+                  continue
+              out = data.replace(old1, new).replace(old2, new)
+              if out != data:
+                  p.write_text(out, encoding='utf-8')
+                  changed.append(str(p))
+          print("GTAV_ASSET_PATH_REPLACEMENTS=", len(changed))
+          for p in changed:
+              print("patched:", p)
+
+          # The public upstream documents the OBB path; fail loudly if source
+          # layout changes and no runtime occurrence can be found.
+          if not changed:
+              print("warning: no literal runtime asset path occurrence found; continuing to source scan")
+          PY
+
+          echo "=== Remaining old GTA V asset path references ==="
+          grep -RIn --binary-files=without-match -E '/storage/emulated/0/Android/obb/com\.rage\.gtav|/sdcard/Android/obb/com\.rage\.gtav' "$ROOT" || true
+          echo "=== New GTA V asset path references ==="
+          grep -RIn --binary-files=without-match -F '/storage/emulated/0/Games/GTAV' "$ROOT" || true
+
+          # Direct native fopen() access to /storage/emulated/0/Games/GTAV on
+          # modern Android requires broad external-storage access. Add the
+          # manifest declarations used by this sideload/debug build.
+          MANIFEST="$(find "$ROOT" -type f -path '*/android_build/app/AndroidManifest.xml' -print -quit)"
+          if [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ]; then
+            python - "$MANIFEST" <<'PY'
+          from pathlib import Path
+          import sys, xml.etree.ElementTree as ET
+
+          p = Path(sys.argv[1])
+          ns = 'http://schemas.android.com/apk/res/android'
+          ET.register_namespace('android', ns)
+          tree = ET.parse(p)
+          root = tree.getroot()
+
+          wanted = [
+              'android.permission.READ_EXTERNAL_STORAGE',
+              'android.permission.WRITE_EXTERNAL_STORAGE',
+              'android.permission.MANAGE_EXTERNAL_STORAGE',
+          ]
+          existing = {
+              x.get(f'{{{ns}}}name')
+              for x in root.findall('uses-permission')
+          }
+          insert_at = 0
+          for perm in wanted:
+              if perm not in existing:
+                  el = ET.Element('uses-permission')
+                  el.set(f'{{{ns}}}name', perm)
+                  root.insert(insert_at, el)
+                  insert_at += 1
+
+          app = root.find('application')
+          if app is not None:
+              app.set(f'{{{ns}}}requestLegacyExternalStorage', 'true')
+
+          tree.write(p, encoding='utf-8', xml_declaration=True)
+          print('Patched manifest:', p)
+          PY
+          fi
+
+          echo "GTAV_ASSET_ROOT=/storage/emulated/0/Games/GTAV" >> "$GITHUB_ENV"
+
       - name: Verify upstream Android build inputs
         shell: pwsh
         run: |
