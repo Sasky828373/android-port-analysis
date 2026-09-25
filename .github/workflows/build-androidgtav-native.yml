@@ -324,6 +324,8 @@ jobs:
           # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
           # NDK r29 requires an explicit output directory when NDK_PROJECT_PATH=null.
           export NDK_PROJECT_PATH=null
+          export APP_BUILD_SCRIPT="X:/gta5/src/dev_ng/android_build/Android.mk"
+          if [ -f Application.mk ]; then export NDK_APPLICATION_MK="X:/gta5/src/dev_ng/android_build/Application.mk"; fi
           export NDK_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-out"
           export NDK_LIBS_OUT="$(cygpath -m "$GITHUB_WORKSPACE")/ndk-libs"
           mkdir -p "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-out" "$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs"
