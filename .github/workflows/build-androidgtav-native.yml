@@ -294,6 +294,37 @@ jobs:
           # upstream manifest is known to be Android-buildable.
           exit 0
 
+      - name: Classify full-engine failures and build archive
+        shell: bash
+        working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          base = Path("ci_full")
+          fails = [x.strip() for x in (base/"compiled/failures.txt").read_text(errors="ignore").splitlines() if x.strip()]
+          wolf = [x for x in fails if "wolfssl/" in x.lower()]
+          engine = [x for x in fails if x not in wolf]
+          (base/"wolfssl_failures.txt").write_text("\n".join(wolf)+("\n" if wolf else ""))
+          (base/"engine_failures.txt").write_text("\n".join(engine)+("\n" if engine else ""))
+          objs = sorted((base/"compiled").glob("*.o"))
+          (base/"physical_objects.txt").write_text("\n".join(str(x) for x in objs)+("\n" if objs else ""))
+          with (base/"archive_summary.txt").open("w") as h:
+              h.write(f"TOTAL_FAILURES={len(fails)}\nWOLFSSL_FAILURES={len(wolf)}\nENGINE_FAILURES={len(engine)}\nPHYSICAL_OBJECTS={len(objs)}\n")
+          print((base/"archive_summary.txt").read_text())
+          PY
+
+          AR="$(find /c/Android/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin -iname 'llvm-ar.exe' -print -quit)"
+          test -f "$AR"
+          mapfile -t OBJS < ci_full/physical_objects.txt
+          if [ "${#OBJS[@]}" -gt 0 ]; then
+            rm -f ci_full/libgtav_engine_partial.a
+            "$AR" rcs ci_full/libgtav_engine_partial.a "${OBJS[@]}"
+            "$AR" t ci_full/libgtav_engine_partial.a > ci_full/archive_members.txt
+            echo "ARCHIVE_MEMBERS=$(wc -l < ci_full/archive_members.txt)" >> ci_full/archive_summary.txt
+          fi
+          cat ci_full/archive_summary.txt
+
       - name: Upload full-engine compile survey
         uses: actions/upload-artifact@v4
         with:
