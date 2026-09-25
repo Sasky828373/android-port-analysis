@@ -650,6 +650,24 @@ jobs:
           test -s "$CXX"
           test -s "$MANIFEST"
 
+          # Build an install-safe shell manifest. The upstream manifest may carry
+          # stale package/install attributes from its original build environment.
+          python - "$MANIFEST" "$GITHUB_WORKSPACE/apk-shell-manifest.xml" <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          src, dst = map(pathlib.Path, sys.argv[1:3])
+          ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
+          ns="{http://schemas.android.com/apk/res/android}"
+          tree=ET.parse(src); root=tree.getroot()
+          root.set("package","com.androidgtav.native")
+          root.attrib.pop(ns+"sharedUserId", None)
+          app=root.find("application")
+          if app is not None:
+              app.set(ns+"extractNativeLibs","false")
+              app.set(ns+"debuggable","true")
+          tree.write(dst, encoding="utf-8", xml_declaration=True)
+          PY
+          MANIFEST="$GITHUB_WORKSPACE/apk-shell-manifest.xml"
+
           echo "=== Native runtime sizes before APK packaging ==="
           ls -lh "$SO" "$CXX"
           wc -c "$SO" "$CXX"
@@ -705,6 +723,9 @@ jobs:
           $apksigner = "$env:ANDROID_SDK_ROOT\build-tools\$env:BUILD_TOOLS\apksigner.bat"
           & $apksigner verify --verbose $apk
           if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
+          $aapt = "$env:ANDROID_SDK_ROOT\\build-tools\\$env:BUILD_TOOLS\\aapt.exe"
+          Write-Host "=== APK badging ==="
+          & $aapt dump badging $apk | Select-Object -First 8
           $zipalign = "$env:ANDROID_SDK_ROOT\\build-tools\\$env:BUILD_TOOLS\\zipalign.exe"
           & $zipalign -c -P 16 -v 4 $apk
           if ($LASTEXITCODE -ne 0) { throw "APK zip/native-library alignment verification failed" }
