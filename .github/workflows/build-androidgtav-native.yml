@@ -605,6 +605,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Add NativeActivity glue entry point
+        if: ${{ false }} # XHYN launcher remains SDLActivity-based
         shell: bash
         run: |
           set -euxo pipefail
@@ -877,6 +878,28 @@ jobs:
               return __real_android_dlopen_ext(name, flags, ext);
           }
 
+          extern void __real_exit(int);
+          void __wrap_exit(int code) {
+              char b[128];
+              snprintf(b, sizeof(b), "process-exit:%d", code);
+              checkpoint(b);
+              __real_exit(code);
+          }
+
+          extern void __real__exit(int);
+          void __wrap__exit(int code) {
+              char b[128];
+              snprintf(b, sizeof(b), "process-_exit:%d", code);
+              checkpoint(b);
+              __real__exit(code);
+          }
+
+          extern void __real_abort(void);
+          void __wrap_abort(void) {
+              checkpoint("process-abort");
+              __real_abort();
+          }
+
           __attribute__((constructor))
           static void gtav_diag_init(void) {
               mkdir("/storage/emulated/0/Games", 0777);
@@ -1040,7 +1063,7 @@ jobs:
           test -f "$NDKBUILD"
 
           set +e
-          WRAP_FLAGS="-Wl,--error-limit=0 -Wl,--wrap=pthread_create -Wl,--wrap=dlopen -Wl,--wrap=android_dlopen_ext"
+          WRAP_FLAGS="-Wl,--error-limit=0 -Wl,--wrap=pthread_create -Wl,--wrap=dlopen -Wl,--wrap=android_dlopen_ext -Wl,--wrap=exit -Wl,--wrap=_exit -Wl,--wrap=abort"
           NDK_ARGS=("NDK_PROJECT_PATH=X:\\gta5\\src\\dev_ng\\android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release" "APP_ABI=arm64-v8a" "APP_STL=c++_shared" "V=1" "LOCAL_LDFLAGS+=$WRAP_FLAGS" "${NDK_ARGS_EXTRA[@]}")
           if [ -n "$NDK_APPLICATION_MK_WIN" ]; then NDK_ARGS+=("NDK_APPLICATION_MK=$NDK_APPLICATION_MK_WIN"); fi
           cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build "${NDK_ARGS[@]}" > "$OUT/link.log" 2>&1
