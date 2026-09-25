@@ -1068,6 +1068,16 @@ jobs:
             exit 1
           fi
 
+          # SDL resolves android_main dynamically by exported symbol name,
+          # so linker --wrap alone is not enough. Rename the final ELF exports:
+          # original android_main -> gtav_real_android_main
+          # diagnostic __wrap_android_main -> android_main
+          OBJCOPY="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-objcopy.exe' -print -quit)"
+          test -s "$OBJCOPY"
+          "$OBJCOPY" --redefine-sym android_main=gtav_real_android_main --redefine-sym __wrap_android_main=android_main "$SO"
+          echo "=== SDL entrypoint after final ELF rename ==="
+          "$NM" -D "$SO" | grep -E 'android_main|gtav_real_android_main' || true
+
           # XHYN launches through SDLActivity. SDL's nativeRunMain resolves
           # android_main from libgtav.so; ANativeActivity_onCreate is not used.
           NM="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-nm.exe' -print -quit)"
