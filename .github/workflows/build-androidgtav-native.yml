@@ -342,6 +342,21 @@ jobs:
           EOF
           test -s "$DEST/user_settings.h"
 
+          # AndroidGTAV defines __PPU in shared engine headers even for this
+          # Android target. wolfSSL interprets bare __PPU as PlayStation PPU and
+          # tries to include <netex/errno.h>. Restrict that branch to non-Android.
+          python - "$DEST/wolfssl/wolfio.h" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = "            #ifdef __PPU\n                #include <netex/errno.h>"
+          new = "            #if defined(__PPU) && !defined(__ANDROID__)\n                #include <netex/errno.h>"
+          if old not in s:
+              raise SystemExit("wolfio __PPU compatibility block not found")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
           echo "WOLFSSL_ROOT=$(cygpath -m "$DEST")" >> "$GITHUB_ENV"
           echo "WolfSSL headers + user_settings.h ready at $DEST"
 
@@ -363,6 +378,21 @@ jobs:
           EOF
 
           WOLFSSL_POSIX="$(cygpath -u "$WOLFSSL_ROOT")"
+
+          # Current wolfSSL no longer exposes ecc_key internals transitively
+          # through asn.h. RAGE crypto.cpp accesses key->dp and the *_hash_ex
+          # APIs directly, so include the public ECC definition explicitly.
+          CRYPTO_SRC="../rage/base/src/net/crypto.cpp"
+          python - "$CRYPTO_SRC" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          inc = "#include <wolfssl/wolfcrypt/ecc.h>\n"
+          if inc not in s:
+              p.write_text(inc + s)
+          PY
+
           export CPATH="$WOLFSSL_POSIX${CPATH:+:$CPATH}"
           export CPLUS_INCLUDE_PATH="$WOLFSSL_POSIX${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
           echo "WolfSSL include root: $WOLFSSL_POSIX"
