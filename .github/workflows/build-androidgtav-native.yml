@@ -305,6 +305,52 @@ jobs:
             incremental-engine/archive_members.txt
           if-no-files-found: error
           retention-days: 7
+      - name: Probe libgtav.so link with reconstructed engine archive
+        shell: bash
+        working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
+        run: |
+          set -euxo pipefail
+          OUT="$GITHUB_WORKSPACE/incremental-engine"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
+          test -f "$ARCHIVE"
+
+          # Put our reconstructed archive where the upstream Android.mk expects
+          # the cumulative engine archive. No APK baseline is required for this
+          # diagnostic link pass.
+          BASE="RB_zcode_audiosched_0919/integrated"
+          mkdir -p "$BASE"
+          cp -f "$ARCHIVE" "$BASE/libgtav_engine.a"
+
+          # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
+          export NDK_PROJECT_PATH=null
+          NDKBUILD="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/ndk-build.cmd"
+          test -f "$NDKBUILD"
+
+          set +e
+          cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build CONFIG=release > "$OUT/link.log" 2>&1
+          LINK_RC=$?
+          set -e
+
+          echo "LINK_RC=$LINK_RC" | tee "$OUT/link-summary.txt"
+          tail -n 500 "$OUT/link.log" || true
+          find . -type f -name 'libgtav.so' -print | tee "$OUT/libgtav-so.txt" || true
+
+          # This is a diagnostic pass: preserve linker output even when symbols
+          # are still missing so the next patch can target the exact failures.
+          exit 0
+
+      - name: Upload libgtav link diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidGTAV-libgtav-link-diagnostics
+          path: |
+            incremental-engine/link.log
+            incremental-engine/link-summary.txt
+            incremental-engine/libgtav-so.txt
+            AndroidGTAV/gta5/src/dev_ng/android_build/libs/**/libgtav.so
+            AndroidGTAV/gta5/src/dev_ng/android_build/obj/**/libgtav.so
+          if-no-files-found: warn
+          retention-days: 7
       - name: Restore full ARM64 object cache
         id: full-cache
         uses: actions/cache@v4
