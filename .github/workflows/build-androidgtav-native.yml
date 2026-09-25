@@ -249,6 +249,13 @@ jobs:
             exit 1
           fi
 
+      - name: Restore full ARM64 object cache
+        id: full-cache
+        uses: actions/cache@v4
+        with:
+          path: AndroidGTAV/gta5/src/dev_ng/android_build/ci_full
+          key: androidgtav-arm64-full-${{ runner.os }}-${{ hashFiles('AndroidGTAV/gta5/src/dev_ng/android_build/lists/*.txt', 'AndroidGTAV/gta5/src/dev_ng/android_build/scripts/build_sys.sh') }}
+
       - name: Compile all upstream Android source manifests
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
@@ -273,10 +280,15 @@ jobs:
           print(f"manifests={len(list(root.glob('*.txt')))} unique_sources={len(rows)}")
           PY
 
-          set +e
-          CONFIG=release bash scripts/build_sys.sh ci_full/sources.txt ci_full/compiled
-          FULL_RC=$?
-          set -e
+          if [ -s ci_full/physical_objects.txt ] && [ -d ci_full/compiled ]; then
+            echo "Full ARM64 object cache restored; skipping 5,091-source rebuild."
+            FULL_RC=0
+          else
+            set +e
+            CONFIG=release bash scripts/build_sys.sh ci_full/sources.txt ci_full/compiled
+            FULL_RC=$?
+            set -e
+          fi
 
           echo "===== FULL BUILD FAILURES ====="
           cat ci_full/compiled/failures.txt 2>/dev/null || true
