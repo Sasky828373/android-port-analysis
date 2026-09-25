@@ -591,6 +591,28 @@ jobs:
             incremental-engine/archive_members.txt
           if-no-files-found: error
           retention-days: 7
+      - name: Add NativeActivity glue entry point
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
+          NDK29="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
+          GLUE_SRC="$NDK29/sources/android/native_app_glue/android_native_app_glue.c"
+          GLUE_INC="$NDK29/sources/android/native_app_glue"
+          CLANG="$(find "$NDK29/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'clang.exe' -print -quit)"
+          AR="$(find "$NDK29/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          test -s "$ARCHIVE"
+          test -s "$GLUE_SRC"
+          test -s "$CLANG"
+          test -s "$AR"
+
+          "$CLANG" --target=aarch64-linux-android26 -fPIC -O2 -I"$GLUE_INC"             -c "$GLUE_SRC" -o "$OUT/android_native_app_glue.o"
+          "$AR" rcs "$ARCHIVE" "$OUT/android_native_app_glue.o"
+
+          echo "NativeActivity glue added to engine archive"
+          "$AR" t "$ARCHIVE" | tail -n 10
+
       - name: Probe libgtav.so link with reconstructed engine archive
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
@@ -719,6 +741,17 @@ jobs:
           echo "=== Effective linker command ===" | tee "$OUT/link-command.txt"
           grep -Ei 'clang\+\+|ld\.lld|whole-archive|libgtav_engine\.a' "$OUT/link.log" | tail -n 40 | tee -a "$OUT/link-command.txt" || true
           find . -type f -name 'libgtav.so' -print | tee "$OUT/libgtav-so.txt" || true
+
+          # NativeActivity requires ANativeActivity_onCreate in the loaded .so.
+          # android_native_app_glue provides it and then dispatches to android_main.
+          NM="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-nm.exe' -print -quit)"
+          if [ -n "$NM" ] && [ -s "$NM" ]; then
+            "$NM" -D "$SO" | grep -E 'ANativeActivity_onCreate|android_main' | tee "$OUT/native-entrypoints.txt"
+            grep -q 'ANativeActivity_onCreate' "$OUT/native-entrypoints.txt" || {
+              echo "::error::libgtav.so is missing ANativeActivity_onCreate"
+              exit 1
+            }
+          fi
           grep -oE 'undefined symbol: .*' "$OUT/link.log" | sed 's/^undefined symbol: //' | sort -u > "$OUT/undefined-symbols.txt" || true
           echo "Captured unresolved symbols: $(wc -l < "$OUT/undefined-symbols.txt")"
 
@@ -757,6 +790,7 @@ jobs:
             incremental-engine/final-rage-undefined.txt
             incremental-engine/final-rage-undefined-demangled.txt
             incremental-engine/rage-symbol-source-hits.txt
+            incremental-engine/native-entrypoints.txt
             final-network-retry/sources.txt
             final-network-retry/failures.txt
             final-network-retry/compiled/build.log
