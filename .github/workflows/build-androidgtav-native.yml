@@ -384,6 +384,13 @@ jobs:
             "../../framework/src/entity/attachmententityextension.cpp"
             "../../framework/src/streaming/streamingloader.cpp"
             "../../framework/src/fwscene/stores/staticboundsstore.cpp"
+            "../../framework/src/streaming/streamingvisualize.cpp"
+            "../../framework/src/fwnet/netplayermgrbase.cpp"
+            "../../suite/src/avchat/voicechat.cpp"
+            "../../framework/src/fwpheffects/ropemanager.cpp"
+            "../../suite/src/rmptfx/ptxeffectinst.cpp"
+            "../../framework/src/fwnet/netarrayhandler.cpp"
+            "../../framework/src/fwnet/netserialisers.cpp"
           )
           for src in "${NEXT_IMPL_TUS[@]}"; do
             disk="../rage/base/src/$src"
