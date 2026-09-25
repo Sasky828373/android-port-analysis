@@ -267,6 +267,41 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare upstream clang wrapper for fast diagnostics
+        if: env.FAST_FINAL_DIAG == 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK_MSYS="$(cygpath -u "$ANDROID_SDK_ROOT")"
+          NDK27_ROOT="$SDK_MSYS/ndk/27.3.13750724"
+          REAL_CLANG="$(find "$NDK27_ROOT" -type f -name 'clang++.exe' -print -quit 2>/dev/null || true)"
+          if [ -z "$REAL_CLANG" ]; then
+            echo "::error::clang++.exe not found under $NDK27_ROOT"
+            exit 1
+          fi
+
+          WRAP_DIR='/c/Android/android-sdk/ndk/27.3.13750724'
+          mkdir -p "$WRAP_DIR"
+          cp -f "$REAL_CLANG" "$WRAP_DIR/clang++.exe"
+
+          REAL_PREBUILT="$(dirname "$(dirname "$REAL_CLANG")")"
+          REAL_SYSROOT="$REAL_PREBUILT/sysroot"
+          RESOURCE_DIR="$(find "$REAL_PREBUILT/lib/clang" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null || true)"
+          test -d "$REAL_SYSROOT"
+          test -d "$RESOURCE_DIR"
+
+          SYSROOT_CFG="$(cygpath -m "$REAL_SYSROOT")"
+          RESOURCE_CFG="$(cygpath -m "$RESOURCE_DIR")"
+          printf '%s\n' \
+            '--target=aarch64-linux-android26' \
+            "--sysroot=$SYSROOT_CFG" \
+            "-resource-dir=$RESOURCE_CFG" \
+            > "$WRAP_DIR/clang++.cfg"
+
+          echo "Fast diagnostic clang wrapper ready:"
+          ls -lh "$WRAP_DIR/clang++.exe" "$WRAP_DIR/clang++.cfg"
+          cat "$WRAP_DIR/clang++.cfg"
+
       - name: Reuse completed 4655-object engine archive
         shell: pwsh
         env:
