@@ -257,6 +257,7 @@ jobs:
           key: androidgtav-arm64-full-${{ runner.os }}-${{ hashFiles('AndroidGTAV/gta5/src/dev_ng/android_build/lists/*.txt', 'AndroidGTAV/gta5/src/dev_ng/android_build/scripts/build_sys.sh') }}
 
       - name: Compile all upstream Android source manifests
+        if: ${{ false }} # Full survey already completed; use existing compiled-object artifact for follow-up work.
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
         run: |
@@ -307,6 +308,7 @@ jobs:
           exit 0
 
       - name: Classify full-engine failures and build archive
+        if: ${{ false }} # Disabled to avoid rebuilding 5,091 sources on every iteration.
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
         run: |
@@ -338,6 +340,7 @@ jobs:
           cat ci_full/archive_summary.txt
 
       - name: Upload full-engine compile survey
+        if: ${{ false }} # Existing survey artifact is the baseline for incremental work.
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-full-engine-survey
