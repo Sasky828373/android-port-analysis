@@ -323,7 +323,10 @@ jobs:
 
           # package_apk.py/Android.mk expect the historical X: mapping and NDK29.
           # NDK r29 requires an explicit output directory when NDK_PROJECT_PATH=null.
-          export NDK_PROJECT_PATH=null
+          # Use the actual Android build directory as the NDK project root.
+          # r29 otherwise enters its NDK_PROJECT_PATH=null validation path before
+          # consuming APP_BUILD_SCRIPT on Windows.
+          export NDK_PROJECT_PATH="X:/gta5/src/dev_ng/android_build"
           # ndk-build receives these as make variables; environment-only values
           # are not consistently honored by r29 on Windows.
           APP_BUILD_SCRIPT_WIN="X:/gta5/src/dev_ng/android_build/Android.mk"
@@ -336,7 +339,7 @@ jobs:
           test -f "$NDKBUILD"
 
           set +e
-          NDK_ARGS=("APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release")
+          NDK_ARGS=("NDK_PROJECT_PATH=X:/gta5/src/dev_ng/android_build" "APP_BUILD_SCRIPT=$APP_BUILD_SCRIPT_WIN" "NDK_OUT=$NDK_OUT" "NDK_LIBS_OUT=$NDK_LIBS_OUT" "CONFIG=release")
           if [ -n "$NDK_APPLICATION_MK_WIN" ]; then NDK_ARGS+=("NDK_APPLICATION_MK=$NDK_APPLICATION_MK_WIN"); fi
           cmd.exe //c "$(cygpath -w "$NDKBUILD")" -C X:\\gta5\\src\\dev_ng\\android_build "${NDK_ARGS[@]}" > "$OUT/link.log" 2>&1
           LINK_RC=$?
