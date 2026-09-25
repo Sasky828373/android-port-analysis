@@ -360,48 +360,38 @@ jobs:
             echo "Added targeted original TU: $src"
           done
 
-          # Resolve the next unresolved class clusters against the actual
-          # upstream checkout. Convert found implementation files to paths
-          # relative to rage/base/src because that is what build_sys.sh expects.
-          python - "$OUT/real-sources.txt" <<'PY'
-          from pathlib import Path
-          import os, re, sys
-          out=Path(sys.argv[1])
-          dev=Path("..").resolve()  # dev_ng
-          base=(dev/"rage/base/src").resolve()
-          targets=[
-              "fwAnimDirectorComponentSyncedScene","snSession","scrThread","netRelay",
-              "strPackfileManager","netSyncTree","fwAnimManager","bgGlassManager",
-              "VoiceChat","strStreamingVisualize","ropeManager","ptxEffectInst",
-              "netPlayerMgrBase","netArrayHandlerBase","rlRos","CSyncDataBase",
-              "decalBucket","fwAnimHelpers","fwEntity","CNavMesh","tcManager",
-              "fwArchetype","ropeInstance","netObjectIDMgr","strStreamingLoaderManager",
-          ]
-          roots=[dev/"rage", dev/"game"]
-          existing=set(x.strip() for x in out.read_text(errors="ignore").splitlines() if x.strip())
-          added=[]
-          for target in targets:
-              pat=re.compile(r"\b"+re.escape(target)+r"\s*::")
-              matches=[]
-              for root in roots:
-                  if not root.exists(): continue
-                  for p in root.rglob("*.cpp"):
-                      try:
-                          txt=p.read_text(errors="ignore")
-                      except Exception:
-                          continue
-                      if pat.search(txt):
-                          matches.append(p.resolve())
-              for p in sorted(set(matches)):
-                  rel=os.path.relpath(p, base).replace("\\","/")
-                  if rel not in existing:
-                      existing.add(rel); added.append((target,rel))
-          with out.open("a",encoding="utf-8") as h:
-              for _,rel in added: h.write(rel+"\n")
-          print("Auto-resolved original TUs:", len(added))
-          for target,rel in added:
-              print(f"AUTO_TU {target}: {rel}")
-          PY
+          # Build only the actual implementation TUs for the largest
+          # unresolved class clusters. The broad source scanner used in #139
+          # matched call sites and pulled in hundreds of unrelated files,
+          # causing duplicate symbols at link time.
+          NEXT_IMPL_TUS=(
+            "../../framework/src/fwanimation/directorcomponent.cpp"
+            "../../framework/src/fwanimation/directorcomponentsyncedscene.cpp"
+            "../../suite/src/snet/session.cpp"
+            "../../script/src/script/thread.cpp"
+            "../../script/src/script/threadrun.cpp"
+            "../../script/src/script/threadrun2.cpp"
+            "../../script/src/script/scriptrun.cpp"
+            "net/relay.cpp"
+            "../../framework/src/streaming/packfilemanager.cpp"
+            "../../framework/src/fwnet/netsynctree.cpp"
+            "../../framework/src/fwanimation/animmanager.cpp"
+            "../../suite/src/breakableglass/glassmanager.cpp"
+            "../../framework/src/fwnet/netobjectidmgr.cpp"
+          )
+          for src in "${NEXT_IMPL_TUS[@]}"; do
+            disk="../rage/base/src/$src"
+            if [ ! -f "$disk" ]; then
+              echo "::error::Next implementation TU missing: $src -> $disk"
+              exit 1
+            fi
+            if ! grep -Fxq "$src" "$OUT/real-sources.txt" 2>/dev/null; then
+              echo "$src" >> "$OUT/real-sources.txt"
+              echo "Added next implementation TU: $src"
+            else
+              echo "Already selected implementation TU: $src"
+            fi
+          done
 
           sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
           echo "Targeted original engine sources: $(wc -l < "$OUT/real-sources.txt")"
