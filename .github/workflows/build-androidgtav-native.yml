@@ -257,298 +257,71 @@ jobs:
             exit 1
           fi
 
-      - name: Reuse completed full-engine survey
+      - name: Reuse completed 4655-object engine archive
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $dest = "$env:GITHUB_WORKSPACE\full-engine-baseline"
+          $dest = "$env:GITHUB_WORKSPACE\incremental-engine"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          gh run download 36105093384 --repo "${{ github.repository }}" --name "AndroidGTAV-full-engine-survey" --dir $dest
-          if ($LASTEXITCODE -ne 0) { throw "Could not download completed full-engine survey artifact" }
-          $count = @(Get-ChildItem $dest -Recurse -Filter *.o).Count
-          Write-Host "Reused ARM64 objects: $count"
-          if ($count -lt 1000) { throw "Unexpectedly small object baseline: $count" }
+          gh run download 36158289430 --repo "${{ github.repository }}" --name "AndroidGTAV-libgtav-engine-partial" --dir $dest
+          if ($LASTEXITCODE -ne 0) { throw "Could not download #157 reconstructed engine archive" }
+          $archive = Join-Path $dest "libgtav_engine_partial.a"
+          if (-not (Test-Path $archive)) { throw "4655-object engine archive missing after download" }
+          Write-Host "Fast baseline archive:"
+          Get-Item $archive | Format-List FullName,Length,LastWriteTime
 
-      - name: Restore incremental external engine object cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}\targeted-retry\compiled
-          key: androidgtav-external-arm64-${{ runner.os }}-v2-${{ github.sha }}
-          restore-keys: |
-            androidgtav-external-arm64-${{ runner.os }}-v2-
-
-      - name: Retry real non-WolfSSL engine failures only
+      - name: Build only final unresolved network and ROS units
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
         run: |
           set -euxo pipefail
-          BASE="$(cygpath -u "$GITHUB_WORKSPACE")/full-engine-baseline"
-          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry"
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/final-network-retry"
           mkdir -p "$OUT/compiled"
-          FAILS="$BASE/compiled/failures.txt"
-          test -s "$FAILS"
-          # Keep only failures that correspond to real source files in this checkout.
-          # This excludes the broken WolfSSL manifest paths and other nonexistent inputs.
-          python - "$FAILS" "$OUT/real-sources.txt" <<'PY'
-          import pathlib, sys
-          fails=pathlib.Path(sys.argv[1]).read_text(errors="ignore").splitlines()
-          root=pathlib.Path.cwd()
-          seen=set(); out=[]
-          for raw in fails:
-              s=raw.strip()
-              if not s or "wolfssl" in s.lower(): continue
-              p=(root/s).resolve()
-              if p.is_file() and p.suffix.lower() in {".c",".cc",".cpp",".cxx"}:
-                  q=str(p)
-                  if q not in seen: seen.add(q); out.append(q)
-          pathlib.Path(sys.argv[2]).write_text("\n".join(out)+("\n" if out else ""))
-          print("real engine retry sources:", len(out))
-          PY
 
-          # Build #130 final-ELF audit shows the whole fwTimer implementation
-          # unresolved at dlopen (sm_gameTime plus 32 related methods/statics).
-          # Compile the real upstream translation unit instead of introducing
-          # symbol stubs. This is intentionally incremental: one original TU.
-          # build_sys.sh resolves manifest entries from rage/base/src.
-          # Use the exact path spelling from the successful full-engine survey;
-          # absolute filesystem paths are not valid inputs to that driver.
-          TIMER_SRC="../../framework/src/fwsys/timer.cpp"
-          TIMER_DISK="../rage/framework/src/fwsys/timer.cpp"
-          if [ -f "$TIMER_DISK" ]; then
-            if ! grep -Fxq "$TIMER_SRC" "$OUT/real-sources.txt" 2>/dev/null; then
-              echo "$TIMER_SRC" >> "$OUT/real-sources.txt"
-            fi
-            echo "Added original fwTimer TU manifest entry: $TIMER_SRC"
-          else
-            echo "::error::Original fwTimer translation unit not found: $TIMER_DISK"
-            exit 1
-          fi
+          cat > "$OUT/sources.txt" <<'EOF'
+          net/crypto.cpp
+          net/keyexchange.cpp
+          net/natpcp.cpp
+          net/natupnp.cpp
+          net/relay.cpp
+          net/tcp.cpp
+          rline/ros/rlroshttptask.cpp
+          rline/ros/rlrostitleid.cpp
+          EOF
 
-          # Build #133 proved the incremental-TU path works. Add the next
-          # large unresolved RAGE implementation clusters using their original
-          # upstream manifest paths, not stubs.
-          TARGETED_TUS=(
-            "../../framework/src/fwlocalisation/textUtil.cpp"
-            "../../framework/src/fwscene/stores/txdstore.cpp"
-            "../../framework/src/fwscene/world/WorldMgr.cpp"
-            "../../framework/src/entity/drawdata.cpp"
-            "../../framework/src/vfx/ptfx/ptfxattach.cpp"
-            "../../framework/src/vfx/ptfx/ptfxscript.cpp"
-            "../../framework/src/fwscene/mapdata/maptypes.cpp"
-            "../../framework/src/fwscene/mapdata/maptypescontents.cpp"
-            "../../framework/src/fwscene/mapdata/maptypesdef.cpp"
-            "../../suite/src/cutscene/cutsmanager.cpp"
-            "../../framework/src/fwanimation/animdirector.cpp"
-            "../../framework/src/fwscript/scripthandler.cpp"
-            "../../framework/src/fwscript/scripthandlermgr.cpp"
-            "../../framework/src/fwscript/scripthandlernetcomponent.cpp"
-            "../../framework/src/fwnet/netinterface.cpp"
-            "../../framework/src/fwnet/netobject.cpp"
-            "../../framework/src/fwnet/netobjectmgrbase.cpp"
-            "../../framework/src/fwdrawlist/drawlistmgr.cpp"
-            "../../framework/src/fwanimation/clipsets.cpp"
-            "../../framework/src/fwpheffects/clothmanager.cpp"
-            "../../framework/src/vfx/decal/decalmanager.cpp"
-            "../../framework/src/streaming/streaminginfo.cpp"
-            "../../framework/src/streaming/streamingengine.cpp"
-            "../../framework/src/fwscene/stores/mapdatastore.cpp"
-            "../../framework/src/entity/archetypemanager.cpp"
-            "../../framework/src/ai/navmesh/pathserverbase.cpp"
-          )
-          for src in "${TARGETED_TUS[@]}"; do
-            disk="../rage/base/src/$src"
-            if [ ! -f "$disk" ]; then
-              echo "::error::Targeted original TU missing: $src -> $disk"
-              exit 1
-            fi
-            if ! grep -Fxq "$src" "$OUT/real-sources.txt" 2>/dev/null; then
-              echo "$src" >> "$OUT/real-sources.txt"
-            fi
-            echo "Added targeted original TU: $src"
-          done
-
-          # Build only the actual implementation TUs for the largest
-          # unresolved class clusters. The broad source scanner used in #139
-          # matched call sites and pulled in hundreds of unrelated files,
-          # causing duplicate symbols at link time.
-          NEXT_IMPL_TUS=(
-            "../../framework/src/fwanimation/directorcomponent.cpp"
-            "../../framework/src/fwanimation/directorcomponentsyncedscene.cpp"
-            "../../suite/src/snet/session.cpp"
-            "../../script/src/script/thread.cpp"
-            "../../framework/src/streaming/packfilemanager.cpp"
-            "../../framework/src/fwnet/netsynctree.cpp"
-            "../../framework/src/fwanimation/animmanager.cpp"
-            "../../suite/src/breakableglass/glassmanager.cpp"
-            "../../framework/src/fwnet/netobjectidmgr.cpp"
-            "../../framework/src/fwanimation/animhelpers.cpp"
-            "../../framework/src/vfx/decal/decalbucket.cpp"
-            "../../framework/src/timecycle/tcmanager.cpp"
-            "../../framework/src/entity/archetype.cpp"
-            "../../framework/src/fwnet/netplayer.cpp"
-            "../../framework/src/fwnet/neteventmgr.cpp"
-            "../../framework/src/fwnet/netobjectreassignmgr.cpp"
-            "../../framework/src/entity/attachmententityextension.cpp"
-            "../../framework/src/streaming/streamingloader.cpp"
-            "../../framework/src/fwscene/stores/staticboundsstore.cpp"
-            "../../framework/src/streaming/streamingvisualize.cpp"
-            "../../framework/src/fwnet/netplayermgrbase.cpp"
-            "../../suite/src/avchat/voicechat.cpp"
-            "../../framework/src/fwpheffects/ropemanager.cpp"
-            "../../suite/src/rmptfx/ptxeffectinst.cpp"
-            "../../framework/src/fwnet/netarrayhandler.cpp"
-            "../../framework/src/fwnet/netserialisers.cpp"
-            "../../framework/src/entity/entity.cpp"
-            "../../framework/src/ai/navmesh/navmesh.cpp"
-            "../../framework/src/ai/navmesh/navmeshstore.cpp"
-            "../../framework/src/fwscene/stores/imapgroup.cpp"
-            "../../framework/src/fwrenderer/renderlistbuilder.cpp"
-            "../../framework/src/fwrenderer/renderlistgroup.cpp"
-            "../../framework/src/fwrenderer/renderListSortJob.cpp"
-            "../../framework/src/fwscene/mapdata/mapdatacontents.cpp"
-            "../../framework/src/fwscene/world/ExteriorSceneGraphNode.cpp"
-            "../../framework/src/streaming/CacheLoader.cpp"
-            "../../framework/src/fwnet/netarraymgr.cpp"
-            "../../naturalmotion/src/fragmentnm/instance.cpp"
-            "../../framework/src/vfx/ptfx/ptfxmanager.cpp"
-            "net/keyexchange.cpp"
-            "../../framework/src/fwnet/netleaderboardread.cpp"
-            "../../suite/src/rmptfx/ptxmanager.cpp"
-            "../../framework/src/fwutil/QuadTree.cpp"
-            "../../framework/src/fwnet/netsyncdata.cpp"
-            "../../framework/src/fwnet/netgameevent.cpp"
-            "../../framework/src/fwdecorator/decoratorExtension.cpp"
-            "../../framework/src/fwnet/netobjectmgrmessagehandler.cpp"
-            "../../framework/src/streaming/streaminglive.cpp"
-            "../../framework/src/fwnet/netbandwidthmgr.cpp"
-            "../../framework/src/vfx/decal/decalmanagerasync.cpp"
-            "../../framework/src/streaming/streamingallocator.cpp"
-            "../../framework/src/fwscript/scriptinterface.cpp"
-            "../../framework/src/fwrenderer/renderthread.cpp"
-            "net/relay.cpp"
-            "net/keyexchange.cpp"
-            "net/natupnp.cpp"
-            "net/natpcp.cpp"
-            "net/crypto.cpp"
-            "net/tcp.cpp"
-            "rline/rlhttptask.cpp"
-            "rline/ros/rlroscommon.cpp"
-            "rline/ros/rlrosclient.cpp"
-            "rline/ros/rlroshttptask.cpp"
-            "rline/ros/rlrostitleid.cpp"
-            "rline/ros/rlroscredtasks.cpp"
-            "rline/ros/rlrosserviceaccesstokenstore.cpp"
-          )
-          for src in "${NEXT_IMPL_TUS[@]}"; do
-            disk="../rage/base/src/$src"
-            if [ ! -f "$disk" ]; then
-              echo "::error::Next implementation TU missing: $src -> $disk"
-              exit 1
-            fi
-            if ! grep -Fxq "$src" "$OUT/real-sources.txt" 2>/dev/null; then
-              echo "$src" >> "$OUT/real-sources.txt"
-              echo "Added next implementation TU: $src"
-            else
-              echo "Already selected implementation TU: $src"
-            fi
-          done
-
-          # One-shot recovery: the completed full survey successfully compiled
-          # hundreds of external RAGE/framework/suite/script TUs, but their
-          # object filenames begin with ".._.." and were omitted by the old
-          # artifact upload's hidden-file filtering. Recompile ALL successful
-          # external survey sources in one pass instead of adding tiny batches.
-          python - "$BASE/sources.txt" "$FAILS" "$OUT/real-sources.txt" <<'PY'
-          import pathlib, sys
-          sources=pathlib.Path(sys.argv[1]).read_text(errors="ignore").splitlines()
-          fails={x.strip() for x in pathlib.Path(sys.argv[2]).read_text(errors="ignore").splitlines() if x.strip()}
-          out=pathlib.Path(sys.argv[3])
-          # build_sys.sh interprets manifest entries relative to rage/base/src,
-          # not android_build. Resolve them exactly the same way here.
-          root=(pathlib.Path.cwd()/"../rage/base/src").resolve()
-          existing={x.strip() for x in out.read_text(errors="ignore").splitlines() if x.strip()} if out.exists() else set()
-          added=[]
-          for raw in sources:
-              s=raw.strip()
-              if not s or not s.startswith("../") or s in fails or "wolfssl" in s.lower():
-                  continue
-              p=(root/s).resolve()
-              if not p.is_file() or p.suffix.lower() not in {".c",".cc",".cpp",".cxx"}:
-                  continue
-              if s not in existing:
-                  existing.add(s)
-                  added.append(s)
-          with out.open("a", encoding="utf-8") as h:
-              for s in added:
-                  h.write(s+"\n")
-          print(f"ONE_SHOT_EXTERNAL_ADDED={len(added)}")
-          print(f"ONE_SHOT_TOTAL_SELECTED={len(existing)}")
-          PY
-
-          sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
-          echo "One-shot original engine sources: $(wc -l < "$OUT/real-sources.txt")"
-          cat "$OUT/real-sources.txt"
-
-          if [ ! -s "$OUT/real-sources.txt" ]; then
-            echo "::error::No targeted real engine sources selected"
-            exit 1
-          fi
-          # Reuse upstream compiler driver, but only for this small filtered list.
-          CONFIG=release scripts/build_sys.sh "$OUT/real-sources.txt" "$OUT/compiled" || true
-          find "$OUT/compiled" -type f -name '*.o' -print | sort > "$OUT/recovered-objects.txt"
+          CONFIG=release scripts/build_sys.sh "$OUT/sources.txt" "$OUT/compiled" || true
+          find "$OUT/compiled" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
           cp "$OUT/compiled/failures.txt" "$OUT/failures.txt" 2>/dev/null || : > "$OUT/failures.txt"
-          echo "Recovered objects: $(wc -l < "$OUT/recovered-objects.txt")"
-          echo "Remaining targeted failures: $(wc -l < "$OUT/failures.txt")"
-          echo "===== TARGETED RETRY FAILURES ====="
-          cat "$OUT/failures.txt" || true
-          echo "===== TARGETED FAILURE COMPILER CONTEXT ====="
-          if [ -s "$OUT/failures.txt" ] && [ -s "$OUT/compiled/build.log" ]; then
-            while IFS= read -r fail_src; do
-              [ -n "$fail_src" ] || continue
-              echo "----- $fail_src -----"
-              grep -n -F -A18 -B8 "$fail_src" "$OUT/compiled/build.log" | tail -n 120 || true
-            done < "$OUT/failures.txt"
-          fi
 
-      - name: Build reusable partial ARM64 engine archive
+          echo "FAST_RETRY_OBJECTS=$(wc -l < "$OUT/objects.txt")"
+          echo "FAST_RETRY_FAILURES=$(wc -l < "$OUT/failures.txt")"
+          echo "===== FINAL 8 FAILURES ====="
+          cat "$OUT/failures.txt" || true
+          echo "===== FINAL 8 COMPILER LOG ====="
+          cat "$OUT/compiled/build.log" || true
+
+      - name: Merge fast retry objects into 4655-object engine archive
         shell: bash
         run: |
           set -euxo pipefail
-          BASE="$(cygpath -u "$GITHUB_WORKSPACE")/full-engine-baseline"
           OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
-          mkdir -p "$OUT"
-          find "$BASE" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
-          # Add objects recovered by the targeted retry without rebuilding the 3838-object baseline.
-          RETRY="$(cygpath -u "$GITHUB_WORKSPACE")/targeted-retry/compiled"
-          if [ -d "$RETRY" ]; then
-            find "$RETRY" -type f -name '*.o' -print >> "$OUT/objects.txt"
-            sort -u -o "$OUT/objects.txt" "$OUT/objects.txt"
-          fi
+          RETRY="$(cygpath -u "$GITHUB_WORKSPACE")/final-network-retry"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
           AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          test -f "$ARCHIVE"
           test -f "$AR"
-          # Windows has a much smaller command-line limit than Linux. Feed
-          # object files to llvm-ar in small batches instead of one huge argv.
-          rm -f "$OUT/libgtav_engine_partial.a"
-          TOTAL=0
-          BATCH=0
-          while IFS= read -r obj; do
-            OBJS+=("$obj")
-            TOTAL=$((TOTAL+1))
-            if [ "${#OBJS[@]}" -ge 100 ]; then
-              "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
-              OBJS=()
-              BATCH=$((BATCH+1))
-            fi
-          done < "$OUT/objects.txt"
-          if [ "${#OBJS[@]}" -gt 0 ]; then
-            "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
-            BATCH=$((BATCH+1))
+
+          BEFORE=$("$AR" t "$ARCHIVE" | wc -l)
+          mapfile -t NEW_OBJS < "$RETRY/objects.txt"
+          if [ "${#NEW_OBJS[@]}" -gt 0 ]; then
+            "$AR" rcs "$ARCHIVE" "${NEW_OBJS[@]}"
           fi
-          "$AR" t "$OUT/libgtav_engine_partial.a" > "$OUT/archive_members.txt"
-          echo "OBJECTS=$TOTAL" | tee "$OUT/summary.txt"
-          echo "AR_BATCHES=$BATCH" | tee -a "$OUT/summary.txt"
-          echo "ARCHIVE_MEMBERS=$(wc -l < "$OUT/archive_members.txt")" | tee -a "$OUT/summary.txt"
+          "$AR" t "$ARCHIVE" > "$OUT/archive_members.txt"
+          AFTER=$(wc -l < "$OUT/archive_members.txt")
+          echo "BASE_ARCHIVE_MEMBERS=$BEFORE" | tee "$OUT/summary.txt"
+          echo "FAST_RETRY_OBJECTS=${#NEW_OBJS[@]}" | tee -a "$OUT/summary.txt"
+          echo "ARCHIVE_MEMBERS=$AFTER" | tee -a "$OUT/summary.txt"
 
       - name: Upload reusable partial engine archive
         uses: actions/upload-artifact@v4
