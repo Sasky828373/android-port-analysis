@@ -391,6 +391,11 @@ jobs:
             "../../suite/src/rmptfx/ptxeffectinst.cpp"
             "../../framework/src/fwnet/netarrayhandler.cpp"
             "../../framework/src/fwnet/netserialisers.cpp"
+            "../../framework/src/entity/entity.cpp"
+            "../../framework/src/ai/navmesh/navmesh.cpp"
+            "../../framework/src/ai/navmesh/navmeshstore.cpp"
+            "../../framework/src/fwscene/stores/imapgroup.cpp"
+            "rline/ros/rlros.cpp"
           )
           for src in "${NEXT_IMPL_TUS[@]}"; do
             disk="../rage/base/src/$src"
