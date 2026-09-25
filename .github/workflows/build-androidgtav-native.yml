@@ -592,6 +592,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Add NativeActivity glue entry point
+        if: ${{ false }} # XHYN base uses SDLActivity -> android_main, not NativeActivity
         shell: bash
         run: |
           set -euxo pipefail
@@ -612,6 +613,88 @@ jobs:
 
           echo "NativeActivity glue added to engine archive"
           "$AR" t "$ARCHIVE" | tail -n 10
+
+      - name: Build Android WolfSSL and merge into engine archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
+          SRC="$(cygpath -u "$GITHUB_WORKSPACE")/wolfssl-src"
+          NDK="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
+          BUILD="$(cygpath -u "$GITHUB_WORKSPACE")/wolfssl-android-build"
+          rm -rf "$BUILD"
+          mkdir -p "$BUILD"
+
+          cmake -S "$SRC" -B "$BUILD" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-26             -DBUILD_SHARED_LIBS=OFF             -DWOLFSSL_USER_SETTINGS=yes             -DWOLFSSL_EXAMPLES=no             -DWOLFSSL_CRYPT_TESTS=no
+          cmake --build "$BUILD" --target wolfssl -j 4
+
+          WOLF_A="$(find "$BUILD" -type f \( -name 'libwolfssl.a' -o -name 'wolfssl.a' \) -print -quit)"
+          test -s "$WOLF_A"
+          echo "WolfSSL static archive: $WOLF_A"
+
+          AR="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          test -s "$AR"
+          WOBJ="$OUT/wolfssl-objects"
+          rm -rf "$WOBJ"; mkdir -p "$WOBJ"
+          ( cd "$WOBJ" && "$AR" x "$WOLF_A" )
+          mapfile -t WOLF_OBJS < <(find "$WOBJ" -type f -name '*.o' -print | sort)
+          echo "WOLFSSL_OBJECTS=${#WOLF_OBJS[@]}"
+          test "${#WOLF_OBJS[@]}" -gt 0
+          "$AR" rcs "$ARCHIVE" "${WOLF_OBJS[@]}"
+
+      - name: Build unresolved GTA startup modules
+        shell: bash
+        working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
+        run: |
+          set -euxo pipefail
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/startup-retry"
+          mkdir -p "$OUT/compiled"
+
+          python - "$OUT/sources.txt" <<'PY'
+          from pathlib import Path
+          import re, sys
+          out = Path(sys.argv[1])
+          rx = re.compile(
+              r'(viewport.*manager|hud.*marker|video.*editor.*playback|android.*key.*binding)',
+              re.I
+          )
+          rows=[]; seen=set()
+          for p in sorted(Path("lists").glob("*.txt")):
+              for raw in p.read_text(errors="ignore").splitlines():
+                  line=raw.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  if rx.search(line) and line not in seen:
+                      seen.add(line); rows.append(line)
+          out.write_text("\n".join(rows)+("\n" if rows else ""))
+          print("STARTUP_SOURCE_MATCHES=", len(rows))
+          print("\n".join(rows))
+          PY
+
+          if [ -s "$OUT/sources.txt" ]; then
+            CONFIG=release scripts/build_sys.sh "$OUT/sources.txt" "$OUT/compiled" || true
+          fi
+          find "$OUT/compiled" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
+          cp "$OUT/compiled/failures.txt" "$OUT/failures.txt" 2>/dev/null || : > "$OUT/failures.txt"
+          echo "STARTUP_OBJECTS=$(wc -l < "$OUT/objects.txt")"
+          echo "STARTUP_FAILURES=$(wc -l < "$OUT/failures.txt")"
+          cat "$OUT/failures.txt" || true
+          tail -n 300 "$OUT/compiled/build.log" 2>/dev/null || true
+
+      - name: Merge startup modules into engine archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="$(cygpath -u "$GITHUB_WORKSPACE")/incremental-engine"
+          RETRY="$(cygpath -u "$GITHUB_WORKSPACE")/startup-retry"
+          ARCHIVE="$OUT/libgtav_engine_partial.a"
+          AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
+          mapfile -t OBJS < "$RETRY/objects.txt"
+          if [ "${#OBJS[@]}" -gt 0 ]; then
+            "$AR" rcs "$ARCHIVE" "${OBJS[@]}"
+          fi
+          echo "Merged startup objects: ${#OBJS[@]}"
 
       - name: Probe libgtav.so link with reconstructed engine archive
         shell: bash
@@ -749,13 +832,13 @@ jobs:
             exit 1
           fi
 
-          # NativeActivity requires ANativeActivity_onCreate in the loaded .so.
-          # android_native_app_glue provides it and then dispatches to android_main.
+          # XHYN launches through SDLActivity. SDL's nativeRunMain resolves
+          # android_main from libgtav.so; ANativeActivity_onCreate is not used.
           NM="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-nm.exe' -print -quit)"
           if [ -n "$NM" ] && [ -s "$NM" ]; then
-            "$NM" -D "$SO" | grep -E 'ANativeActivity_onCreate|android_main' | tee "$OUT/native-entrypoints.txt"
-            grep -q 'ANativeActivity_onCreate' "$OUT/native-entrypoints.txt" || {
-              echo "::error::libgtav.so is missing ANativeActivity_onCreate"
+            "$NM" -D "$SO" | grep -E 'android_main' | tee "$OUT/native-entrypoints.txt"
+            grep -q 'android_main' "$OUT/native-entrypoints.txt" || {
+              echo "::error::libgtav.so is missing SDL entry point android_main"
               exit 1
             }
           fi
@@ -773,6 +856,27 @@ jobs:
           if [ -n "$CXXFILT" ] && [ -s "$CXXFILT" ]; then "$CXXFILT" < "$OUT/final-rage-undefined.txt" > "$OUT/final-rage-undefined-demangled.txt"; fi
           echo "Final ELF undefined symbols: $(wc -l < "$OUT/final-undefined-symbols.txt")"
           echo "Final unresolved rage symbols: $(wc -l < "$OUT/final-rage-undefined.txt")"
+
+          # XHYN/SDL can only dlopen libgtav.so when ALL non-platform imports
+          # are provided. Track game/global/WolfSSL imports, not just rage::*.
+          "$CXXFILT" < "$OUT/final-undefined-symbols.txt" > "$OUT/final-undefined-demangled.txt" || true
+          python - "$OUT/final-undefined-symbols.txt" "$OUT/final-undefined-demangled.txt" "$OUT/final-custom-undefined.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          mangled=Path(sys.argv[1]).read_text(errors="ignore").splitlines()
+          dem=Path(sys.argv[2]).read_text(errors="ignore").splitlines()
+          out=[]
+          for m,d in zip(mangled,dem):
+              custom = (
+                  (m.startswith("_Z") and not d.startswith(("std::","__gnu_cxx::"))) or
+                  m.startswith(("wolfSSL","wolfTLS","wolfDTLS","g_","gVp","EmbedSend"))
+              )
+              if custom:
+                  out.append(f"{m}\t{d}")
+          Path(sys.argv[3]).write_text("\n".join(out)+("\n" if out else ""))
+          print("FINAL_CUSTOM_UNRESOLVED=", len(out))
+          for x in out[:250]: print(x)
+          PY
 
           # Fast source locator for the concrete startup blocker; no 5,091-source rebuild.
           cd /x/gta5/src/dev_ng
@@ -797,6 +901,11 @@ jobs:
             incremental-engine/final-rage-undefined-demangled.txt
             incremental-engine/rage-symbol-source-hits.txt
             incremental-engine/native-entrypoints.txt
+            incremental-engine/final-undefined-demangled.txt
+            incremental-engine/final-custom-undefined.txt
+            startup-retry/sources.txt
+            startup-retry/failures.txt
+            startup-retry/compiled/build.log
             final-network-retry/sources.txt
             final-network-retry/failures.txt
             final-network-retry/compiled/build.log
