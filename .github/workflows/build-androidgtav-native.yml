@@ -345,7 +345,7 @@ jobs:
           #define HAVE_ECC_SIGN
           #define HAVE_ECC_VERIFY
           #define WOLFSSL_DTLS
-          #define WOLFSSL_USER_MALLOC
+          #define XMALLOC_USER
 
           #endif
           EOF
@@ -380,8 +380,11 @@ jobs:
           cat > "$OUT/sources.txt" <<'EOF'
           net/crypto.cpp
           net/keyexchange.cpp
+          net/natpcp.cpp
+          net/natupnp.cpp
           net/relay.cpp
           net/tcp.cpp
+          rline/ros/rlros.cpp
           rline/ros/rlroshttptask.cpp
           rline/ros/rlrostitleid.cpp
           EOF
@@ -411,9 +414,9 @@ jobs:
 
           echo "FAST_RETRY_OBJECTS=$(wc -l < "$OUT/objects.txt")"
           echo "FAST_RETRY_FAILURES=$(wc -l < "$OUT/failures.txt")"
-          echo "===== FINAL 8 FAILURES ====="
+          echo "===== FINAL NETWORK/ROS FAILURES ====="
           cat "$OUT/failures.txt" || true
-          echo "===== FINAL 8 COMPILER LOG ====="
+          echo "===== FINAL NETWORK/ROS COMPILER LOG ====="
           cat "$OUT/compiled/build.log" || true
 
       - name: Merge fast retry objects into 4655-object engine archive
