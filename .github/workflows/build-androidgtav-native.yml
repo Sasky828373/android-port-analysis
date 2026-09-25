@@ -402,7 +402,6 @@ jobs:
             "../../framework/src/fwscene/world/ExteriorSceneGraphNode.cpp"
             "../../framework/src/streaming/CacheLoader.cpp"
             "../../framework/src/fwnet/netarraymgr.cpp"
-            "../../framework/src/fwnet/netsyncdatanode.cpp"
           )
           for src in "${NEXT_IMPL_TUS[@]}"; do
             disk="../rage/base/src/$src"
