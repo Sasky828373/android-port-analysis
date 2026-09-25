@@ -60,8 +60,16 @@ jobs:
           git config core.protectNTFS false
           git config core.sparseCheckout true
 
-          git fetch --depth 1 origin HEAD
-          if ($LASTEXITCODE -ne 0) { throw "GitCode fetch failed" }
+          # GitCode occasionally drops long HTTP transfers. Retry the shallow
+          # fetch instead of failing the whole build on a transient RPC/EOF.
+          $fetched = $false
+          for ($attempt = 1; $attempt -le 4; $attempt++) {
+            Write-Host "GitCode fetch attempt $attempt/4"
+            git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999999 fetch --depth 1 origin HEAD
+            if ($LASTEXITCODE -eq 0) { $fetched = $true; break }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+          if (-not $fetched) { throw "GitCode fetch failed after 4 attempts" }
 
           @"
           gta5/src/dev_ng/android_build/
