@@ -40,7 +40,7 @@ jobs:
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $sdkmanager) { throw "sdkmanager.bat not found" }
           Write-Host "sdkmanager: $sdkmanager"
-          & $sdkmanager "platform-tools" "platforms;android-35" "build-tools;$env:BUILD_TOOLS" "ndk;$env:NDK_VERSION"
+          & $sdkmanager "platform-tools" "platforms;android-35" "build-tools;$env:BUILD_TOOLS" "ndk;$env:NDK_VERSION" "ndk;27.3.13750724"
           if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed: $LASTEXITCODE" }
 
       - name: Clone current AndroidGTAV upstream
@@ -161,22 +161,28 @@ jobs:
           ls -la ../rage/3rdparty/Scaleform/Src || true
 
           # build_sys.sh hardcodes C:\\Android\\android-sdk\\ndk\\27.3.13750724
-          # and invokes clang++.exe directly. The runner SDK lives elsewhere, so
-          # provide the exact compatibility path expected by upstream.
-          NDK27_WIN='C:\Android\android-sdk\ndk\27.3.13750724'
+          # as if it were the LLVM bin directory itself. A previous compatibility
+          # shim copied only bin/, which loses the NDK sysroot and causes even
+          # <stddef.h> to disappear. Install NDK 27.3 and expose the COMPLETE
+          # LLVM prebuilt tree at the exact path expected by upstream.
+          NDK27_REAL="$ANDROID_SDK_ROOT/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64"
           NDK27_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
-          if [ ! -x "$NDK27_MSYS/clang++.exe" ]; then
-            mkdir -p "$NDK27_MSYS"
-            LLVM_BIN="$(find "$ANDROID_SDK_ROOT/ndk" -path '*/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe' -print | head -n 1)"
-            if [ -z "$LLVM_BIN" ]; then
-              echo "::error::No Windows NDK clang++.exe found under $ANDROID_SDK_ROOT/ndk"
-              exit 1
-            fi
-            LLVM_DIR="$(dirname "$LLVM_BIN")"
-            cp -a "$LLVM_DIR"/. "$NDK27_MSYS"/
+
+          if [ ! -x "$NDK27_REAL/bin/clang++.exe" ]; then
+            echo "::error::NDK 27.3.13750724 is not installed at $NDK27_REAL"
+            exit 1
           fi
+
+          rm -rf "$NDK27_MSYS"
+          mkdir -p "$NDK27_MSYS"
+          cp -a "$NDK27_REAL"/. "$NDK27_MSYS"/
+
           echo "Upstream compiler compatibility path:"
           ls -l "$NDK27_MSYS/clang++.exe"
+          echo "NDK sysroot stddef.h candidates:"
+          find "$NDK27_MSYS/sysroot/usr/lib/clang" -name stddef.h -print | head -n 5
+          test -d "$NDK27_MSYS/sysroot"
+          test -f "$NDK27_MSYS/clang++.exe"
 
           # build_sys.sh intentionally summarizes failures into files. Always
           # print those files into the Actions log before deciding success/failure.
