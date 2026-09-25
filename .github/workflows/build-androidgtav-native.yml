@@ -160,6 +160,24 @@ jobs:
           echo "Scaleform expected path:"
           ls -la ../rage/3rdparty/Scaleform/Src || true
 
+          # build_sys.sh hardcodes C:\\Android\\android-sdk\\ndk\\27.3.13750724
+          # and invokes clang++.exe directly. The runner SDK lives elsewhere, so
+          # provide the exact compatibility path expected by upstream.
+          NDK27_WIN='C:\Android\android-sdk\ndk\27.3.13750724'
+          NDK27_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
+          if [ ! -x "$NDK27_MSYS/clang++.exe" ]; then
+            mkdir -p "$NDK27_MSYS"
+            LLVM_BIN="$(find "$ANDROID_SDK_ROOT/ndk" -path '*/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe' -print | head -n 1)"
+            if [ -z "$LLVM_BIN" ]; then
+              echo "::error::No Windows NDK clang++.exe found under $ANDROID_SDK_ROOT/ndk"
+              exit 1
+            fi
+            LLVM_DIR="$(dirname "$LLVM_BIN")"
+            cp -a "$LLVM_DIR"/. "$NDK27_MSYS"/
+          fi
+          echo "Upstream compiler compatibility path:"
+          ls -l "$NDK27_MSYS/clang++.exe"
+
           # build_sys.sh intentionally summarizes failures into files. Always
           # print those files into the Actions log before deciding success/failure.
           set +e
