@@ -272,10 +272,27 @@ jobs:
           find "$BASE" -type f -name '*.o' -print | sort > "$OUT/objects.txt"
           AR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
           test -f "$AR"
-          mapfile -t OBJS < "$OUT/objects.txt"
-          "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
+          # Windows has a much smaller command-line limit than Linux. Feed
+          # object files to llvm-ar in small batches instead of one huge argv.
+          rm -f "$OUT/libgtav_engine_partial.a"
+          TOTAL=0
+          BATCH=0
+          while IFS= read -r obj; do
+            OBJS+=("$obj")
+            TOTAL=$((TOTAL+1))
+            if [ "${#OBJS[@]}" -ge 100 ]; then
+              "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
+              OBJS=()
+              BATCH=$((BATCH+1))
+            fi
+          done < "$OUT/objects.txt"
+          if [ "${#OBJS[@]}" -gt 0 ]; then
+            "$AR" rcs "$OUT/libgtav_engine_partial.a" "${OBJS[@]}"
+            BATCH=$((BATCH+1))
+          fi
           "$AR" t "$OUT/libgtav_engine_partial.a" > "$OUT/archive_members.txt"
-          echo "OBJECTS=${#OBJS[@]}" | tee "$OUT/summary.txt"
+          echo "OBJECTS=$TOTAL" | tee "$OUT/summary.txt"
+          echo "AR_BATCHES=$BATCH" | tee -a "$OUT/summary.txt"
           echo "ARCHIVE_MEMBERS=$(wc -l < "$OUT/archive_members.txt")" | tee -a "$OUT/summary.txt"
 
       - name: Upload reusable partial engine archive
