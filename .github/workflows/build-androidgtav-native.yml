@@ -577,6 +577,53 @@ jobs:
             exit 1
           fi
 
+      - name: Build minimal NativeActivity APK shell
+        if: failure()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BUILD=/x/gta5/src/dev_ng/android_build
+          SO="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libgtav.so"
+          CXX="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libc++_shared.so"
+          MANIFEST="$BUILD/app/AndroidManifest.xml"
+          test -s "$SO"
+          test -s "$CXX"
+          test -s "$MANIFEST"
+
+          SHELL="$GITHUB_WORKSPACE/apk-shell"
+          rm -rf "$SHELL"
+          mkdir -p "$SHELL/lib/arm64-v8a"
+          cp "$SO" "$SHELL/lib/arm64-v8a/libgtav.so"
+          cp "$CXX" "$SHELL/lib/arm64-v8a/libc++_shared.so"
+
+          # NativeActivity apps do not require classes.dex. Compile the real
+          # upstream manifest/resources directly with aapt2, then add libs.
+          AAPT2="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/build-tools" -type f -iname 'aapt2.exe' -print | sort -V | tail -1)"
+          ZIPALIGN="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/build-tools" -type f -iname 'zipalign.exe' -print | sort -V | tail -1)"
+          APKSIGNER="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/build-tools" -type f -iname 'apksigner.bat' -print | sort -V | tail -1)"
+          ANDROID_JAR="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/platforms" -type f -name android.jar -print | sort -V | tail -1)"
+          test -s "$AAPT2"; test -s "$ZIPALIGN"; test -s "$ANDROID_JAR"
+
+          RES="$BUILD/app/res"
+          COMPILED="$SHELL/compiled.zip"
+          if [ -d "$RES" ]; then
+            "$AAPT2" compile --dir "$RES" -o "$COMPILED"
+            "$AAPT2" link -o "$SHELL/base.apk" -I "$ANDROID_JAR" --manifest "$MANIFEST" "$COMPILED"
+          else
+            "$AAPT2" link -o "$SHELL/base.apk" -I "$ANDROID_JAR" --manifest "$MANIFEST"
+          fi
+
+          cp "$SHELL/base.apk" "$SHELL/unsigned.apk"
+          cd "$SHELL"
+          7z a -tzip unsigned.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libc++_shared.so >/dev/null
+          "$ZIPALIGN" -f 4 unsigned.apk aligned.apk
+
+          # Create an ephemeral CI signing key; it is only for install testing.
+          KEYSTORE="$SHELL/debug.jks"
+          keytool -genkeypair -noprompt -keystore "$KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          cmd.exe //c "$(cygpath -w "$APKSIGNER")" sign --ks "$(cygpath -w "$KEYSTORE")" --ks-pass pass:android --key-pass pass:android --out "$(cygpath -w "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk")" "$(cygpath -w "$SHELL/aligned.apk")"
+          test -s "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
+
       - name: Verify APK structure
         shell: pwsh
         run: |
@@ -589,6 +636,7 @@ jobs:
           Get-Item $apk | Format-List FullName,Length,LastWriteTime
 
       - name: Upload APK
+        if: always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-native-vulkan-apk
