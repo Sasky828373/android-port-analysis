@@ -720,7 +720,18 @@ jobs:
           camera/viewports/ViewportManager.cpp
           system/AndroidKeyBindings.cpp
           EOF
-          echo "STARTUP_SOURCE_MATCHES=2"
+
+          # Add only the two remaining GTA implementation groups.
+          find ../game -type f -iname '*HudMarker*.cpp' -print | while read -r p; do
+            rel="${p#../game/}"
+            grep -qxF "$rel" "$OUT/sources.txt" || echo "$rel" >> "$OUT/sources.txt"
+          done
+          find ../game -type f \( -iname '*VideoEditor*Playback*.cpp' -o -iname '*VideoEditorPlayback*.cpp' \) -print | while read -r p; do
+            rel="${p#../game/}"
+            grep -qxF "$rel" "$OUT/sources.txt" || echo "$rel" >> "$OUT/sources.txt"
+          done
+
+          echo "STARTUP_SOURCE_MATCHES=$(wc -l < "$OUT/sources.txt")"
           cat "$OUT/sources.txt"
 
           echo "=== AndroidKeyBindings source candidates ===" | tee "$OUT/source-locations.txt"
