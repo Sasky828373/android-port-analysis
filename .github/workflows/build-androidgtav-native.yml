@@ -34,6 +34,29 @@ jobs:
           "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Android SDK: $sdk"
 
+      - name: Build gtav_vulkan compatibility stub only
+        shell: bash
+        run: |
+          set -euxo pipefail
+          NDK="$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865"
+          CLANG="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'clang.exe' -print -quit)"
+          READELF="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-readelf.exe' -print -quit)"
+          mkdir -p gtav-vulkan-stub
+          cat > gtav-vulkan-stub/stub.c <<'EOF'
+          __attribute__((visibility("default"))) int gtav_vulkan_stub_anchor(void) { return 1; }
+          EOF
+          "$CLANG" --target=aarch64-linux-android26 -shared -fPIC -nostdlib -Wl,-soname,libgtav_vulkan.so -Wl,--no-undefined -o gtav-vulkan-stub/libgtav_vulkan.so gtav-vulkan-stub/stub.c
+          "$READELF" -d gtav-vulkan-stub/libgtav_vulkan.so > gtav-vulkan-stub/readelf-dynamic.txt
+          "$READELF" -Ws gtav-vulkan-stub/libgtav_vulkan.so > gtav-vulkan-stub/readelf-symbols.txt
+
+      - name: Upload gtav_vulkan compatibility stub
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtav-vulkan-compat-stub
+          path: gtav-vulkan-stub/**
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install exact upstream Android toolchain
         shell: pwsh
         run: |
