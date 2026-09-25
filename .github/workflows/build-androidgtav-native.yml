@@ -297,10 +297,28 @@ jobs:
           pathlib.Path(sys.argv[2]).write_text("\n".join(out)+("\n" if out else ""))
           print("real engine retry sources:", len(out))
           PY
+
+          # Build #130 final-ELF audit shows the whole fwTimer implementation
+          # unresolved at dlopen (sm_gameTime plus 32 related methods/statics).
+          # Compile the real upstream translation unit instead of introducing
+          # symbol stubs. This is intentionally incremental: one original TU.
+          TIMER_SRC="$(realpath ../rage/framework/src/fwsys/timer.cpp 2>/dev/null || true)"
+          if [ -n "$TIMER_SRC" ] && [ -f "$TIMER_SRC" ]; then
+            if ! grep -Fxq "$TIMER_SRC" "$OUT/real-sources.txt" 2>/dev/null; then
+              echo "$TIMER_SRC" >> "$OUT/real-sources.txt"
+            fi
+            echo "Added original fwTimer TU: $TIMER_SRC"
+          else
+            echo "::error::Original fwTimer translation unit not found: ../rage/framework/src/fwsys/timer.cpp"
+            exit 1
+          fi
+          sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
+          echo "Targeted original engine sources: $(wc -l < "$OUT/real-sources.txt")"
+          cat "$OUT/real-sources.txt"
+
           if [ ! -s "$OUT/real-sources.txt" ]; then
-            echo "No real non-WolfSSL source failures require retry."
-            : > "$OUT/failures.txt"
-            exit 0
+            echo "::error::No targeted real engine sources selected"
+            exit 1
           fi
           # Reuse upstream compiler driver, but only for this small filtered list.
           CONFIG=release scripts/build_sys.sh "$OUT/real-sources.txt" "$OUT/compiled" || true
