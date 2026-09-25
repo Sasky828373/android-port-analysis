@@ -165,42 +165,48 @@ jobs:
           # shim copied only bin/, which loses the NDK sysroot and causes even
           # <stddef.h> to disappear. Install NDK 27.3 and expose the COMPLETE
           # LLVM prebuilt tree at the exact path expected by upstream.
-          # build_sys.sh expects clang++.exe directly in
-          # C:\\Android\\android-sdk\\ndk\\27.3.13750724. Do NOT copy an
-          # assumed prebuilt layout: discover the actual NDK LLVM prebuilt tree
-          # installed by sdkmanager, then create a Windows directory junction.
+          # build_sys.sh expects clang++.exe directly at
+          # C:\\Android\\android-sdk\\ndk\\27.3.13750724\\clang++.exe.
+          # Keep the real NDK tree untouched and expose wrapper launchers there.
           SDK_MSYS="$(cygpath -u "$ANDROID_SDK_ROOT")"
           NDK27_ROOT="$SDK_MSYS/ndk/27.3.13750724"
-          CLANG_EXE="$(find "$NDK27_ROOT" -type f -name 'clang++.exe' -print -quit 2>/dev/null || true)"
-          if [ -z "$CLANG_EXE" ]; then
-            echo "::error::clang++.exe not found anywhere under $NDK27_ROOT"
-            find "$SDK_MSYS/ndk" -maxdepth 7 -type f -name 'clang++.exe' -print 2>/dev/null | head -n 30 || true
+          REAL_CLANG="$(find "$NDK27_ROOT" -type f -name 'clang++.exe' -print -quit 2>/dev/null || true)"
+          if [ -z "$REAL_CLANG" ]; then
+            echo "::error::clang++.exe not found under $NDK27_ROOT"
+            find "$SDK_MSYS/ndk" -maxdepth 8 -type f -name 'clang++.exe' -print 2>/dev/null | head -n 30 || true
             exit 1
           fi
-          LLVM_BIN="$(dirname "$CLANG_EXE")"
-          LLVM_PREBUILT="$(dirname "$LLVM_BIN")"
-          echo "Discovered clang: $CLANG_EXE"
-          echo "Discovered LLVM prebuilt: $LLVM_PREBUILT"
 
-          EXPECTED_WIN='C:\Android\android-sdk\ndk\27.3.13750724'
-          EXPECTED_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
-          REAL_WIN="$(cygpath -w "$LLVM_PREBUILT")"
+          REAL_CLANG_WIN="$(cygpath -w "$REAL_CLANG")"
+          WRAP_DIR='/c/Android/android-sdk/ndk/27.3.13750724'
+          mkdir -p "$WRAP_DIR"
 
-          # If the expected path is not already the discovered prebuilt itself,
-          # replace it with a junction. This preserves sysroot-relative clang
-          # resource discovery without duplicating the NDK.
-          if [ "$(cygpath -aw "$EXPECTED_MSYS" 2>/dev/null || true)" != "$REAL_WIN" ]; then
-            cmd.exe /c "if exist \"$EXPECTED_WIN\" rmdir /s /q \"$EXPECTED_WIN\""
-            cmd.exe /c "mkdir \"C:\Android\android-sdk\ndk\" 2>NUL"
-            cmd.exe /c "mklink /J \"$EXPECTED_WIN\" \"$REAL_WIN\""
+          # build_sys.sh launches clang++.exe by this exact name. A .cmd wrapper
+          # would not match, so copy the executable only and inject the REAL
+          # sysroot/resource-dir through environment flags.
+          cp -f "$REAL_CLANG" "$WRAP_DIR/clang++.exe"
+
+          REAL_PREBUILT="$(dirname "$(dirname "$REAL_CLANG")")"
+          REAL_SYSROOT="$REAL_PREBUILT/sysroot"
+          RESOURCE_DIR="$("$REAL_CLANG" --print-resource-dir | tr -d '\r')"
+          if [ ! -d "$REAL_SYSROOT" ]; then
+            echo "::error::Real NDK sysroot missing: $REAL_SYSROOT"
+            exit 1
+          fi
+          if [ ! -d "$RESOURCE_DIR" ]; then
+            echo "::error::Clang resource dir missing: $RESOURCE_DIR"
+            exit 1
           fi
 
-          echo "Upstream compiler compatibility path:"
-          ls -l "$EXPECTED_MSYS/bin/clang++.exe"
-          echo "NDK sysroot stddef.h candidates:"
-          find "$EXPECTED_MSYS/sysroot/usr/lib/clang" -name stddef.h -print | head -n 5
-          test -d "$EXPECTED_MSYS/sysroot"
-          test -f "$EXPECTED_MSYS/bin/clang++.exe"
+          SYSROOT_WIN="$(cygpath -w "$REAL_SYSROOT")"
+          RESOURCE_WIN="$(cygpath -w "$RESOURCE_DIR")"
+          export CLANG_CONFIG_FILE_SYSTEM_DIR=
+          export CCC_OVERRIDE_OPTIONS="+--sysroot=$SYSROOT_WIN +-resource-dir=$RESOURCE_WIN"
+
+          echo "Real clang: $REAL_CLANG_WIN"
+          echo "Real sysroot: $SYSROOT_WIN"
+          echo "Resource dir: $RESOURCE_WIN"
+          ls -l "$WRAP_DIR/clang++.exe"
 
           # build_sys.sh intentionally summarizes failures into files. Always
           # print those files into the Actions log before deciding success/failure.
