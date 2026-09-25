@@ -645,7 +645,10 @@ jobs:
 
           cp "$SHELL/base.apk" "$SHELL/unsigned.apk"
           cd "$SHELL"
-          7z a -tzip unsigned.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libc++_shared.so >/dev/null
+          # NativeActivity loads these directly from the APK when extractNativeLibs=false.
+          # Keep ELF files uncompressed so the platform can mmap them; zipalign below
+          # provides the required APK alignment.
+          7z a -tzip -mx=0 unsigned.apk lib/arm64-v8a/libgtav.so lib/arm64-v8a/libc++_shared.so >/dev/null
           "$ZIPALIGN" -f 4 unsigned.apk aligned.apk
 
           # Create an ephemeral CI signing key; it is only for install testing.
