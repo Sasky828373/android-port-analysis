@@ -374,7 +374,16 @@ jobs:
           # only that path in the ephemeral checkout with an absolute X: path,
           # avoiding ambiguity about ndk-build/clang's working directory.
           sed -i 's#jni/../../libgtav_engine\.a#X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a#g' "$MAKEFILE_REL"
-          grep -n "libgtav_engine.a" "$MAKEFILE_REL" || true
+          # Force the shared C++ runtime for the native C++ entry points. Without
+          # this, libc++ symbols from main_android.o appear as false engine gaps.
+          if grep -q '^LOCAL_LDLIBS' "$MAKEFILE_REL"; then
+            sed -i '/^LOCAL_LDLIBS/a LOCAL_LDLIBS += -lc++_shared' "$MAKEFILE_REL"
+          else
+            printf '\nLOCAL_LDLIBS += -lc++_shared\n' >> "$MAKEFILE_REL"
+          fi
+          # Ask lld to report the complete unresolved set in one fast link pass.
+          sed -i '/^LOCAL_LDFLAGS/a LOCAL_LDFLAGS += -Wl,--error-limit=0' "$MAKEFILE_REL" || true
+          grep -nE "libgtav_engine.a|c\\+\\+_shared|error-limit" "$MAKEFILE_REL" || true
           # The Android platform libraries are selected by API level. Vulkan is
           # available from API 24 and AAudio from API 26; the NDK defaulted this
           # diagnostic link to android-21, where neither stub is available.
