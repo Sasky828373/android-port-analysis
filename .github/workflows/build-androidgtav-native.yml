@@ -685,11 +685,20 @@ jobs:
           rm -rf "$COMPAT"; mkdir -p "$COMPAT"
 
           PORT_H="$(find .. -type f -iname 'portcullis.h' -print -quit 2>/dev/null || true)"
+          mkdir -p "$COMPAT/portcullis"
           if [ -n "$PORT_H" ]; then
             PORT_DIR="$(dirname "$PORT_H")"
-            mkdir -p "$COMPAT/portcullis"
             cp -a "$PORT_DIR"/. "$COMPAT/portcullis/"
             echo "Portcullis compatibility include: $PORT_H"
+          else
+            # Public AndroidGTAV snapshot omits Rockstar's Portcullis SDK header.
+            # Provide an intentionally empty compatibility header first; if
+            # ViewportManager uses concrete APIs, the compiler log will expose
+            # the exact missing identifiers so we can bridge only those.
+            cat > "$COMPAT/portcullis/portcullis.h" <<'EOF'
+          #pragma once
+          EOF
+            echo "Portcullis SDK header absent; installed minimal compatibility header."
           fi
 
           GFX_H="$(find .. -type f -iname 'GFxPlayer.h' -print -quit 2>/dev/null || true)"
@@ -720,21 +729,32 @@ jobs:
                   line=raw.strip()
                   if line and not line.startswith("#") and rx.search(line) and line not in seen:
                       seen.add(line); rows.append(line)
-          for root in [Path("../game"), Path("../rage")]:
+          # Search the complete source checkout because Android-specific
+          # bindings are not necessarily under game/ or rage/.
+          for root in [Path("..")]:
               if not root.exists(): continue
               for p in root.rglob("*.cpp"):
                   txt=p.read_text(errors="ignore")
                   if not any(sym in txt for sym in symbols): continue
                   q=str(p).replace("\\","/")
-                  if q.startswith("../game/"): rel=q[8:]
-                  elif q.startswith("../rage/"): rel=q[8:]
-                  else: continue
-                  if rel not in seen:
-                      seen.add(rel); rows.append(rel)
+                  # build_sys.sh consumes game-relative entries directly.
+                  # Keep game sources buildable; record non-game hits separately
+                  # for exact follow-up compilation instead of silently dropping them.
+                  if q.startswith("../game/"):
+                      rel=q[8:]
+                      if rel not in seen:
+                          seen.add(rel); rows.append(rel)
+                  else:
+                      print("NON_GAME_SYMBOL_SOURCE:", q)
           out.write_text("\n".join(rows)+("\n" if rows else ""))
           print("STARTUP_SOURCE_MATCHES=", len(rows))
           print("\n".join(rows))
           PY
+
+          echo "=== AndroidKeyBindings source candidates ===" | tee "$OUT/source-locations.txt"
+          find .. -type f \( -iname '*android*key*bind*.cpp' -o -iname '*android*key*bind*.cc' -o -iname '*android*key*bind*.cxx' -o -iname '*keybindings*.cpp' \) -print | tee -a "$OUT/source-locations.txt" || true
+          echo "=== Portcullis references ===" | tee -a "$OUT/source-locations.txt"
+          grep -RIn --include='*.cpp' --include='*.h' 'portcullis' ../game ../rage 2>/dev/null | head -n 200 | tee -a "$OUT/source-locations.txt" || true
 
           if [ -s "$OUT/sources.txt" ]; then
             CONFIG=release scripts/build_sys.sh "$OUT/sources.txt" "$OUT/compiled" || true
@@ -970,6 +990,7 @@ jobs:
             startup-retry/sources.txt
             startup-retry/failures.txt
             startup-retry/compiled/build.log
+            startup-retry/source-locations.txt
             incremental-engine/wolfssl-cmake-config.log
             incremental-engine/wolfssl-cmake-build.log
             incremental-engine/wolfssl-merge-skipped.txt
