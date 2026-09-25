@@ -903,7 +903,7 @@ jobs:
           fi
 
       - name: Build minimal NativeActivity APK shell
-        if: env.FAST_FINAL_DIAG != 'true' && env.ANDROIDGTAV_BASELINE_READY != 'true'
+        if: env.FAST_FINAL_DIAG == 'true' || env.ANDROIDGTAV_BASELINE_READY != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -981,7 +981,7 @@ jobs:
           test -s "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
 
       - name: Verify APK structure
-        if: env.FAST_FINAL_DIAG != 'true'
+        if: always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
         shell: pwsh
         run: |
           $apk = "$env:GITHUB_WORKSPACE\AndroidGTAV-native-vulkan.apk"
@@ -1007,7 +1007,7 @@ jobs:
           Get-FileHash "$tmp\lib\arm64-v8a\libgtav.so" -Algorithm SHA256
 
       - name: Upload APK
-        if: env.FAST_FINAL_DIAG != 'true' && always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
+        if: always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-native-vulkan-apk
