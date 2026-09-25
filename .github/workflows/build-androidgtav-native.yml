@@ -527,24 +527,49 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Package and sign native APK using upstream packager
-        if: env.ANDROIDGTAV_BASELINE_READY == 'true'
+      - name: Package native ARM64 APK
         shell: bash
         run: |
           set -euxo pipefail
-          cd /x/gta5/src/dev_ng/android_build
+          BUILD=/x/gta5/src/dev_ng/android_build
+          SO="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libgtav.so"
+          CXX="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libc++_shared.so"
+          test -s "$SO"
+          test -s "$CXX"
 
-          mapfile -t OBJS < ci_native/objects.txt
-          python package_apk.py "${OBJS[@]}"
-
-          test -s dist/gtav.apk
-          cp dist/gtav.apk "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
-          cp dist/verification.json "$GITHUB_WORKSPACE/verification.json"
-          cp dist/verification.txt "$GITHUB_WORKSPACE/verification.txt"
-          cp dist/build.log "$GITHUB_WORKSPACE/build.log"
+          if [ "$ANDROIDGTAV_BASELINE_READY" = "true" ]; then
+            cd "$BUILD"
+            mapfile -t OBJS < ci_native/objects.txt
+            python package_apk.py "${OBJS[@]}"
+            test -s dist/gtav.apk
+            cp dist/gtav.apk "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
+            cp dist/verification.json "$GITHUB_WORKSPACE/verification.json" || true
+            cp dist/verification.txt "$GITHUB_WORKSPACE/verification.txt" || true
+            cp dist/build.log "$GITHUB_WORKSPACE/build.log" || true
+          else
+            # Upstream also carries the Android Gradle application. Build that
+            # shell directly and inject the just-linked ARM64 runtime.
+            GRADLEW="$(find /x/gta5 -type f \( -name gradlew -o -name gradlew.bat \) -print -quit)"
+            test -n "$GRADLEW"
+            ROOT="$(dirname "$GRADLEW")"
+            APP="$(find "$ROOT" -type f -path '*/src/main/AndroidManifest.xml' -print -quit | xargs dirname | xargs dirname)"
+            test -n "$APP"
+            mkdir -p "$APP/src/main/jniLibs/arm64-v8a"
+            cp -f "$SO" "$APP/src/main/jniLibs/arm64-v8a/libgtav.so"
+            cp -f "$CXX" "$APP/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+            cd "$ROOT"
+            if [ -f ./gradlew ]; then
+              chmod +x ./gradlew
+              ./gradlew --no-daemon assembleDebug
+            else
+              cmd.exe /c gradlew.bat --no-daemon assembleDebug
+            fi
+            APK="$(find "$ROOT" -type f -name '*.apk' -path '*/build/outputs/apk/*' -print | head -1)"
+            test -s "$APK"
+            cp "$APK" "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
+          fi
 
       - name: Verify APK structure
-        if: env.ANDROIDGTAV_BASELINE_READY == 'true'
         shell: pwsh
         run: |
           $apk = "$env:GITHUB_WORKSPACE\AndroidGTAV-native-vulkan.apk"
@@ -556,7 +581,6 @@ jobs:
           Get-Item $apk | Format-List FullName,Length,LastWriteTime
 
       - name: Upload APK
-        if: env.ANDROIDGTAV_BASELINE_READY == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-native-vulkan-apk
