@@ -165,32 +165,42 @@ jobs:
           # shim copied only bin/, which loses the NDK sysroot and causes even
           # <stddef.h> to disappear. Install NDK 27.3 and expose the COMPLETE
           # LLVM prebuilt tree at the exact path expected by upstream.
-          # ANDROID_SDK_ROOT is a Windows path (for example C:\\Android\\android-sdk).
-          # Convert it to an MSYS/Git-Bash path before using cp/find/test.
+          # build_sys.sh expects clang++.exe directly in
+          # C:\\Android\\android-sdk\\ndk\\27.3.13750724. Do NOT copy an
+          # assumed prebuilt layout: discover the actual NDK LLVM prebuilt tree
+          # installed by sdkmanager, then create a Windows directory junction.
           SDK_MSYS="$(cygpath -u "$ANDROID_SDK_ROOT")"
-          NDK27_REAL="$SDK_MSYS/ndk/27.3.13750724/toolchains/llvm/prebuilt/windows-x86_64"
-          NDK27_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
-
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "SDK_MSYS=$SDK_MSYS"
-          echo "NDK27_REAL=$NDK27_REAL"
-
-          if [ ! -x "$NDK27_REAL/bin/clang++.exe" ]; then
-            echo "::error::NDK 27.3.13750724 clang++ is not installed at $NDK27_REAL/bin/clang++.exe"
-            find "$SDK_MSYS/ndk" -maxdepth 6 -name 'clang++.exe' -print 2>/dev/null | head -n 20 || true
+          NDK27_ROOT="$SDK_MSYS/ndk/27.3.13750724"
+          CLANG_EXE="$(find "$NDK27_ROOT" -type f -name 'clang++.exe' -print -quit 2>/dev/null || true)"
+          if [ -z "$CLANG_EXE" ]; then
+            echo "::error::clang++.exe not found anywhere under $NDK27_ROOT"
+            find "$SDK_MSYS/ndk" -maxdepth 7 -type f -name 'clang++.exe' -print 2>/dev/null | head -n 30 || true
             exit 1
           fi
+          LLVM_BIN="$(dirname "$CLANG_EXE")"
+          LLVM_PREBUILT="$(dirname "$LLVM_BIN")"
+          echo "Discovered clang: $CLANG_EXE"
+          echo "Discovered LLVM prebuilt: $LLVM_PREBUILT"
 
-          rm -rf "$NDK27_MSYS"
-          mkdir -p "$NDK27_MSYS"
-          cp -a "$NDK27_REAL"/. "$NDK27_MSYS"/
+          EXPECTED_WIN='C:\Android\android-sdk\ndk\27.3.13750724'
+          EXPECTED_MSYS='/c/Android/android-sdk/ndk/27.3.13750724'
+          REAL_WIN="$(cygpath -w "$LLVM_PREBUILT")"
+
+          # If the expected path is not already the discovered prebuilt itself,
+          # replace it with a junction. This preserves sysroot-relative clang
+          # resource discovery without duplicating the NDK.
+          if [ "$(cygpath -aw "$EXPECTED_MSYS" 2>/dev/null || true)" != "$REAL_WIN" ]; then
+            cmd.exe /c "if exist \"$EXPECTED_WIN\" rmdir /s /q \"$EXPECTED_WIN\""
+            cmd.exe /c "mkdir \"C:\Android\android-sdk\ndk\" 2>NUL"
+            cmd.exe /c "mklink /J \"$EXPECTED_WIN\" \"$REAL_WIN\""
+          fi
 
           echo "Upstream compiler compatibility path:"
-          ls -l "$NDK27_MSYS/clang++.exe"
+          ls -l "$EXPECTED_MSYS/bin/clang++.exe"
           echo "NDK sysroot stddef.h candidates:"
-          find "$NDK27_MSYS/sysroot/usr/lib/clang" -name stddef.h -print | head -n 5
-          test -d "$NDK27_MSYS/sysroot"
-          test -f "$NDK27_MSYS/clang++.exe"
+          find "$EXPECTED_MSYS/sysroot/usr/lib/clang" -name stddef.h -print | head -n 5
+          test -d "$EXPECTED_MSYS/sysroot"
+          test -f "$EXPECTED_MSYS/bin/clang++.exe"
 
           # build_sys.sh intentionally summarizes failures into files. Always
           # print those files into the Actions log before deciding success/failure.
