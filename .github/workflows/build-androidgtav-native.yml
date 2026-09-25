@@ -626,11 +626,28 @@ jobs:
           rm -rf "$BUILD"
           mkdir -p "$BUILD"
 
-          cmake -S "$SRC" -B "$BUILD" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-26             -DBUILD_SHARED_LIBS=OFF             -DWOLFSSL_USER_SETTINGS=yes             -DWOLFSSL_EXAMPLES=no             -DWOLFSSL_CRYPT_TESTS=no
-          cmake --build "$BUILD" --target wolfssl -j 4
+          CFLAGS_USER="-I$SRC -DWOLFSSL_USER_SETTINGS"
+          set +e
+          cmake -S "$SRC" -B "$BUILD" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-26             -DBUILD_SHARED_LIBS=OFF             -DCMAKE_C_FLAGS="$CFLAGS_USER"             -DWOLFSSL_USER_SETTINGS=yes             -DWOLFSSL_EXAMPLES=no             -DWOLFSSL_CRYPT_TESTS=no > "$OUT/wolfssl-cmake-config.log" 2>&1
+          CFG_RC=$?
+          if [ "$CFG_RC" -eq 0 ]; then
+            cmake --build "$BUILD" --target wolfssl -j 4 > "$OUT/wolfssl-cmake-build.log" 2>&1
+            BUILD_RC=$?
+          else
+            BUILD_RC=1
+          fi
+          set -e
+          echo "WOLFSSL_CMAKE_CONFIG_RC=$CFG_RC"
+          echo "WOLFSSL_CMAKE_BUILD_RC=$BUILD_RC"
+          tail -n 200 "$OUT/wolfssl-cmake-config.log" || true
+          tail -n 300 "$OUT/wolfssl-cmake-build.log" || true
 
           WOLF_A="$(find "$BUILD" -type f \( -name 'libwolfssl.a' -o -name 'wolfssl.a' \) -print -quit)"
-          test -s "$WOLF_A"
+          if [ "$BUILD_RC" -ne 0 ] || [ -z "$WOLF_A" ] || [ ! -s "$WOLF_A" ]; then
+            echo "::warning::WolfSSL CMake build failed; continue to final undefined-symbol audit."
+            : > "$OUT/wolfssl-merge-skipped.txt"
+            exit 0
+          fi
           echo "WolfSSL static archive: $WOLF_A"
 
           AR="$(find "$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-ar.exe' -print -quit)"
@@ -906,6 +923,9 @@ jobs:
             startup-retry/sources.txt
             startup-retry/failures.txt
             startup-retry/compiled/build.log
+            incremental-engine/wolfssl-cmake-config.log
+            incremental-engine/wolfssl-cmake-build.log
+            incremental-engine/wolfssl-merge-skipped.txt
             final-network-retry/sources.txt
             final-network-retry/failures.txt
             final-network-retry/compiled/build.log
