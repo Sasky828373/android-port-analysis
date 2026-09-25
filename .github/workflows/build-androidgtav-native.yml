@@ -18,6 +18,7 @@ jobs:
     env:
       NDK_VERSION: 29.0.14206865
       BUILD_TOOLS: 37.0.0
+      FAST_FINAL_DIAG: 'true'
 
     steps:
       - name: Checkout control repo
@@ -121,7 +122,16 @@ jobs:
           if errorlevel 1 exit /b 1
           dir X:\gta5\src\dev_ng\android_build
 
+      - name: Fast diagnostic mode
+        if: env.FAST_FINAL_DIAG == 'true'
+        shell: pwsh
+        run: |
+          Write-Host "FAST_FINAL_DIAG=true"
+          Write-Host "Skipping Vulkan refresh, APK packaging/signing, and large artifact uploads."
+          Write-Host "Running only: 4655-object baseline -> final 8 TUs -> libgtav.so link -> undefined-symbol audit."
+
       - name: Build latest native Vulkan translation units
+        if: env.FAST_FINAL_DIAG != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -324,6 +334,7 @@ jobs:
           echo "ARCHIVE_MEMBERS=$AFTER" | tee -a "$OUT/summary.txt"
 
       - name: Upload reusable partial engine archive
+        if: env.FAST_FINAL_DIAG != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-libgtav-engine-partial
@@ -499,11 +510,15 @@ jobs:
             incremental-engine/final-rage-undefined.txt
             incremental-engine/final-rage-undefined-demangled.txt
             incremental-engine/rage-symbol-source-hits.txt
+            final-network-retry/sources.txt
+            final-network-retry/failures.txt
+            final-network-retry/compiled/build.log
             AndroidGTAV/gta5/src/dev_ng/android_build/libs/**/libgtav.so
             AndroidGTAV/gta5/src/dev_ng/android_build/obj/**/libgtav.so
           if-no-files-found: warn
           retention-days: 7
       - name: Restore full ARM64 object cache
+        if: env.FAST_FINAL_DIAG != 'true'
         id: full-cache
         uses: actions/cache@v4
         with:
@@ -604,6 +619,7 @@ jobs:
           retention-days: 7
 
       - name: Upload compiled native objects
+        if: env.FAST_FINAL_DIAG != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-native-objects
@@ -615,7 +631,7 @@ jobs:
           retention-days: 7
 
       - name: Package from historical baseline
-        if: env.ANDROIDGTAV_BASELINE_READY == 'true'
+        if: env.FAST_FINAL_DIAG != 'true' && env.ANDROIDGTAV_BASELINE_READY == 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -640,7 +656,7 @@ jobs:
           fi
 
       - name: Build minimal NativeActivity APK shell
-        if: env.ANDROIDGTAV_BASELINE_READY != 'true'
+        if: env.FAST_FINAL_DIAG != 'true' && env.ANDROIDGTAV_BASELINE_READY != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -718,6 +734,7 @@ jobs:
           test -s "$GITHUB_WORKSPACE/AndroidGTAV-native-vulkan.apk"
 
       - name: Verify APK structure
+        if: env.FAST_FINAL_DIAG != 'true'
         shell: pwsh
         run: |
           $apk = "$env:GITHUB_WORKSPACE\AndroidGTAV-native-vulkan.apk"
@@ -743,7 +760,7 @@ jobs:
           Get-FileHash "$tmp\lib\arm64-v8a\libgtav.so" -Algorithm SHA256
 
       - name: Upload APK
-        if: always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
+        if: env.FAST_FINAL_DIAG != 'true' && always() && hashFiles('AndroidGTAV-native-vulkan.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: AndroidGTAV-native-vulkan-apk
