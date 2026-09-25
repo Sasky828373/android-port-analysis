@@ -206,11 +206,11 @@ jobs:
           # Instead place a clang config next to the copied executable so every
           # invocation gets an explicit Android ARM64 target and the matching
           # NDK sysroot/resource directory.
-          cat > "$WRAP_DIR/clang++.cfg" <<EOF
---target=aarch64-linux-android26
---sysroot=$SYSROOT_WIN
--resource-dir=$RESOURCE_WIN
-EOF
+          printf '%s\n' \
+            '--target=aarch64-linux-android26' \
+            "--sysroot=$SYSROOT_WIN" \
+            "-resource-dir=$RESOURCE_WIN" \
+            > "$WRAP_DIR/clang++.cfg"
           unset CCC_OVERRIDE_OPTIONS
 
           echo "Real clang: $REAL_CLANG_WIN"
