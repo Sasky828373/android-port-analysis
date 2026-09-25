@@ -742,6 +742,13 @@ jobs:
           grep -Ei 'clang\+\+|ld\.lld|whole-archive|libgtav_engine\.a' "$OUT/link.log" | tail -n 40 | tee -a "$OUT/link-command.txt" || true
           find . -type f -name 'libgtav.so' -print | tee "$OUT/libgtav-so.txt" || true
 
+          # Resolve the final ELF before auditing exported NativeActivity symbols.
+          SO="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libgtav.so"
+          if [ "$LINK_RC" -ne 0 ] || [ ! -s "$SO" ]; then
+            echo "::error::libgtav.so link failed or output is missing (LINK_RC=$LINK_RC)"
+            exit 1
+          fi
+
           # NativeActivity requires ANativeActivity_onCreate in the loaded .so.
           # android_native_app_glue provides it and then dispatches to android_main.
           NM="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-nm.exe' -print -quit)"
@@ -760,7 +767,6 @@ jobs:
           # Audit the final ELF: LINK_RC=0 may still leave RAGE symbols for dlopen.
           READELF="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-readelf.exe' -print -quit)"
           CXXFILT="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-cxxfilt.exe' -print -quit)"
-          SO="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libgtav.so"
           test -s "$READELF"; test -s "$SO"
           "$READELF" -Ws "$SO" | awk '$7=="UND" && $8!="" {print $8}' | sed 's/@.*$//' | sort -u > "$OUT/final-undefined-symbols.txt"
           grep '^_ZN4rage' "$OUT/final-undefined-symbols.txt" > "$OUT/final-rage-undefined.txt" || true
