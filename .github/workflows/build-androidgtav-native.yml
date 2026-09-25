@@ -373,7 +373,7 @@ jobs:
           # Android.mk hardcodes a cwd-relative archive in LOCAL_LDLIBS. Replace
           # only that path in the ephemeral checkout with an absolute X: path,
           # avoiding ambiguity about ndk-build/clang's working directory.
-          sed -i 's#jni/../../libgtav_engine\.a#X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a#g' "$MAKEFILE_REL"
+          sed -i 's#jni/../../libgtav_engine\.a#-Wl,--whole-archive X:/gta5/src/dev_ng/android_build/app/libgtav_engine.a -Wl,--no-whole-archive#g' "$MAKEFILE_REL"
           # Keep make syntax untouched; pass diagnostic linker/runtime flags as
           # ndk-build variables instead of inserting lines into continued blocks.
           grep -n "libgtav_engine.a" "$MAKEFILE_REL" || true
