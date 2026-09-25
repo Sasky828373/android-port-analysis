@@ -316,6 +316,33 @@ jobs:
             echo "::error::Original fwTimer translation unit not found: $TIMER_DISK"
             exit 1
           fi
+
+          # Build #133 proved the incremental-TU path works. Add the next
+          # large unresolved RAGE implementation clusters using their original
+          # upstream manifest paths, not stubs.
+          TARGETED_TUS=(
+            "../../framework/src/fwlocalisation/textUtil.cpp"
+            "../../framework/src/fwscene/stores/txdstore.cpp"
+            "../../framework/src/fwscene/world/WorldMgr.cpp"
+            "../../framework/src/entity/drawdata.cpp"
+            "../../framework/src/vfx/ptfx/ptfxattach.cpp"
+            "../../framework/src/vfx/ptfx/ptfxscript.cpp"
+            "../../framework/src/fwscene/mapdata/maptypes.cpp"
+            "../../framework/src/fwscene/mapdata/maptypescontents.cpp"
+            "../../framework/src/fwscene/mapdata/maptypesdef.cpp"
+          )
+          for src in "${TARGETED_TUS[@]}"; do
+            disk="../rage/base/src/$src"
+            if [ ! -f "$disk" ]; then
+              echo "::error::Targeted original TU missing: $src -> $disk"
+              exit 1
+            fi
+            if ! grep -Fxq "$src" "$OUT/real-sources.txt" 2>/dev/null; then
+              echo "$src" >> "$OUT/real-sources.txt"
+            fi
+            echo "Added targeted original TU: $src"
+          done
+
           sort -u -o "$OUT/real-sources.txt" "$OUT/real-sources.txt"
           echo "Targeted original engine sources: $(wc -l < "$OUT/real-sources.txt")"
           cat "$OUT/real-sources.txt"
