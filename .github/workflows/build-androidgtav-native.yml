@@ -491,6 +491,23 @@ jobs:
 
           # This is a diagnostic pass: preserve linker output even when symbols
           # are still missing so the next patch can target the exact failures.
+          # Audit the final ELF: LINK_RC=0 may still leave RAGE symbols for dlopen.
+          READELF="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-readelf.exe' -print -quit)"
+          CXXFILT="$(find "$(cygpath -u "$ANDROID_SDK_ROOT")/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin" -iname 'llvm-cxxfilt.exe' -print -quit)"
+          SO="$(cygpath -u "$GITHUB_WORKSPACE")/ndk-libs/arm64-v8a/libgtav.so"
+          test -s "$READELF"; test -s "$SO"
+          "$READELF" -Ws "$SO" | awk '$7=="UND" && $8!="" {print $8}' | sed 's/@.*$//' | sort -u > "$OUT/final-undefined-symbols.txt"
+          grep '^_ZN4rage' "$OUT/final-undefined-symbols.txt" > "$OUT/final-rage-undefined.txt" || true
+          if [ -n "$CXXFILT" ] && [ -s "$CXXFILT" ]; then "$CXXFILT" < "$OUT/final-rage-undefined.txt" > "$OUT/final-rage-undefined-demangled.txt"; fi
+          echo "Final ELF undefined symbols: $(wc -l < "$OUT/final-undefined-symbols.txt")"
+          echo "Final unresolved rage symbols: $(wc -l < "$OUT/final-rage-undefined.txt")"
+
+          # Fast source locator for the concrete startup blocker; no 5,091-source rebuild.
+          cd /x/gta5/src/dev_ng
+          grep -RIl --include='*.cpp' --include='*.cc' --include='*.cxx' --include='*.c' --include='*.h' --include='*.hpp' --include='*.inl' -E 'sm_gameTime|fwTimer' rage game 2>/dev/null | sort -u > "$OUT/rage-symbol-source-hits.txt" || true
+          echo "fwTimer/sm_gameTime source hits: $(wc -l < "$OUT/rage-symbol-source-hits.txt")"
+          cat "$OUT/rage-symbol-source-hits.txt" || true
+
           exit 0
 
       - name: Upload libgtav link diagnostics
@@ -503,6 +520,10 @@ jobs:
             incremental-engine/link-command.txt
             incremental-engine/libgtav-so.txt
             incremental-engine/undefined-symbols.txt
+            incremental-engine/final-undefined-symbols.txt
+            incremental-engine/final-rage-undefined.txt
+            incremental-engine/final-rage-undefined-demangled.txt
+            incremental-engine/rage-symbol-source-hits.txt
             AndroidGTAV/gta5/src/dev_ng/android_build/libs/**/libgtav.so
             AndroidGTAV/gta5/src/dev_ng/android_build/obj/**/libgtav.so
           if-no-files-found: warn
