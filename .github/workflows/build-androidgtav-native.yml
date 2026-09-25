@@ -904,6 +904,14 @@ jobs:
           "$AR" rcs "$ARCHIVE" "$OUT/gtav_runtime_diag.o"
           echo "Runtime diagnostics object merged."
 
+      - name: Upload completed startup-resolved engine archive
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndroidGTAV-engine-startup-resolved
+          path: incremental-engine/libgtav_engine_partial.a
+          retention-days: 7
+          compression-level: 0
       - name: Probe libgtav.so link with reconstructed engine archive
         shell: bash
         working-directory: AndroidGTAV/gta5/src/dev_ng/android_build
