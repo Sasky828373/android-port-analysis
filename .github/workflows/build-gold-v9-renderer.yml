@@ -1,81 +1,32 @@
 name: Build Gold V9 Renderer
-
 on:
-  workflow_dispatch:
-  pull_request:
-    branches: [main]
   push:
-    branches: [androidgtav-native-build]
+    branches:
+      - androidgtav-native-build
     paths:
-      - '.github/workflows/build-gold-v9-renderer.yml'
-
-permissions:
-  contents: read
-
+      - .github/workflows/build-gold-v9-renderer.yml
+  workflow_dispatch:
 jobs:
-  build-renderer:
-    runs-on: windows-2025
-    timeout-minutes: 45
+  locate-renderer:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Locate installed Android NDK
-        shell: pwsh
+      - name: Fetch upstream
         run: |
-          $sdk = $env:ANDROID_SDK_ROOT
-          if (-not $sdk) { $sdk = $env:ANDROID_HOME }
-          if (-not $sdk) { $sdk = Join-Path $env:LOCALAPPDATA "Android\Sdk" }
-          $sdkmanager = Get-ChildItem "$sdk\cmdline-tools" -Recurse -Filter sdkmanager.bat | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $sdkmanager) { throw "sdkmanager.bat not found" }
-          & $sdkmanager "ndk;27.3.13750724"
-          if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed: $LASTEXITCODE" }
-          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "NDK=$sdk\ndk\27.3.13750724" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Fetch AndroidGTAV source safely
-        shell: pwsh
+          set -eux
+          git clone --depth 1 https://gitcode.com/linyushu520/AndroidGTAV.git upstream
+      - name: Find exact Gold renderer source
         run: |
-          $repo = "$env:GITHUB_WORKSPACE\upstream"
-          New-Item -ItemType Directory -Force -Path $repo | Out-Null
-          Set-Location $repo
-          git init
-          git remote add origin https://gitcode.com/linyushu520/AndroidGTAV.git
-          git config core.longpaths true
-          git config core.protectNTFS false
-          git config core.sparseCheckout true
-          git -c http.version=HTTP/1.1 fetch --depth 1 origin HEAD
-          if ($LASTEXITCODE -ne 0) { throw "GitCode fetch failed" }
-          @"
-gta5/src/dev_ng/android_build/
-gta5/src/dev_ng/rage/
-gta5/src/dev_ng/game/
-"@ | Set-Content -Encoding ascii .git/info/sparse-checkout
-          git checkout --force FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw "Sparse checkout failed" }
-
-      - name: Locate exact Gold renderer implementation
-        shell: bash
-        run: |
-          set -euxo pipefail
-          grep -RIl --include='*.cpp' --include='*.cc' --include='*.cxx' --include='*.h' \
-            -E 'ensureCompatGraphicsState|graphicsStateKey|native-pipeline-create-enter' upstream \
-            > gold-renderer-source-hits.txt || true
-          find upstream -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) -print |
-            grep -Ei 'vulkan|renderer|d3d11|compat' | head -300 > renderer-source-candidates.txt || true
-          echo "=== exact hits ==="
-          cat gold-renderer-source-hits.txt || true
-          test -s gold-renderer-source-hits.txt || {
-            echo "::error::Exact Gold compatibility renderer source is absent from this upstream checkout."
+          set -eux
+          grep -RIl --include='*.cpp' --include='*.cc' --include='*.cxx' --include='*.h' -E 'ensureCompatGraphicsState|graphicsStateKey|native-pipeline-create-enter' upstream > gold-renderer-source-hits.txt || true
+          cat gold-renderer-source-hits.txt
+          if [ ! -s gold-renderer-source-hits.txt ]; then
+            echo "::error::Exact Gold renderer source not found in upstream"
             exit 2
-          }
-
-      - name: Upload source diagnostics
+          fi
+      - name: Upload locator
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Gold-V9-renderer-source-location
-          path: |
-            renderer-source-candidates.txt
-            gold-renderer-source-hits.txt
-          if-no-files-found: warn
-          retention-days: 7
+          name: gold-v9-source-locator
+          path: gold-renderer-source-hits.txt
