@@ -999,22 +999,53 @@ jobs:
 
           extern void android_main(struct gtav_android_app*);
 
+          static volatile const char* g_hang_last = "loader-constructor";
+          static volatile unsigned long g_hang_beat = 0;
+
+          static void hang_mark(const char* tag) {
+              g_hang_last = tag ? tag : "?";
+              __sync_add_and_fetch(&g_hang_beat, 1);
+              checkpoint(tag);
+          }
+
+          static void* gtav_hang_watchdog(void* opaque) {
+              (void)opaque;
+              unsigned long previous = g_hang_beat;
+              for (;;) {
+                  sleep(5);
+                  unsigned long now = g_hang_beat;
+                  int fd = open("/storage/emulated/0/Games/GTAV/gtav-hang-trace.txt",
+                                O_CREAT|O_WRONLY|O_APPEND, 0666);
+                  if (fd >= 0) {
+                      char b[512];
+                      int n = snprintf(b, sizeof(b),
+                          "WATCHDOG beat=%lu state=%s stalled=%d\n",
+                          now, g_hang_last ? (const char*)g_hang_last : "?",
+                          now == previous ? 1 : 0);
+                      if (n > 0) write(fd, b, (size_t)n);
+                      close(fd);
+                  }
+                  previous = now;
+              }
+              return 0;
+          }
+
           static void* gtav_bridge_lifecycle(void* opaque) {
               struct gtav_android_app* app = (struct gtav_android_app*)opaque;
-              checkpoint("sdl-bridge-lifecycle-thread");
+              hang_mark("sdl-bridge-lifecycle-thread");
               for (int i=0; i<500 && !app->onAppCmd; ++i) usleep(1000);
               if (!app->onAppCmd) {
-                  checkpoint("sdl-bridge-no-onAppCmd");
+                  hang_mark("sdl-bridge-no-onAppCmd");
                   return 0;
               }
-              checkpoint("sdl-bridge-appcmd-start");
+              hang_mark("sdl-bridge-appcmd-start");
               app->activityState = 10;
               app->onAppCmd(app, 10); /* APP_CMD_START */
-              checkpoint("sdl-bridge-appcmd-resume");
+              hang_mark("sdl-bridge-appcmd-resume");
               app->activityState = 11;
               app->onAppCmd(app, 11); /* APP_CMD_RESUME */
               if (app->window) {
-                  checkpoint("sdl-bridge-appcmd-init-window");
+                  hang_mark("sdl-bridge-appcmd-init-window");
                   app->onAppCmd(app, 1); /* APP_CMD_INIT_WINDOW */
               }
               return 0;
@@ -1023,7 +1054,14 @@ jobs:
           __attribute__((visibility("default")))
           int SDL_main(int argc, char** argv) {
               (void)argc; (void)argv;
-              checkpoint("SDL_main-enter");
+              hang_mark("SDL_main-enter");
+              pthread_t watchdog;
+              if (pthread_create(&watchdog, 0, gtav_hang_watchdog, 0) == 0) {
+                  pthread_detach(watchdog);
+                  hang_mark("hang-watchdog-started");
+              } else {
+                  hang_mark("hang-watchdog-start-failed");
+              }
 
               typedef JNIEnv* (*PFN_SDL_AndroidGetJNIEnv)(void);
               typedef jobject (*PFN_SDL_AndroidGetActivity)(void);
@@ -1032,10 +1070,10 @@ jobs:
               void* sdl_handle = dlopen("libSDL2.so", RTLD_NOW | RTLD_NOLOAD);
               if (!sdl_handle) sdl_handle = dlopen("libSDL2.so", RTLD_NOW);
               if (!sdl_handle) {
-                  checkpoint("sdl-bridge-no-sdl2-handle");
+                  hang_mark("sdl-bridge-no-sdl2-handle");
                   return -100;
               }
-              checkpoint("sdl-bridge-sdl2-handle-ok");
+              hang_mark("sdl-bridge-sdl2-handle-ok");
 
               PFN_SDL_AndroidGetJNIEnv get_env =
                   (PFN_SDL_AndroidGetJNIEnv)dlsym(sdl_handle, "SDL_AndroidGetJNIEnv");
@@ -1047,42 +1085,42 @@ jobs:
                   (PFN_SDL_Path)dlsym(sdl_handle, "SDL_AndroidGetExternalStoragePath");
 
               if (!get_env || !get_activity) {
-                  checkpoint("sdl-bridge-missing-sdl-api");
+                  hang_mark("sdl-bridge-missing-sdl-api");
                   dlclose(sdl_handle);
                   return -101;
               }
-              checkpoint("sdl-bridge-sdl-api-ok");
+              hang_mark("sdl-bridge-sdl-api-ok");
 
               JNIEnv* env = get_env();
               jobject activity_obj = get_activity();
               if (!env || !activity_obj) {
-                  checkpoint("sdl-bridge-no-jni-activity");
+                  hang_mark("sdl-bridge-no-jni-activity");
                   return -102;
               }
-              checkpoint("sdl-bridge-jni-activity-ok");
+              hang_mark("sdl-bridge-jni-activity-ok");
 
               JavaVM* vm = 0;
               if ((*env)->GetJavaVM(env, &vm) != JNI_OK || !vm) {
-                  checkpoint("sdl-bridge-no-javavm");
+                  hang_mark("sdl-bridge-no-javavm");
                   return -103;
               }
 
               jclass sdl_cls = (*env)->FindClass(env, "org/libsdl/app/SDLActivity");
               if (!sdl_cls) {
                   (*env)->ExceptionClear(env);
-                  checkpoint("sdl-bridge-no-sdlactivity-class");
+                  hang_mark("sdl-bridge-no-sdlactivity-class");
                   return -104;
               }
               jfieldID surface_fid = (*env)->GetStaticFieldID(
                   env, sdl_cls, "mSurface", "Lorg/libsdl/app/SDLSurface;");
               if (!surface_fid) {
                   (*env)->ExceptionClear(env);
-                  checkpoint("sdl-bridge-no-msurface-field");
+                  hang_mark("sdl-bridge-no-msurface-field");
                   return -105;
               }
               jobject surface_view = (*env)->GetStaticObjectField(env, sdl_cls, surface_fid);
               if (!surface_view) {
-                  checkpoint("sdl-bridge-no-surface-view");
+                  hang_mark("sdl-bridge-no-surface-view");
                   return -106;
               }
 
@@ -1093,7 +1131,7 @@ jobs:
                   ? (*env)->CallObjectMethod(env, surface_view, get_holder) : 0;
               if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
               if (!holder) {
-                  checkpoint("sdl-bridge-no-surface-holder");
+                  hang_mark("sdl-bridge-no-surface-holder");
                   return -107;
               }
 
@@ -1104,16 +1142,16 @@ jobs:
                   ? (*env)->CallObjectMethod(env, holder, get_surface) : 0;
               if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
               if (!surface) {
-                  checkpoint("sdl-bridge-no-java-surface");
+                  hang_mark("sdl-bridge-no-java-surface");
                   return -108;
               }
 
               ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
               if (!window) {
-                  checkpoint("sdl-bridge-no-native-window");
+                  hang_mark("sdl-bridge-no-native-window");
                   return -109;
               }
-              checkpoint("sdl-bridge-native-window-ok");
+              hang_mark("sdl-bridge-native-window-ok");
 
               jclass act_cls = (*env)->GetObjectClass(env, activity_obj);
               jmethodID get_assets = (*env)->GetMethodID(
@@ -1150,17 +1188,17 @@ jobs:
               app.activityState = 11;
               app.running = 1;
 
-              checkpoint("sdl-bridge-android-app-ready");
+              hang_mark("sdl-bridge-android-app-ready");
 
               pthread_t lifecycle;
               if (pthread_create(&lifecycle, 0, gtav_bridge_lifecycle, &app) == 0)
                   pthread_detach(lifecycle);
               else
-                  checkpoint("sdl-bridge-lifecycle-thread-failed");
+                  hang_mark("sdl-bridge-lifecycle-thread-failed");
 
-              checkpoint("android_main-enter");
+              hang_mark("android_main-enter");
               android_main(&app);
-              checkpoint("android_main-return");
+              hang_mark("android_main-return");
 
               if (app.config) AConfiguration_delete(app.config);
               ANativeWindow_release(window);
