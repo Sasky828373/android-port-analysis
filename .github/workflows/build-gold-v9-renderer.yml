@@ -1,0 +1,32 @@
+name: Build Gold V9 Renderer
+on:
+  push:
+    branches:
+      - androidgtav-native-build
+    paths:
+      - .github/workflows/build-gold-v9-renderer.yml
+  workflow_dispatch:
+jobs:
+  locate-renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream
+        run: |
+          set -eux
+          git clone --depth 1 https://gitcode.com/linyushu520/AndroidGTAV.git upstream
+      - name: Find exact Gold renderer source
+        run: |
+          set -eux
+          grep -RIl --include='*.cpp' --include='*.cc' --include='*.cxx' --include='*.h' -E 'ensureCompatGraphicsState|graphicsStateKey|native-pipeline-create-enter' upstream > gold-renderer-source-hits.txt || true
+          cat gold-renderer-source-hits.txt
+          if [ ! -s gold-renderer-source-hits.txt ]; then
+            echo "::error::Exact Gold renderer source not found in upstream"
+            exit 2
+          fi
+      - name: Upload locator
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-v9-source-locator
+          path: gold-renderer-source-hits.txt

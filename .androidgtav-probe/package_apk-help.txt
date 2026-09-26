@@ -1,0 +1,12 @@
+usage: package_apk.py [-h] [--baseline BASELINE] [--dex DEX]
+                      objects [objects ...]
+
+打包 dist/gtav.apk（.so 热替换 + 重签名）
+
+positional arguments:
+  objects              重编出的 .o，形如 path 或 member=path（member 缺省取文件名，须与归档成员同名）
+
+options:
+  -h, --help           show this help message and exit
+  --baseline BASELINE  上一版累积基线的 integrated 目录（默认 integrated）
+  --dex DEX            重编出的 classes.dex；改了 java 层时传入，热替换基线 APK 里的 classes.dex
