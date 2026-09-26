@@ -1687,6 +1687,7 @@ static std::unordered_map<uint64_t,GtavNativeResourceHandle> resources;
 struct NativePipelineCacheEntry { VkPipeline pipeline{}; VkPipelineLayout layout{}; VkDescriptorSet descriptor{}; };
 static std::mutex pipelineCacheMutex;
 static std::unordered_map<uint64_t,NativePipelineCacheEntry> pipelineCache;
+static std::unordered_map<uint64_t,VkPipeline> graphicsPipelineOnlyCache;
 static std::mutex graphicsPipelineCreateMutex;
 static PFN_vkCmdBeginRendering pBeginRendering{};
 static PFN_vkCmdEndRendering pEndRendering{};
@@ -1933,6 +1934,18 @@ static uint64_t graphicsStateKey(const RageMirrorState& s){
  for(unsigned i=0;i<32;i++){if(s.vsSRV[i])m2|=1ull<<i;if(s.psSRV[i])m2|=1ull<<(32+i);}
  h=hashMix(h,m0);h=hashMix(h,m1);h=hashMix(h,m2);
  return h;
+}
+static uint64_t graphicsPipelineKey(const RageMirrorState& s){
+ uint64_t h=0x47544156504b4559ull;
+ h=hashMix(h,(uintptr_t)s.inputLayout);h=hashMix(h,(uintptr_t)s.vs);h=hashMix(h,(uintptr_t)s.ps);
+ h=hashMix(h,s.topology);h=hashMix(h,s.rtvCount);h=hashMix(h,(uintptr_t)s.dsv);
+ h=hashMix(h,(uintptr_t)s.blendState);h=hashMix(h,(uintptr_t)s.depthState);h=hashMix(h,(uintptr_t)s.rasterState);
+ for(unsigned i=0;i<s.rtvCount&&i<8;i++)h=hashMix(h,(uintptr_t)s.rtv[i]);
+ for(unsigned i=0;i<16;i++)h=hashMix(h,s.strides[i]);
+ uint64_t m0=0,m1=0,m2=0;
+ for(unsigned i=0;i<16;i++){if(s.vsCB[i])m0|=1ull<<i;if(s.psCB[i])m0|=1ull<<(16+i);if(s.vsSampler[i])m1|=1ull<<i;if(s.psSampler[i])m1|=1ull<<(16+i);}
+ for(unsigned i=0;i<32;i++){if(s.vsSRV[i])m2|=1ull<<i;if(s.psSRV[i])m2|=1ull<<(32+i);}
+ h=hashMix(h,m0);h=hashMix(h,m1);h=hashMix(h,m2);return h;
 }
 
 extern "C" __attribute__((visibility("default"))) bool gtav_native_renderer_register_resource(uint64_t rage,uint64_t vk,uint32_t kind,uint32_t generation){if(!rage||!vk||!kind)return false;std::lock_guard<std::mutex> l(resourceMutex);resources[resourceKey(rage,kind)]={rage,vk,kind,generation};capture("REGISTER",(void*)(uintptr_t)rage,vk);return true;}
@@ -3191,6 +3204,7 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  if(!g.device||!m.vs||!m.ps||!m.rtvCount||!m.rtv[0])return false;
  const uint64_t key=graphicsStateKey(m);
  if(gtav_native_renderer_resolve_resource(key,NR_GRAPHICS_PIPELINE))return true;
+ const uint64_t pipelineKey=graphicsPipelineKey(m);
  const VkShaderModule vs=(VkShaderModule)(uintptr_t)resolveMapped(m.vs,NR_VS);
  const VkShaderModule ps=(VkShaderModule)(uintptr_t)resolveMapped(m.ps,NR_PS);
  if(!vs||!ps){gtavdiag::checkpoint("native-pipeline-missing-shader");return false;}
@@ -3304,13 +3318,21 @@ static bool ensureCompatGraphicsState(const RageMirrorState& m){
  VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};rendering.colorAttachmentCount=colorCount;rendering.pColorAttachmentFormats=colorFormats;
  NativeImageMeta depth{};if(m.dsv){std::lock_guard<std::mutex> l(imageMetaMutex);auto it=imageMeta.find((uint64_t)(uintptr_t)m.dsv);if(it!=imageMeta.end()){depth=it->second;rendering.depthAttachmentFormat=depth.format;if(depth.aspect&VK_IMAGE_ASPECT_STENCIL_BIT)rendering.stencilAttachmentFormat=depth.format;}}
  VkGraphicsPipelineCreateInfo pci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pci.pNext=&rendering;pci.stageCount=2;pci.pStages=stages;pci.pVertexInputState=&vi;pci.pInputAssemblyState=&ia;pci.pViewportState=&vp;pci.pRasterizationState=&rs;pci.pMultisampleState=&ms;pci.pDepthStencilState=&ds;pci.pColorBlendState=&cb;pci.pDynamicState=&dyn;pci.layout=layout;
- VkPipeline pipe{};VkResult pr=VK_ERROR_INITIALIZATION_FAILED;
- {
+ VkPipeline pipe{};VkResult pr=VK_SUCCESS;
+ {std::lock_guard<std::mutex> cacheLock(pipelineCacheMutex);auto hit=graphicsPipelineOnlyCache.find(pipelineKey);if(hit!=graphicsPipelineOnlyCache.end())pipe=hit->second;}
+ if(pipe){
+   gtavdiag::checkpoint("native-pipeline-reused");
+ }else{
    std::lock_guard<std::mutex> createLock(graphicsPipelineCreateMutex);
-   char d[192];snprintf(d,sizeof(d),"attrs=%u bindings=%u colors=%u depthFmt=%d topology=%d",vaCount,vbCount,colorCount,(int)rendering.depthAttachmentFormat,(int)ia.topology);
-   gtavdiag::checkpoint("native-pipeline-create-enter",d);
-   pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
-   gtavdiag::checkpoint("native-pipeline-create-return");
+   {std::lock_guard<std::mutex> cacheLock(pipelineCacheMutex);auto hit=graphicsPipelineOnlyCache.find(pipelineKey);if(hit!=graphicsPipelineOnlyCache.end())pipe=hit->second;}
+   if(pipe)gtavdiag::checkpoint("native-pipeline-reused-after-lock");
+   else{
+     char d[192];snprintf(d,sizeof(d),"attrs=%u bindings=%u colors=%u depthFmt=%d topology=%d",vaCount,vbCount,colorCount,(int)rendering.depthAttachmentFormat,(int)ia.topology);
+     gtavdiag::checkpoint("native-pipeline-create-enter",d);
+     pr=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pci,nullptr,&pipe);
+     gtavdiag::checkpoint("native-pipeline-create-return");
+     if(pr==VK_SUCCESS&&pipe){std::lock_guard<std::mutex> cacheLock(pipelineCacheMutex);graphicsPipelineOnlyCache[pipelineKey]=pipe;}
+   }
  }
  if(pr!=VK_SUCCESS){char d[64];snprintf(d,sizeof(d),"vkResult=%d",(int)pr);gtavdiag::checkpoint("native-pipeline-create-failed",d);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
  if(!gtav_native_renderer_register_graphics_state(key,pipe,layout,desc)){vkDestroyPipeline(g.device,pipe,nullptr);/* descriptor set reclaimed with owning pool at shutdown */vkDestroyPipelineLayout(g.device,layout,nullptr);vkDestroyDescriptorSetLayout(g.device,dsl,nullptr);return false;}
@@ -3810,7 +3832,7 @@ extern "C" __attribute__((visibility("default"))) void gtav_native_renderer_shut
  {std::lock_guard<std::mutex> l(imageMetaMutex);
   for(auto& it:imageViews)if(it.second)vkDestroyImageView(g.device,it.second,nullptr);
   imageViews.clear();imageMeta.clear();}
- {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();}
+ {std::lock_guard<std::mutex> l(pipelineCacheMutex);pipelineCache.clear();graphicsPipelineOnlyCache.clear();}
  {
    std::lock_guard<std::mutex> l(descriptorPoolMutex);
    for(VkDescriptorPool p:descriptorPools)if(p)vkDestroyDescriptorPool(g.device,p,nullptr);
