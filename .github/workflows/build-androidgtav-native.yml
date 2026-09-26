@@ -864,10 +864,17 @@ jobs:
 
           static volatile unsigned long g_seq = 0;
           static void checkpoint(const char* tag) {
-              char b[320];
-              unsigned long n = __sync_add_and_fetch(&g_seq, 1);
-              snprintf(b, sizeof(b), "SEQ=%lu CHECKPOINT=%s pid=%d", n, tag ? tag : "?", getpid());
-              log_line(b);
+              /* Keep startup tracing deliberately libc-light.  The previous
+                 logger performed Android logging + two fsyncs from ELF
+                 constructors and was itself on the failing startup path. */
+              int fd = open(kLog, O_CREAT|O_WRONLY|O_APPEND, 0666);
+              if (fd < 0) return;
+              const char pfx[] = "CHECKPOINT=";
+              write_all(fd, pfx);
+              write_all(fd, tag ? tag : "?");
+              write_all(fd, "\n");
+              close(fd);
+              __sync_add_and_fetch(&g_seq, 1);
           }
 
           __attribute__((destructor))
@@ -1180,17 +1187,9 @@ jobs:
                        kRoot, ok, access(kRoot,R_OK)==0, access(kRoot,W_OK)==0);
               log_line(line);
               checkpoint("diagnostic-installed");
-              checkpoint("signal-hooks-install-begin");
-
-              const int sigs[] = {SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGTRAP,SIGFPE};
-              struct sigaction sa;
-              memset(&sa,0,sizeof(sa));
-              sa.sa_sigaction=crash_handler;
-              sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
-              sigemptyset(&sa.sa_mask);
-              for (unsigned i=0;i<sizeof(sigs)/sizeof(sigs[0]);++i)
-                  sigaction(sigs[i], &sa, 0);
-              checkpoint("signal-hooks-installed");
+              /* Do not install process-wide signal handlers during loader
+                 constructors.  Let Android/bionic produce the original
+                 tombstone until SDL_main has actually been entered. */
               checkpoint("constructor-complete");
           }
           EOF
