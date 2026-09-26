@@ -1941,7 +1941,7 @@ static uint64_t graphicsPipelineKey(const RageMirrorState& s){
  h=hashMix(h,s.topology);h=hashMix(h,s.rtvCount);h=hashMix(h,(uintptr_t)s.dsv);
  h=hashMix(h,(uintptr_t)s.blendState);h=hashMix(h,(uintptr_t)s.depthState);h=hashMix(h,(uintptr_t)s.rasterState);
  for(unsigned i=0;i<s.rtvCount&&i<8;i++)h=hashMix(h,(uintptr_t)s.rtv[i]);
- for(unsigned i=0;i<16;i++)h=hashMix(h,s.strides[i]);
+ for(unsigned i=0;i<16;i++){h=hashMix(h,(uintptr_t)s.vertexBuffers[i]);h=hashMix(h,s.strides[i]);}
  uint64_t m0=0,m1=0,m2=0;
  for(unsigned i=0;i<16;i++){if(s.vsCB[i])m0|=1ull<<i;if(s.psCB[i])m0|=1ull<<(16+i);if(s.vsSampler[i])m1|=1ull<<i;if(s.psSampler[i])m1|=1ull<<(16+i);}
  for(unsigned i=0;i<32;i++){if(s.vsSRV[i])m2|=1ull<<i;if(s.psSRV[i])m2|=1ull<<(32+i);}
