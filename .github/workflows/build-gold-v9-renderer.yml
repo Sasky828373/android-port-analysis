@@ -1,0 +1,55 @@
+name: Build Gold V9 Renderer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [androidgtav-native-build]
+    paths:
+      - '.github/workflows/build-gold-v9-renderer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-renderer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724"
+          echo "NDK=$ANDROID_SDK_ROOT/ndk/27.3.13750724" >> "$GITHUB_ENV"
+
+      - name: Clone AndroidGTAV renderer source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://gitcode.com/linyushu520/AndroidGTAV.git upstream
+          find upstream -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) -print | grep -Ei 'vulkan|renderer|d3d11|compat' | head -200 > renderer-source-candidates.txt
+          cat renderer-source-candidates.txt
+
+      - name: Locate Gold renderer implementation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -RIl --include='*.cpp' --include='*.cc' --include='*.cxx' --include='*.h'             -E 'ensureCompatGraphicsState|graphicsStateKey|native-pipeline-create-enter' upstream             > gold-renderer-source-hits.txt || true
+          cat gold-renderer-source-hits.txt
+          test -s gold-renderer-source-hits.txt || {
+            echo "::error::Gold compatibility renderer source is not present in public AndroidGTAV upstream. Cannot honestly build V9 from unrelated source."
+            exit 1
+          }
+
+      - name: Upload source-location diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gold-V9-renderer-source-location
+          path: |
+            renderer-source-candidates.txt
+            gold-renderer-source-hits.txt
+          if-no-files-found: warn
+          retention-days: 7
