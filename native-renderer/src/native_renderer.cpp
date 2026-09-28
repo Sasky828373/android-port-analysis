@@ -1841,7 +1841,27 @@ extern "C" void gtavnative_compat_mirror_render_targets(void* c,uint32_t n,void*
 
 struct HookTarget { uintptr_t va; void* replacement; uint32_t original[4]; void* trampoline; };
 static uintptr_t gtavBase{};
- static int findGtav(struct dl_phdr_info* i,size_t,void*){ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){gtavBase=i->dlpi_addr;return 1;} return 0; }
+static uintptr_t gtavMapEnd{};
+static int findGtav(struct dl_phdr_info* i,size_t,void*){
+ if(i&&i->dlpi_name&&std::strstr(i->dlpi_name,"libgtav.so")){
+   gtavBase=i->dlpi_addr;
+   uintptr_t end=gtavBase;
+   for(uint16_t n=0;n<i->dlpi_phnum;n++){
+     const auto& ph=i->dlpi_phdr[n];
+     if(ph.p_type!=PT_LOAD)continue;
+     uintptr_t e=gtavBase+(uintptr_t)ph.p_vaddr+(uintptr_t)ph.p_memsz;
+     if(e>end)end=e;
+   }
+   gtavMapEnd=end;
+   return 1;
+ }
+ return 0;
+}
+static bool gtavRangeMapped(uintptr_t off,size_t bytes=4){
+ if(!gtavBase||!gtavMapEnd||bytes==0)return false;
+ uintptr_t p=gtavBase+off;
+ return p>=gtavBase && p<gtavMapEnd && bytes<=gtavMapEnd-p;
+}
 static void* makeTrampoline(uintptr_t target,const uint32_t original[4]){
  // Do not blindly relocate arbitrary AArch64 instructions. The copied prologue may
  // contain ADR/ADRP, literal LDR, B/BL or conditional branches whose PC-relative
@@ -1974,14 +1994,24 @@ static bool attachFromGtavRuntime(){
  const uint32_t attempt=attachAttempts.fetch_add(1,std::memory_order_relaxed)+1;
  if(!gtavBase) dl_iterate_phdr(findGtav,nullptr);
  if(!gtavBase){ if(attempt<=8) __android_log_print(ANDROID_LOG_WARN,"GTAV-NATIVE","ATTACH wait: libgtav base unavailable attempt=%u",attempt); return false; }
- // libgtav is now mapped: patch its adapter Initialize before our first forced late init.
- installGtavDlsymCallHook();
+ // GOLD used fixed offsets from a much larger libgtav.so. Stage153's libgtav
+ // is smaller, so touching those addresses SIGSEGVs before Vulkan can present.
+ // Never dereference or call a build-specific offset unless it is inside a mapped
+ // PT_LOAD range. The loader hook is safe and remains enabled.
  gtav_native_renderer_install_early_vulkan_hook();
- auto gi=(GetInstanceFn)(gtavBase+0x6232890);
- auto gp=(GetPhysicalDeviceFn)(gtavBase+0x623289c);
- auto gd=(GetDeviceFn)(gtavBase+0x62328a8);
- auto gq=(GetQueueFn)(gtavBase+0x62328b4);
- auto gf=(GetQueueFamilyFn)(gtavBase+0x62328c0);
+ static constexpr uintptr_t kGi=0x6232890,kGp=0x623289c,kGd=0x62328a8,kGq=0x62328b4,kGf=0x62328c0;
+ const bool runtimeOffsetsValid=gtavRangeMapped(kGi,4)&&gtavRangeMapped(kGp,4)&&gtavRangeMapped(kGd,4)&&gtavRangeMapped(kGq,4)&&gtavRangeMapped(kGf,4);
+ if(!runtimeOffsetsValid){
+   gtavdiag::checkpoint("stage153-skip-incompatible-gold-runtime-offsets");
+   return false;
+ }
+ // Only a matching libgtav build may use the GOLD dlsym call-site patch.
+ installGtavDlsymCallHook();
+ auto gi=(GetInstanceFn)(gtavBase+kGi);
+ auto gp=(GetPhysicalDeviceFn)(gtavBase+kGp);
+ auto gd=(GetDeviceFn)(gtavBase+kGd);
+ auto gq=(GetQueueFn)(gtavBase+kGq);
+ auto gf=(GetQueueFamilyFn)(gtavBase+kGf);
  VkInstance i=gi(); VkPhysicalDevice p=gp(); VkDevice d=gd(); VkQueue q=gq(); uint32_t family=gf();
  if(!i||!p||!d||!q){
    // Some Android launch paths reach the D3D-shaped bootstrap without invoking
@@ -1991,6 +2021,10 @@ static bool attachFromGtavRuntime(){
    if(!initTried.exchange(true,std::memory_order_acq_rel)){
      gtavdiag::checkpoint("vulkan-native-late-init");
      using InitNativeFn=bool(*)();
+     if(!gtavRangeMapped(0x622f0b8,4)){
+       gtavdiag::checkpoint("stage153-skip-incompatible-gold-late-init");
+       return false;
+     }
      auto initNative=(InitNativeFn)(gtavBase+0x622f0b8);
      (void)initNative();
      i=gi(); p=gp(); d=gd(); q=gq(); family=gf();
