@@ -374,6 +374,8 @@ static void compatCtxCopySubresourceRegion(void*,void* dst,uint32_t dstSub,uint3
  gtavdiag::checkpoint("compat-context-copy-subresource-region");
  compatCopySubresourceBacking(dst,dstSub,dstX,dstY,dstZ,src,srcSub,reinterpret_cast<const CompatD3D11Box*>(srcBox));
 }
+static std::atomic<void*> gEarlyPresentCopyDst{nullptr};
+static std::atomic<uint64_t> gEarlyPresentCopySerial{0};
 static void compatCopyBacking(void*,void*);
 static void compatCtxCopyResource(void*,void* dst,void* src){
  gMegaCopyOps.fetch_add(1);char d[160];snprintf(d,sizeof(d),"dst=%p src=%p",dst,src);gtavdiag::checkpoint("MEGA-COPY-RESOURCE",d);
@@ -382,8 +384,8 @@ static void compatCtxCopyResource(void*,void* dst,void* src){
  // when the compatibility copy path owns the actual transfer implementation.
  // This avoids introducing a cross-namespace forward declaration while keeping
  // Present from falling back to the black intermediate drawn RTV.
- lastCompatFinalTransferDst.store(dst,std::memory_order_release);
- lastCompatTransferSerial.store(compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1,std::memory_order_release);
+ gEarlyPresentCopyDst.store(dst,std::memory_order_release);
+ gEarlyPresentCopySerial.fetch_add(1,std::memory_order_acq_rel);
 }
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
@@ -1794,7 +1796,18 @@ static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
 static std::atomic<void*> compatFramePresentRTV{nullptr};
 static std::atomic<uint64_t> compatFramePresentId{0};
 static std::atomic<uint64_t> compatFramePresentWriteSerial{0};
+static void publishEarlyPresentCopyCandidate(){
+ void* dst=gEarlyPresentCopyDst.load(std::memory_order_acquire);
+ if(!dst)return;
+ static uint64_t consumed=0;
+ uint64_t s=gEarlyPresentCopySerial.load(std::memory_order_acquire);
+ if(!s||s==consumed)return;
+ consumed=s;
+ lastCompatFinalTransferDst.store(dst,std::memory_order_release);
+ lastCompatTransferSerial.store(compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1,std::memory_order_release);
+}
 static void resetCompatPresentSourcesForNewFrame(){
+ publishEarlyPresentCopyCandidate();
  // Preserve the currently bound primary RTV across frame boundaries. D3D11 state
  // is persistent; clearing it here forced the draw hot path to rescan mirror state.
  lastCompatDrawnRTV.store(nullptr,std::memory_order_release);
