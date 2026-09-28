@@ -1778,6 +1778,12 @@ static std::atomic<uint64_t> compatPresentWriteSerial{0};
 static std::atomic<uint64_t> lastCompatDrawnSerial{0};
 static std::atomic<uint64_t> lastCompatTransferSerial{0};
 static std::atomic<uint64_t> lastCompatFullSizeSerial{0};
+// Strict present identity: a successful native draw publishes the exact RTV it
+// rendered into together with the current native frame. Present consumes only
+// that identity; transfer/full-size heuristics are diagnostics, never selectors.
+static std::atomic<void*> compatFramePresentRTV{nullptr};
+static std::atomic<uint64_t> compatFramePresentId{0};
+static std::atomic<uint64_t> compatFramePresentWriteSerial{0};
 static void resetCompatPresentSourcesForNewFrame(){
  // Preserve the currently bound primary RTV across frame boundaries. D3D11 state
  // is persistent; clearing it here forced the draw hot path to rescan mirror state.
@@ -1787,6 +1793,9 @@ static void resetCompatPresentSourcesForNewFrame(){
  lastCompatDrawnSerial.store(0,std::memory_order_release);
  lastCompatTransferSerial.store(0,std::memory_order_release);
  lastCompatFullSizeSerial.store(0,std::memory_order_release);
+ compatFramePresentRTV.store(nullptr,std::memory_order_release);
+ compatFramePresentId.store(g.frame.load(std::memory_order_acquire),std::memory_order_release);
+ compatFramePresentWriteSerial.store(0,std::memory_order_release);
  gBlackProbeFrame.fetch_add(1,std::memory_order_relaxed);
  gBlackProbeDraws.store(0,std::memory_order_relaxed);
  gBlackProbeExpectedCbv.store(0,std::memory_order_relaxed);gBlackProbeBoundCbv.store(0,std::memory_order_relaxed);gBlackProbeMissingCbv.store(0,std::memory_order_relaxed);
@@ -2726,22 +2735,23 @@ static bool ensureEnginePresentSync(){if(gPresentSyncReady)return true;if(!g.dev
 static bool recordEnginePresentCopy(VkCommandBuffer cb,uint32_t ix){
  if(!cb||ix>=gPresentProbe.images.size())return false;
  VkImage src{};VkImageLayout old{};VkFormat srcFormat=VK_FORMAT_UNDEFINED;uint32_t sw=0,sh=0;void* presentResource=&gCompatBackBuffer;
- uint64_t fs=lastCompatFullSizeSerial.load(std::memory_order_acquire);
- uint64_t ts=lastCompatTransferSerial.load(std::memory_order_acquire);
- uint64_t ds=lastCompatDrawnSerial.load(std::memory_order_acquire);
- void* chosen=nullptr; enum { SRC_NONE, SRC_FULLSIZE, SRC_TRANSFER, SRC_DRAWN } sourceKind=SRC_NONE;
- if(fs>=ts&&fs>=ds&&fs){chosen=lastCompatFullSizeRTV.load(std::memory_order_acquire);sourceKind=SRC_FULLSIZE;}
- else if(ts>=ds&&ts){chosen=lastCompatFinalTransferDst.load(std::memory_order_acquire);sourceKind=SRC_TRANSFER;}
- else if(ds){chosen=lastCompatDrawnRTV.load(std::memory_order_acquire);sourceKind=SRC_DRAWN;}
- if(chosen){
+ uint64_t frameId=g.frame.load(std::memory_order_acquire);
+ uint64_t sourceFrame=compatFramePresentId.load(std::memory_order_acquire);
+ uint64_t sourceSerial=compatFramePresentWriteSerial.load(std::memory_order_acquire);
+ void* chosen=compatFramePresentRTV.load(std::memory_order_acquire);
+ if(!chosen||!sourceSerial||sourceFrame!=frameId){
+   char sd[160];snprintf(sd,sizeof(sd),"frame=%llu sourceFrame=%llu serial=%llu rtv=%p",(unsigned long long)frameId,(unsigned long long)sourceFrame,(unsigned long long)sourceSerial,chosen);
+   gtavdiag::checkpoint("native-engine-present-no-frame-matched-rtv",sd);
+   return false;
+ }
+ {
    void* r=compatUnderlyingResource(chosen);if(!r)r=chosen;
    auto* rr=compatResourceObject(r);bool compat=rr&&rr->vtbl==gCompatTexture2DVtable;
    bool mapped=compat?createCompatOwnedImage(r,2u,chosen):mapWrappedImage(r,2u,true);
-   if(mapped){
-     presentResource=r;
-     char sd[160];snprintf(sd,sizeof(sd),"kind=%u serial=%llu full=%llu transfer=%llu drawn=%llu resource=%p",(unsigned)sourceKind,(unsigned long long)std::max(fs,std::max(ts,ds)),(unsigned long long)fs,(unsigned long long)ts,(unsigned long long)ds,r);
-     gtavdiag::checkpoint("native-engine-present-newest-written-source",sd);
-   }
+   if(!mapped){gtavdiag::checkpoint("native-engine-present-frame-rtv-map-failed");return false;}
+   presentResource=r;
+   char sd[192];snprintf(sd,sizeof(sd),"frame=%llu serial=%llu rtv=%p resource=%p",(unsigned long long)frameId,(unsigned long long)sourceSerial,chosen,r);
+   gtavdiag::checkpoint("native-engine-present-frame-matched-rtv",sd);
  } {std::lock_guard<std::mutex> l(imageMetaMutex);auto it=compatOwnedImages.find((uint64_t)(uintptr_t)presentResource);if(it!=compatOwnedImages.end()){src=it->second.image;old=it->second.layout;srcFormat=it->second.format;sw=it->second.width;sh=it->second.height;}else{auto mi=imageMeta.find((uint64_t)(uintptr_t)presentResource);if(mi==imageMeta.end()||!mi->second.image){gtavdiag::checkpoint("native-engine-present-source-missing");return false;}src=mi->second.image;old=mi->second.observedLayout==VK_IMAGE_LAYOUT_UNDEFINED?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:mi->second.observedLayout;srcFormat=mi->second.format;sw=mi->second.width?mi->second.width:gCompatSwapWidth.load();sh=mi->second.height?mi->second.height:gCompatSwapHeight.load();char d[160];snprintf(d,sizeof(d),"resource=%p image=%p fmt=%d extent=%ux%u layout=%d",presentResource,(void*)src,(int)mi->second.format,sw,sh,(int)old);gtavdiag::checkpoint("native-engine-present-rage-meta-source",d);}}
  if(!src||!sw||!sh)return false;
  VkImageMemoryBarrier pre[2]{};
@@ -3618,6 +3628,11 @@ static void rememberDrawnPrimaryRTV(void* ctx){
  uint64_t serial=compatPresentWriteSerial.fetch_add(1,std::memory_order_relaxed)+1;
  lastCompatDrawnRTV.store(v,std::memory_order_release);
  lastCompatDrawnSerial.store(serial,std::memory_order_release);
+ // Publish only after vkCmdDraw/vkCmdDrawIndexed has actually been recorded.
+ // This couples Present to the concrete RTV used by that successful draw.
+ compatFramePresentRTV.store(v,std::memory_order_release);
+ compatFramePresentWriteSerial.store(serial,std::memory_order_release);
+ compatFramePresentId.store(g.frame.load(std::memory_order_acquire),std::memory_order_release);
  static thread_local void* classified=nullptr;
  if(classified==v)return;
  classified=v;
