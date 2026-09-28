@@ -375,13 +375,15 @@ static void compatCtxCopySubresourceRegion(void*,void* dst,uint32_t dstSub,uint3
  compatCopySubresourceBacking(dst,dstSub,dstX,dstY,dstZ,src,srcSub,reinterpret_cast<const CompatD3D11Box*>(srcBox));
 }
 static void compatCopyBacking(void*,void*);
-static bool compatGpuCopyResource(void*,void*);
 static void compatCtxCopyResource(void*,void* dst,void* src){
  gMegaCopyOps.fetch_add(1);char d[160];snprintf(d,sizeof(d),"dst=%p src=%p",dst,src);gtavdiag::checkpoint("MEGA-COPY-RESOURCE",d);
- // A D3D CopyResource of a rendered texture is part of the final-frame chain.
- // Keep it on the native GPU command stream and publish dst as a present source.
- // CPU backing remains the compatibility fallback for non-image/unsupported copies.
- if(!compatGpuCopyResource(dst,src))compatCopyBacking(dst,src);
+ compatCopyBacking(dst,src);
+ // Publish CopyResource destination as the newest final-frame candidate even
+ // when the compatibility copy path owns the actual transfer implementation.
+ // This avoids introducing a cross-namespace forward declaration while keeping
+ // Present from falling back to the black intermediate drawn RTV.
+ lastCompatFinalTransferDst.store(dst,std::memory_order_release);
+ lastCompatTransferSerial.store(compatPresentWriteSerial.fetch_add(1,std::memory_order_acq_rel)+1,std::memory_order_release);
 }
 static void compatCtxCopyStructureCount(void*,void*,uint32_t,void*){gtavdiag::checkpoint("compat-context-copy-structure-count");}
 static void compatCtxClearUAVUint(void*,void*,const uint32_t*){gtavdiag::checkpoint("compat-context-clear-uav-uint");}
